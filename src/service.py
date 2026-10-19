@@ -42,7 +42,7 @@ import pandas as pd
 import requests
 
 from src import config
-from src.data_collection import check_response, fetch_json
+from src.data_collection import INTERACTIVE, check_response, fetch_json
 from src.data_validation import validate_and_clean, validate_metadata
 from src.features import TEMP, FeatureConfig, add_features
 
@@ -81,7 +81,7 @@ def fetch_live(location: config.Location = config.DELHI, session: requests.Sessi
         "hourly": ",".join(variables), "models": config.LIVE_MODEL, "timezone": "GMT",
         "past_days": 2, "forecast_days": 2,
     }
-    payload = fetch_json(config.FORECAST_API_URL, params, session=session)
+    payload = fetch_json(config.FORECAST_API_URL, params, session=session, **INTERACTIVE)
     retrieved = datetime.now(timezone.utc).isoformat(timespec="seconds")
     check_response(payload, variables)
     meta = {k: v for k, v in payload.items() if k != "hourly"} | {"file": "live"}

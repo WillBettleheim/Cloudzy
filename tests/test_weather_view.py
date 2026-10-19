@@ -155,7 +155,8 @@ def test_hourly_strip_is_keyboard_scrollable_and_labelled(fc):
     html = V.hourly_strip_html(fc.hourly.iloc[:24], U.METRIC)
     assert html.count('class="cz-hour') == 24
     assert 'tabindex="0"' in html and 'aria-label="Hourly forecast for the next 24 hours' in html
-    assert 'aria-label="Now: 20°, Clear sky, chance of rain 0%"' in html
+    assert 'aria-label="Now: 20°, Clear sky, chance of rain 0%, wind 5 km/h from S"' in html
+    assert "💨" in html and "5 km/h" in html
 
 
 def test_daily_list_today_and_missing_values(fc):

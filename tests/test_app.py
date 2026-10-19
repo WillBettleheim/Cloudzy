@@ -12,8 +12,9 @@ from src import ui
 from src.provider import Place, ProviderError, parse_forecast
 from tests.test_provider import payload
 
-DELHI = Place("New Delhi", 28.6358, 77.2244, "Asia/Kolkata", "India", "National Capital Territory of Delhi", 317797)
-PARIS = Place("Paris", 48.8534, 2.3488, "Europe/Paris", "France", "Île-de-France", 2138551)
+DELHI = Place("New Delhi", 28.6358, 77.2244, "Asia/Kolkata", "India", "National Capital Territory of Delhi", 317797, "IN")
+PARIS = Place("Paris", 48.8534, 2.3488, "Europe/Paris", "France", "Île-de-France", 2138551, "FR")
+PARIS_TX = Place("Paris", 33.6609, -95.5555, "America/Chicago", "United States", "Texas", 24782, "US")
 
 
 # --- Helpers -------------------------------------------------------------------
@@ -84,10 +85,11 @@ def today_payload():
 
 
 @pytest.fixture
-def fake_network(monkeypatch):
+def fake_network(monkeypatch, tmp_path):
     """Default: search finds Delhi and Paris, forecasts parse a synthetic payload, Cloudzy works."""
     st.cache_data.clear()
-    state = {"places": [DELHI, PARIS], "payload": today_payload(), "search_error": None,
+    monkeypatch.setenv("CLOUDZY_PREFS_PATH", str(tmp_path / "prefs.json"))  # never touch real preferences
+    state = {"places": [DELHI, PARIS, PARIS_TX], "payload": today_payload(), "search_error": None,
              "forecast_error": None,
              "cloudzy": {"available": True, "prediction_point": "New Delhi, India training grid cell",
                          "distance_km_from_place": 3.0, "issue_time_local": "2026-10-19T12:00:00+05:30",
@@ -151,7 +153,8 @@ def test_happy_path_delhi_shows_full_app(fake_network):
     for title in ("UV index", "Humidity", "Wind", "Feels like", "Pressure", "Visibility", "Sunrise · Sunset"):
         assert f'aria-label="{title}"' in body
     assert "No rain expected" in texts(at.success)
-    assert len(at.dataframe) == 2  # hourly table + Cloudzy table
+    assert len(at.dataframe) == 3  # hourly table + daily details + Cloudzy table
+    assert "Cloudzy says" in body and "Daily briefing" in body and "<svg" in body
     assert "not a station reading" in texts(at.caption)
     assert "Open-Meteo" in texts(at.caption)
     assert dict(at.query_params) == {"q": ["New Delhi"], "i": ["0"]} or at.query_params["q"] == "New Delhi"
@@ -217,7 +220,7 @@ def test_recovery_after_outage(fake_network):
 def test_far_place_explains_cloudzy_is_delhi_only(fake_network):
     at = run_app("Paris")
     assert "trained and tested only for" in texts(at.info)
-    assert len(at.dataframe) == 1  # hourly table only: no Cloudzy numbers for Paris
+    assert len(at.dataframe) == 2  # hourly + daily tables only: no Cloudzy numbers for Paris
 
 
 def test_cloudzy_failure_keeps_provider_forecast(fake_network):
@@ -225,13 +228,13 @@ def test_cloudzy_failure_keeps_provider_forecast(fake_network):
     at = run_app()
     assert "No Cloudzy prediction right now" in texts(at.warning)
     assert "cz-hero" in html_text(at)
-    assert len(at.dataframe) == 1  # no Cloudzy table
+    assert len(at.dataframe) == 2  # no Cloudzy table
 
 
 def test_cloudzy_values_follow_units(fake_network):
     at = run_app()
     at.segmented_control(key="unit_temp").set_value("°F").run()
-    table = at.dataframe[1].value
+    table = at.dataframe[2].value
     assert table["Cloudzy °F"].iloc[0] == pytest.approx(82.4)                       # 28.0 °C
     assert table["Cloudzy avg error in 2025 test °F"].iloc[0] == pytest.approx(1.98)  # 1.1 °C difference
 
@@ -249,3 +252,65 @@ def test_data_warnings_are_disclosed(fake_network):
     fake_network["payload"]["daily"]["uv_index_max"] = [None] * 7
     at = run_app()
     assert any("Data notes" in e.label for e in at.expander)
+
+
+# --- Phase 2-6 features -----------------------------------------------------------------
+
+def test_same_name_places_are_distinguished_and_units_follow_region(fake_network):
+    at = run_app("Paris")
+    labels = at.selectbox[0].options
+    assert any("Île-de-France, France" in o for o in labels) and any("Texas, United States" in o for o in labels)
+    assert at.session_state["unit_temp"] == "°C"
+    at.selectbox[0].select_index(1).run()
+    assert not at.exception
+    assert at.session_state["unit_temp"] == "°F" and at.session_state["unit_wind"] == "mph"
+    assert "Paris, Texas, United States" in html_text(at)
+
+
+def test_unit_override_is_saved_and_reused(fake_network, tmp_path):
+    from src import preferences as P
+    at = run_app()
+    at.segmented_control(key="unit_temp").set_value("°F").run()
+    assert P.load().unit_override().temperature == "°F"
+    again = run_app()  # a fresh session reads the saved choice
+    assert again.session_state["unit_temp"] == "°F"
+    assert ">83°<" in html_text(again)
+
+
+def test_favourite_save_and_pick(fake_network):
+    from src import preferences as P
+    at = run_app("Paris")
+    next(b for b in at.button if b.label == "☆ Save").click().run()
+    assert [p.label for p in P.load().favourite_places()] == ["Paris, Île-de-France, France"]
+    assert any(b.label == "★ Saved" for b in at.button)
+    at.text_input[0].set_value("New Delhi").run()
+    at.pills[0].set_value("Paris, Île-de-France, France").run()
+    assert not at.exception
+    assert at.session_state["search"] == "Paris"
+    assert "Paris, Île-de-France, France" in html_text(at)
+
+
+def test_alerts_render_with_reason_period_and_uncertainty(fake_network):
+    p = fake_network["payload"]
+    n = len(p["hourly"]["time"])
+    p["hourly"]["apparent_temperature"] = [44.0] * n   # very hot all day
+    at = run_app()
+    body = html_text(at)
+    assert "Very hot" in body and "When:" in body and "Why:" in body and "Uncertainty:" in body
+    assert "not an official weather warning" in body
+
+
+def test_alert_thresholds_form_saves(fake_network):
+    from src import preferences as P
+    at = run_app()
+    at.number_input[0].set_value(80)  # rain chance threshold
+    next(b for b in at.button if b.label == "Save thresholds").click().run()
+    assert not at.exception
+    assert P.load().alerts.rain_probability_pct == 80
+
+
+def test_error_state_shows_no_summary_or_alerts(fake_network):
+    fake_network["forecast_error"] = ProviderError("timed out")
+    at = run_app()
+    body = html_text(at)
+    assert "Cloudzy says" not in body and "cz-alert cz-fade" not in body and "Daily briefing" not in body

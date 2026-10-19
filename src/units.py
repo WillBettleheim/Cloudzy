@@ -43,6 +43,21 @@ class Units:
 
 METRIC = Units()
 IMPERIAL = Units("°F", "mph", "in")
+UK = Units("°C", "mph", "mm")
+
+# Countries whose everyday weather reports use Fahrenheit (the US and its
+# territories, Liberia, Myanmar), and the UK's mix of °C with mph.
+_IMPERIAL_COUNTRIES = {"US", "PR", "GU", "VI", "AS", "MP", "UM", "LR", "MM"}
+
+
+def default_for_country(country_code: str | None) -> Units:
+    """Sensible starting units for a place. The viewer can always override them."""
+    code = (country_code or "").upper()
+    if code in _IMPERIAL_COUNTRIES:
+        return IMPERIAL
+    if code == "GB":
+        return UK
+    return METRIC
 
 
 def _missing(x) -> bool:
@@ -96,3 +111,17 @@ def convert_frame(df, units: Units):
         elif col in ("precipitation", "precipitation_sum"):
             out[col] = out[col].map(lambda v: precipitation(v, units.precipitation)).astype(float)
     return out
+
+
+def to_celsius(value, unit: str):
+    """Inverse of temperature(): a value typed in `unit` back to °C."""
+    if _missing(value):
+        return None
+    return (value - 32) * 5 / 9 if unit == "°F" else float(value)
+
+
+def to_kmh(value, unit: str):
+    """Inverse of wind(): a value typed in `unit` back to km/h."""
+    if _missing(value):
+        return None
+    return value / _WIND_FROM_KMH[unit]

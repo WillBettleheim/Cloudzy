@@ -106,20 +106,28 @@ def check_response(payload: Any, variables: list[str]) -> None:
             )
 
 
-def fetch_json(url: str, params: dict[str, Any], session: requests.Session | None = None) -> dict:
+def fetch_json(url: str, params: dict[str, Any], session: requests.Session | None = None,
+               timeout: float = REQUEST_TIMEOUT_S, retries: int = MAX_RETRIES, max_wait_s: float = 60.0) -> dict:
     """GET with retries and exponential backoff on network errors, 429 and 5xx.
 
     4xx errors other than 429 mean the request itself is wrong, so they fail
-    immediately with the API's explanation.
+    immediately with the API's explanation. On 429 the server's Retry-After is
+    respected. If it asks for longer than `max_wait_s`, we stop and say so
+    instead of making a user wait. Batch downloads use the patient defaults; the
+    app passes INTERACTIVE settings (short timeout, few retries).
     """
     http = session or requests.Session()
-    last_error: Exception | None = None
-    for attempt in range(1, MAX_RETRIES + 1):
+    last_error: str = "no attempt made"
+    for attempt in range(1, retries + 1):
+        wait = BACKOFF_BASE_S ** attempt
         try:
-            resp = http.get(url, params=params, timeout=REQUEST_TIMEOUT_S)
-        except (requests.ConnectionError, requests.Timeout) as exc:
-            last_error = exc
-            logger.warning("Attempt %d/%d failed: %s", attempt, MAX_RETRIES, exc)
+            resp = http.get(url, params=params, timeout=timeout)
+        except requests.Timeout:
+            last_error = f"the weather service didn't respond within {timeout:.0f} s"
+            logger.warning("Attempt %d/%d timed out", attempt, retries)
+        except requests.ConnectionError as exc:
+            last_error = f"couldn't connect to the weather service ({exc.__class__.__name__}); check the internet connection"
+            logger.warning("Attempt %d/%d failed: %s", attempt, retries, exc)
         else:
             if resp.status_code == 200:
                 try:
@@ -127,14 +135,35 @@ def fetch_json(url: str, params: dict[str, Any], session: requests.Session | Non
                 except ValueError as exc:
                     raise DataCollectionError(f"Response is not valid JSON: {resp.text[:200]!r}") from exc
             reason = _error_reason(resp)
-            if resp.status_code == 429 or resp.status_code >= 500:
-                last_error = DataCollectionError(f"HTTP {resp.status_code}: {reason}")
-                logger.warning("Attempt %d/%d got HTTP %d: %s", attempt, MAX_RETRIES, resp.status_code, reason)
+            if resp.status_code == 429:
+                retry_after = _retry_after_s(resp)
+                last_error = "the weather service is rate-limiting requests (HTTP 429)" + (
+                    f"; it asks to wait {retry_after:.0f} s" if retry_after else "")
+                if retry_after is not None:
+                    if retry_after > max_wait_s:
+                        raise DataCollectionError(f"Rate limited: {last_error}. Please try again later.")
+                    wait = retry_after
+                logger.warning("Attempt %d/%d rate-limited", attempt, retries)
+            elif resp.status_code >= 500:
+                last_error = f"the weather service is temporarily unavailable (HTTP {resp.status_code}: {reason})"
+                logger.warning("Attempt %d/%d got HTTP %d: %s", attempt, retries, resp.status_code, reason)
             else:
                 raise DataCollectionError(f"HTTP {resp.status_code}: {reason}")
-        if attempt < MAX_RETRIES:
-            time.sleep(BACKOFF_BASE_S ** attempt)
-    raise DataCollectionError(f"Giving up after {MAX_RETRIES} attempts: {last_error}")
+        if attempt < retries:
+            time.sleep(min(wait, max_wait_s))
+    raise DataCollectionError(f"Giving up after {retries} attempts: {last_error}")
+
+
+# Settings for requests a person is waiting on: fail within ~25 s, not minutes.
+INTERACTIVE = {"timeout": 10, "retries": 2, "max_wait_s": 5}
+
+
+def _retry_after_s(resp: requests.Response) -> float | None:
+    value = resp.headers.get("Retry-After") if hasattr(resp, "headers") else None
+    try:
+        return max(0.0, float(value)) if value is not None else None
+    except ValueError:
+        return None
 
 
 def _error_reason(resp: requests.Response) -> str:

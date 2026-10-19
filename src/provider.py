@@ -32,7 +32,7 @@ from typing import Any
 import pandas as pd
 import requests
 
-from src.data_collection import DataCollectionError, fetch_json
+from src.data_collection import INTERACTIVE, DataCollectionError, fetch_json
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +122,7 @@ class Place:
     country: str | None = None
     admin1: str | None = None
     population: int | None = None
+    country_code: str | None = None  # ISO 3166-1 alpha-2, used for regional unit defaults
 
     @property
     def label(self) -> str:
@@ -171,7 +172,7 @@ def search_locations(name: str, count: int = 5, session: requests.Session | None
     if len(query) < 2:
         raise ValueError("Type at least 2 characters to search for a place")
     payload = fetch_json(GEOCODING_URL, {"name": query, "count": count, "language": "en", "format": "json"},
-                         session=session)
+                         session=session, **INTERACTIVE)
     if not isinstance(payload, dict) or payload.get("error"):
         raise ProviderError(f"Geocoding failed: {payload.get('reason') if isinstance(payload, dict) else payload}")
     places = []
@@ -180,7 +181,7 @@ def search_locations(name: str, count: int = 5, session: requests.Session | None
             places.append(Place(
                 name=r["name"], latitude=float(r["latitude"]), longitude=float(r["longitude"]),
                 timezone=r.get("timezone") or "UTC", country=r.get("country"), admin1=r.get("admin1"),
-                population=r.get("population"),
+                population=r.get("population"), country_code=r.get("country_code"),
             ))
         except (KeyError, TypeError, ValueError):
             logger.warning("Skipping malformed geocoding result: %r", r)
@@ -319,7 +320,7 @@ def fetch_forecast(place: Place, days: int = FORECAST_DAYS, session: requests.Se
         "timezone": "auto", "timeformat": "unixtime", "forecast_days": days, "models": PROVIDER_MODEL,
     }
     try:
-        payload = fetch_json(FORECAST_URL, params, session=session)
+        payload = fetch_json(FORECAST_URL, params, session=session, **INTERACTIVE)
     except DataCollectionError as exc:
         raise ProviderError(f"Could not reach the forecast provider: {exc}") from exc
     return parse_forecast(payload, place, datetime.now(timezone.utc).isoformat(timespec="seconds"))

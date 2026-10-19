@@ -29,6 +29,31 @@ CSS = """
   align-items:center;justify-content:space-between;gap:12px 28px}
 .cz-hero.day{background:linear-gradient(160deg,#d9edff 0%,#9fcdf6 100%);color:#0f1d3a}
 .cz-hero.night{background:linear-gradient(160deg,#22356a 0%,#0b1630 100%);color:#f2f6ff}
+.cz-hero.wet{background:linear-gradient(160deg,#c9d6e6 0%,#8fa6c2 100%);color:#0f1d3a}
+.cz-hero.wet.night{background:linear-gradient(160deg,#2b3a55 0%,#121c33 100%);color:#f2f6ff}
+.cz-hero.grey{background:linear-gradient(160deg,#e3e8ef 0%,#b9c4d2 100%);color:#0f1d3a}
+.cz-hero.grey.night{background:linear-gradient(160deg,#323d52 0%,#161f33 100%);color:#f2f6ff}
+.cz-hero.snow{background:linear-gradient(160deg,#f4f8fd 0%,#cfdcec 100%);color:#0f1d3a}
+.cz-hero.snow.night{background:linear-gradient(160deg,#3a4a6b 0%,#1b2747 100%);color:#f2f6ff}
+.cz-fade{animation:czfade .45s ease-out both}
+@keyframes czfade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.cz-fade{animation:none}}
+.cz-brand{display:flex;align-items:center;gap:12px;margin:0}
+.cz-brand svg{flex:0 0 auto}
+.cz-brand h2{margin:0;font-size:2rem;line-height:1.1}
+.cz-brand p{margin:2px 0 0;opacity:.85;font-size:.95rem}
+.cz-say{border-radius:20px;padding:14px 18px;background:rgba(57,135,229,.10);border:1px solid rgba(57,135,229,.35)}
+.cz-say h3{margin:0 0 6px;font-size:1rem}
+.cz-say ul{margin:0;padding-left:1.1rem}
+.cz-say li{margin:3px 0}
+.cz-alert{border-radius:16px;padding:12px 16px;margin:0 0 8px;border:1px solid rgba(245,184,0,.6);
+  background:rgba(245,184,0,.12)}
+.cz-alert h4{margin:0 0 4px;font-size:1rem}
+.cz-alert p{margin:2px 0;font-size:.92rem}
+.cz-alert .lbl{font-size:.78rem;opacity:.85}
+.cz-rec{border-radius:16px;padding:10px 14px;background:rgba(128,140,160,.10);border:1px solid rgba(128,140,160,.30)}
+.cz-rec p{margin:0}
+.cz-rec .why{font-size:.86rem;opacity:.9;margin-top:3px}
 .cz-hero .place{font-size:1.05rem;font-weight:600;margin:0}
 .cz-hero .sub{font-size:.9rem;opacity:.9;margin:2px 0 0}
 .cz-hero .now{display:flex;align-items:center;gap:14px}
@@ -47,6 +72,7 @@ CSS = """
 .cz-hour .i{font-size:1.6rem;margin:4px 0}
 .cz-hour .v{font-size:1.15rem;font-weight:700;margin:0}
 .cz-hour .r{font-size:.8rem;margin:2px 0 0}
+.cz-hour .w{font-size:.75rem;margin:2px 0 0;opacity:.9}
 .cz-days{border-radius:20px;padding:6px 14px;background:rgba(128,140,160,.10);border:1px solid rgba(128,140,160,.30)}
 .cz-day{display:grid;grid-template-columns:minmax(3.6rem,5rem) 2rem 3.4rem 2.8rem 1fr 2.8rem;align-items:center;
   gap:8px;padding:9px 0;border-bottom:1px solid rgba(128,140,160,.22)}
@@ -122,11 +148,66 @@ def updated_label(retrieved_at_utc, tz) -> str:
         return "update time unknown"
 
 
+def hero_mood(code) -> str:
+    """Extra hero style from the *actual* weather code: wet, grey (fog/overcast) or snow."""
+    if code is None or pd.isna(code):
+        return ""
+    c = int(code)
+    if c in {51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 97, 99}:
+        return " wet"
+    if c in {71, 73, 75, 77, 85, 86}:
+        return " snow"
+    if c in {3, 45, 48}:
+        return " grey"
+    return ""
+
+
+MASCOT_SVG = """<svg width="54" height="40" viewBox="0 0 54 40" aria-hidden="true" focusable="false">
+<circle cx="42" cy="11" r="8" fill="#f5b800"/>
+<path d="M14 36h26a9 9 0 0 0 0-18 12 12 0 0 0-23-2A10 10 0 0 0 14 36z" fill="#9fcdf6" stroke="#0f1d3a" stroke-width="2"/>
+<circle cx="22" cy="26" r="1.8" fill="#0f1d3a"/><circle cx="31" cy="26" r="1.8" fill="#0f1d3a"/>
+<path d="M23 30.5q3.5 3 7 0" fill="none" stroke="#0f1d3a" stroke-width="1.8" stroke-linecap="round"/>
+<circle cx="19" cy="30" r="1.6" fill="#f5b800" opacity=".8"/><circle cx="34" cy="30" r="1.6" fill="#f5b800" opacity=".8"/>
+</svg>"""
+
+
+def brand_html(tagline: str = "Weather with a little intelligence.") -> str:
+    return (f'<div class="cz-brand">{MASCOT_SVG}<div><h2>Cloudzy</h2><p>{escape(tagline)}</p></div></div>')
+
+
+def summary_html(sentences: list[str], title: str = "Cloudzy says") -> str:
+    items = "".join(f"<li>{escape(s)}</li>" for s in sentences)
+    return (f'<section class="cz-say cz-fade" aria-label="{escape(title)}"><h3>☁️ {escape(title)}</h3>'
+            f"<ul>{items}</ul></section>")
+
+
+def alerts_html(alerts) -> str:
+    if not alerts:
+        return ""
+    cards = []
+    for a in alerts:
+        cards.append(
+            f'<div class="cz-alert cz-fade" role="note" aria-label="{escape(a.title)}">'
+            f"<h4>⚠️ {escape(a.title)} · {escape(a.value)}</h4>"
+            f"<p><b>When:</b> {escape(a.period)}</p><p><b>Why:</b> {escape(a.reason)}</p>"
+            f"<p><b>Uncertainty:</b> {escape(a.uncertainty)}</p><p class=\"lbl\">{escape(a.label)}</p></div>")
+    return "".join(cards)
+
+
+def recommendations_html(recs) -> str:
+    icons = {"umbrella": "☂️", "clothing": "🧥", "outdoors": "🌳", "uv": "🧴"}
+    cards = [f'<div class="cz-rec cz-fade" role="group" aria-label="{escape(r.kind)} suggestion">'
+             f'<p><span aria-hidden="true">{icons.get(r.kind, "💡")}</span> {escape(r.text)}</p>'
+             f'<p class="why">Why: {escape(r.why)}</p></div>' for r in recs]
+    return f'<div class="cz-grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">{"".join(cards)}</div>'
+
+
 # --- Hero -----------------------------------------------------------------------
 
 def hero_html(place_label: str, current: dict, today: pd.Series | None, units: U.Units, tz_label: str) -> str:
     is_day = current.get("is_day")
     mode = "night" if is_day is not None and not pd.isna(is_day) and int(is_day) == 0 else "day"
+    mode += hero_mood(current.get("weather_code"))
     t = pd.Timestamp(current["time"])
     hi = temp_text(today["temperature_2m_max"], units) if today is not None else DASH
     lo = temp_text(today["temperature_2m_min"], units) if today is not None else DASH
@@ -162,13 +243,19 @@ def hourly_strip_html(hours: pd.DataFrame, units: U.Units) -> str:
         label = "Now" if i == 0 else f"{t:%H:%M}"
         prob = row.get("precipitation_probability")
         rain = DASH if prob is None or pd.isna(prob) else f"{prob:.0f}%"
+        amount = U.precipitation(row.get("precipitation"), units.precipitation)
+        amount_txt = (f" · {amount:.{U.precipitation_digits(units.precipitation)}f} {units.precipitation}"
+                      if amount is not None and amount > 0 else "")
+        wind = U.wind(row.get("wind_speed_10m"), units.wind)
+        wind_txt = DASH if wind is None else f"{wind:.0f} {units.wind}"
         cards.append(
             f'<li class="cz-hour{" first" if i == 0 else ""}" aria-label="{escape(label)}: '
             f'{escape(temp_text(row["temperature_2m"], units))}, {escape(describe_weather(None if pd.isna(row["weather_code"]) else row["weather_code"]))}, '
-            f'chance of rain {escape(rain)}">'
+            f'chance of rain {escape(rain)}{escape(amount_txt)}, wind {escape(wind_txt)} from {escape(compass(row.get("wind_direction_10m")))}">'
             f'<p class="t">{escape(label)}</p><p class="i">{_icon(row["weather_code"], row.get("is_day"))}</p>'
             f'<p class="v">{temp_text(row["temperature_2m"], units)}</p>'
-            f'<p class="r"><span aria-hidden="true">💧</span>{escape(rain)}</p></li>')
+            f'<p class="r"><span aria-hidden="true">💧</span>{escape(rain)}{escape(amount_txt)}</p>'
+            f'<p class="w"><span aria-hidden="true">💨</span>{escape(wind_txt)}</p></li>')
     return (f'<ul class="cz-strip" role="list" tabindex="0" aria-label="Hourly forecast for the next '
             f'{len(hours)} hours. Scroll sideways for more." style="list-style:none;margin:0">'
             + "".join(cards) + "</ul>")
@@ -261,3 +348,49 @@ def detail_cards_html(current: dict, today: pd.Series | None, units: U.Units) ->
     else:
         cards.append(_card("Sunrise · Sunset", DASH, "Not available"))
     return f'<div class="cz-grid">{"".join(cards)}</div>'
+
+
+def briefing_html(b, units: U.Units) -> str:
+    """Compact daily briefing card from insights.briefing()."""
+    if b is None:
+        return ""
+    changes = "".join(f"<li>{escape(c)}</li>" for c in b.changes) or "<li>No significant changes expected.</li>"
+    n_alerts = len(b.alerts)
+    alert_line = (f"{n_alerts} Cloudzy alert{'s' if n_alerts != 1 else ''} (see above)" if n_alerts
+                  else "No Cloudzy alerts with your thresholds")
+    return (f'<section class="cz-say cz-fade" aria-label="Daily briefing for {escape(b.date)}">'
+            f"<h3>📋 Daily briefing · {escape(b.date)}</h3>"
+            f"<ul><li><b>Temperature:</b> {escape(b.temperature_range)}</li>"
+            f"<li><b>Conditions:</b> {escape(b.conditions)}</li>"
+            f"<li><b>Precipitation:</b> {escape(b.precipitation)}</li>"
+            f"<li><b>Alerts:</b> {escape(alert_line)}</li></ul>"
+            f'<p style="margin:8px 0 2px"><b>Changes through the day</b></p><ul>{changes}</ul></section>')
+
+
+def daily_table(daily: pd.DataFrame, units: U.Units) -> pd.DataFrame:
+    """Every daily variable in display units, as an accessible table."""
+    pdig = U.precipitation_digits(units.precipitation)
+
+    def t(v):
+        x = U.temperature(v, units.temperature)
+        return None if x is None else round(x, 1)
+
+    def daylight(sec):
+        return DASH if _missing(sec) else f"{int(sec // 3600)} h {int(sec % 3600 // 60)} min"
+
+    return pd.DataFrame({
+        "Day": [pd.Timestamp(d).strftime("%a %d %b") for d in daily.index],
+        "Condition (most significant)": [describe_weather(None if _missing(c) else c) for c in daily["weather_code"]],
+        f"Low {units.temperature}": [t(v) for v in daily["temperature_2m_min"]],
+        f"High {units.temperature}": [t(v) for v in daily["temperature_2m_max"]],
+        "Rain chance %": daily["precipitation_probability_max"].to_numpy(),
+        f"Rain {units.precipitation}": [None if (x := U.precipitation(v, units.precipitation)) is None else round(x, pdig)
+                                        for v in daily["precipitation_sum"]],
+        f"Max wind {units.wind}": [None if (x := U.wind(v, units.wind)) is None else round(x)
+                                   for v in daily["wind_speed_10m_max"]],
+        "Wind from": [compass(v) for v in daily.get("wind_direction_10m_dominant", pd.Series([None] * len(daily)))],
+        "UV max": daily["uv_index_max"].round(1).to_numpy(),
+        "Sunrise": [DASH if _missing(v) else f"{v:%H:%M}" for v in daily["sunrise"]],
+        "Sunset": [DASH if _missing(v) else f"{v:%H:%M}" for v in daily["sunset"]],
+        "Daylight": [daylight(v) for v in daily.get("daylight_duration", pd.Series([None] * len(daily)))],
+    })
