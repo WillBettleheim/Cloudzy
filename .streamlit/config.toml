@@ -1,0 +1,33 @@
+# Cloudzy brand: sky blue, midnight navy, sunshine yellow.
+# Light and dark palettes are both defined; Streamlit follows the viewer's
+# system setting, and the viewer can switch in the app menu (⋮ → Settings).
+
+[theme]
+baseRadius = "large"
+buttonRadius = "full"
+showWidgetBorder = true
+metricValueFontSize = "1.6rem"
+
+[theme.light]
+primaryColor = "#2a78d6"
+backgroundColor = "#f7fafd"
+secondaryBackgroundColor = "#e8f1fb"
+textColor = "#0f1d3a"
+borderColor = "#d3dfee"
+yellowColor = "#f5b800"
+blueColor = "#2a78d6"
+
+[theme.dark]
+primaryColor = "#5aa2f0"
+backgroundColor = "#0b1630"
+secondaryBackgroundColor = "#13234a"
+textColor = "#eef3fb"
+borderColor = "#22335a"
+yellowColor = "#ffcc33"
+blueColor = "#3987e5"
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"

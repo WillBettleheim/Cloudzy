@@ -4,7 +4,7 @@ Cloudzy is a weather app backed by **Cloudzy Core**, a machine-learning forecast
 engine evaluated against honest baselines. This repository is built engine-first:
 the UI comes only after the ML pipeline works and has been measured.
 
-> **Status:** Phases A (ML engine), B (forecast service) and C (provider forecasts) are complete.
+> **Status:** Phases A–D are complete: ML engine, forecast service, provider forecasts and the web app.
 > Cloudzy's own predictions cover Delhi only; provider forecasts work for any place.
 > - **Research setting** (reanalysis in, reanalysis out): MAE is **0.242 °C** one
 >   hour ahead on the untouched 2025 test year. Persistence scores 0.924 °C and a
@@ -23,7 +23,7 @@ python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-python -m pytest                 # 124 offline tests, no network needed
+python -m pytest                 # 156 offline tests, no network needed
 python -m src.data_validation    # download (first run only), validate, write processed CSV
 python -m src.features           # build the feature table
 python -m src.train              # tune on 2024, test on 2025, save model and report (~1 min)
@@ -38,6 +38,9 @@ python -m src.refit              # monthly: refit serving models on data to the 
 # Phase C
 python -m src.provider "Reykjavik"   # Open-Meteo forecast for any place
 python -m src.briefing "New Delhi"   # provider forecast + rain outlook + Cloudzy (Delhi only)
+
+# Phase D
+streamlit run streamlit_app.py       # the web app at http://localhost:8501
 ```
 
 The data step downloads three yearly files on its first run (about 1 s each).
@@ -498,6 +501,63 @@ forecast, and live IFS inputs. During testing Open-Meteo returned
 retry-with-backoff recovered on the fourth attempt. The Phase D app must cache
 responses (for example, 10 minutes per place).
 
+## Phase D: the Cloudzy web app
+
+```bash
+streamlit run streamlit_app.py
+```
+
+**What it shows, top to bottom:**
+- **Search:** a place search with a "choose the right match" picker. Picking from
+  the list is required, because the top geocoding result can be the wrong town
+  (see Phase C).
+- **Current conditions:** temperature, feels-like, humidity, cloud cover, wind
+  with compass direction, gusts and precipitation. It also shows today's range
+  and sunrise/sunset.
+- **Rain indicator:** a coloured banner ("Rain likely from …" or "No rain
+  expected"). It always shows its rule and states that it is not an official
+  warning.
+- **Next 48 hours:** a temperature and feels-like chart, a chance-of-rain chart
+  (amounts appear on hover), and an hour-by-hour table with humidity and wind.
+- **7-day outlook:** day cards (icon, high/low, rain chance and amount, wind, UV)
+  and a low-to-high range chart.
+- **Cloudzy Core 🧪:** for places within 15 km of the Delhi training point, it
+  shows Cloudzy's predictions beside the provider's values for the same times,
+  with the prediction point, issue time and each horizon's 2025 average error.
+  Elsewhere it explains why Cloudzy isn't available.
+
+**States.** Every state is covered by headless `AppTest` tests, with the network
+replaced by fakes:
+
+| State | What the user sees |
+|---|---|
+| Loading | A spinner for each slow step ("Checking the sky…", "Asking Cloudzy Core…") |
+| Query too short | A hint to type at least two letters |
+| No matching place | "No places match …", with a suggestion |
+| Search or forecast outage | An error with the reason and a **Try again** button, which clears the cache |
+| Cloudzy unavailable | A warning with the reason; the provider forecast is unaffected |
+| Missing or implausible provider values | Shown as "—", never zero, and listed under "Data notes" |
+| No rain in 48 h | A one-line note instead of an empty chart |
+
+**Themes.** `.streamlit/config.toml` defines separate light (pale sky and navy
+text) and dark (midnight navy) palettes. Streamlit follows the viewer's system
+setting, and viewers can switch in ⋮ → Settings. Charts read the active theme
+(`st.context.theme`) and use matching colours. Provider data is **blue** and
+Cloudzy is **orange** in every chart, in both themes. Both colour pairs passed a
+palette check against their background: colour-blind separation ΔE > 24, and
+contrast ≥ 3:1. I checked both themes visually in a browser, including at a
+narrow width, where metrics and day cards wrap instead of stacking.
+
+**Caching.** Search, provider forecasts and Cloudzy results are cached for 10
+minutes per place, because one Delhi page view otherwise makes three API calls.
+Live IFS snapshots are saved to `data/live_snapshots/`; set
+`CLOUDZY_SNAPSHOTS=0` to turn that off.
+
+**Running Cloudzy Core in the app** needs the trained serving bundle
+(`python -m src.multistep`, or a monthly `python -m src.refit`). Model files
+aren't committed. Without one, the Cloudzy tab says so, and everything else
+works.
+
 ## Using a trained model
 
 ```python
@@ -539,7 +599,10 @@ src/service.py           live inputs → validated → labelled Cloudzy + provid
 src/refit.py             monthly refit of the serving models, held-out check, dated backup
 src/provider.py          Open-Meteo provider forecasts and location search (provider data only)
 src/briefing.py          provider forecast, rain outlook and Cloudzy side by side, labelled
-tests/                   124 offline tests
+src/ui.py                chart, icon and table helpers for the app (no Streamlit calls; tested)
+streamlit_app.py         the Cloudzy web app
+.streamlit/config.toml   brand theme: light and dark palettes
+tests/                   156 offline tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
 ```
@@ -556,7 +619,7 @@ Three modules go beyond the suggested layout, and each has a reason:
   Monthly refit is now a command (`python -m src.refit`); scheduling it is up to the host (e.g. cron).
   Open follow-up: measuring the real-time vs. archive input gap from snapshots.
 - **C — Real weather** ✅ provider current/hourly/7-day forecasts, location search, rain indicator, labelled briefing
-- **D — Web app:** Streamlit and Plotly
+- **D — Web app** ✅ Streamlit + Plotly: search, current, 48-hour and 7-day views, rain indicator, Cloudzy panel, both themes
 - **E — Cloudzy Lab:** a model-evaluation dashboard
 - **F — Quality and deployment**
 
