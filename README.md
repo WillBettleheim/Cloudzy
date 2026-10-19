@@ -18,9 +18,15 @@ the UI comes only after the ML pipeline works and has been measured.
 > - **Research setting** (reanalysis in, reanalysis out): MAE is **0.242 °C** one
 >   hour ahead on the untouched 2025 test year. Persistence scores 0.924 °C and a
 >   climatological diurnal baseline 0.337 °C.
-> - **Live setting** (real-time ECMWF IFS inputs, deployed 2 MB models): MAE is
->   **1.12 °C** one hour ahead and **1.34 °C** 24 hours ahead. The bottleneck is
->   the disagreement between the two data sources, not the model.
+> - **Live setting** (the deployed 2 MB models, fed ECMWF IFS forecasts as the
+>   live app is): MAE is **1.12 °C** one hour ahead and **1.34 °C** 24 hours
+>   ahead. These come from a 2025 replay of *archived* IFS forecasts, a best case
+>   for real-time inputs. The bottleneck is the disagreement between the two data
+>   sources, not the model.
+> - **Live accuracy is still pending.** The app records every live prediction
+>   (Predictions page) and checks it once the reanalysis for its target hour is
+>   published, about 6 days later. Until enough have been checked, there is no
+>   measured live accuracy, and the app says so instead of showing a number.
 >
 > All errors are measured against **reanalysis data, not a thermometer**.
 
@@ -30,8 +36,8 @@ the UI comes only after the ML pipeline works and has been measured.
 |---|---|
 | **Your location** | "Use my location": a one-time browser location lookup with permission. The weather is fetched for the exact coordinates, and the place name comes from OpenStreetMap. Clear messages for every failure; manual search is always available |
 | **Weather app** | City search with a match picker (same-name places kept apart by coordinates); current conditions; next 24 hours (cards and graph); 7-day forecast; detail cards (UV, humidity and dew point, wind, feels-like, rain, clouds, pressure, visibility, sun) |
-| **Settings** (`/settings`) | °C/°F, km/h, m/s, mph or knots, mm/in (regional by default); home city; favourite places; brief or detailed summary; alert categories and thresholds; optional browser notifications; theme guidance; reset. Saved on this device only, never synced, never precise device coordinates |
-| **Weather intelligence** | "Cloudzy says" summary (temperature trend, earlier today, rain timing, wind, clouds, tomorrow; nothing when data is missing or more than 3 h old), unofficial alerts (reason, value, period, uncertainty; dismissable; one per kind and time window), daily briefing, suggestions with reasons. Rule-based, built from the forecast numbers, with no language model |
+| **Settings** (`/settings`) | °C/°F, km/h, m/s, mph or knots, mm/in (regional by default); home city; favourite places; brief or detailed summary; alert categories and thresholds; optional browser notifications; theme guidance; reset. Saved in a local file on the computer running Cloudzy (every browser that opens this copy of the app shares it); never synced, never precise device coordinates |
+| **Weather intelligence** | "Cloudzy says" summary (temperature trend, earlier today, rain timing, wind, clouds, tomorrow; nothing when data is missing or more than 3 h old), unofficial alerts (reason, value, period, uncertainty; dismissable; at most one per kind per day), daily briefing, suggestions with reasons. Rule-based, built from the forecast numbers, with no language model |
 | **Cloudzy Core** | Experimental 1–24 h temperature model for Delhi, kept separate from the provider forecast; refuses to predict on incomplete inputs |
 | **Predictions** (`/predictions`) | Every live Cloudzy Core prediction, recorded once (SQLite, local) with its model version, then evaluated against the reanalysis at the exact target hour once it's published; filters, tracked MAE/RMSE/bias by horizon with sample counts, CSV export |
 | **History** (`/history`) | Past weather anywhere since 1940 (reanalysis): daily charts and tables, monthly summaries, and a comparison with the same dates in the previous 5–30 years |
@@ -43,13 +49,14 @@ accounts are needed.
 ## Quick start (macOS, Apple Silicon)
 
 ```bash
-cd cloudzy-weather-ai
+git clone https://github.com/WillBettleheim/Cloudzy.git
+cd Cloudzy
 python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
 streamlit run streamlit_app.py   # the app: weather at http://localhost:8501, Cloudzy Lab at /lab
-python -m pytest                 # 385 offline tests, no network needed
+python -m pytest                 # 424 offline tests, no network needed
 python -m src.pipeline all       # Cloudzy Core: fetch → train → evaluate (Delhi, 2023-2025, ~30 s when cached)
 python -m pytest -m integration   # 5 live checks against the Open-Meteo APIs
 python -m src.data_validation    # download (first run only), validate, write processed CSV
@@ -740,7 +747,7 @@ trained on 2023-01-02 → 2026-08-31.
 
 | Suite | What it covers | How to run |
 |---|---|---|
-| Offline (385) | Everything in phases A–E, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
+| Offline (424) | Everything in phases A–F and Cloudzy 2.0, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
 | Integration (5) | Live calls: both archive sources validate, live IFS inputs give 25 complete hours, the provider forecast and geocoding work, and a nonsense search returns nothing | `python -m pytest -m integration` |
 
 GitHub Actions (`.github/workflows/tests.yml`) runs the offline suite on every
@@ -806,15 +813,19 @@ of several minutes. A 429 rate-limit reply is retried after the server's
 are written in plain language ("the weather service didn't respond within
 10 s").
 
-**Live monitoring** (`src/monitoring.py`):
-- **Logging:** every live Cloudzy prediction and every refusal (incomplete
-  inputs) is logged locally.
-- **Scoring:** the target reanalysis is published about 6 days late, so
-  `python -m src.monitoring` scores only matured predictions, at their exact
-  valid times. It reports MAE, RMSE and bias by horizon (next to the 2025 test
-  MAE the app shows), MAE by temperature range, and the refusal rate.
-- **Current state:** as of this writing nothing has matured yet. The Lab says
-  so instead of showing numbers.
+**Prediction tracking** (`src/monitoring.py`, Predictions page):
+- **Recording:** every live Cloudzy prediction is stored once in a local SQLite
+  file (`data/monitoring/cloudzy_predictions.sqlite`), with its model version,
+  issue and target times and the IFS value for the same hour. Refusals
+  (incomplete inputs) are stored separately.
+- **Checking:** the target reanalysis is published about 6 days late, so only
+  predictions whose target hour has matured are checked, at the exact UTC hour.
+  Run `python -m src.monitoring` or use the Predictions page button; nothing
+  runs automatically. It reports MAE, RMSE and bias by horizon (next to the 2025
+  test MAE the app shows), with sample counts.
+- **Current state:** as of this writing no prediction has matured yet, so there
+  is no measured live accuracy. The Predictions page and the Lab say so instead
+  of showing numbers.
 
 **Cloudzy Lab additions:**
 - **Error breakdown:** Cloudzy's 2025 error is 1.5× higher in hours that start
@@ -1054,7 +1065,7 @@ DEPLOYMENT.md            deployment and maintenance guide
 .github/workflows/       CI: offline tests on push, live API checks weekly
 reports/lab/             the Lab's committed data (~600 KB)
 .streamlit/config.toml   brand theme: light and dark palettes
-tests/                   423 offline tests + 5 live integration tests
+tests/                   424 offline tests + 5 live integration tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
 ```

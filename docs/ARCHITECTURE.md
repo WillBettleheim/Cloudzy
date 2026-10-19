@@ -82,7 +82,7 @@ request.
 
 ## Tests
 
-- **Offline suite:** `python -m pytest` runs 385 tests and needs no network.
+- **Offline suite:** `python -m pytest` runs 424 tests and needs no network.
   `tests/conftest.py` points preferences, monitoring and snapshots at temporary
   folders, so tests never touch real user data.
 - **Live checks:** `python -m pytest -m integration` runs 5 tests against the
