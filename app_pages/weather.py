@@ -24,6 +24,7 @@ import os
 import pandas as pd
 import streamlit as st
 
+from src import geolocation as G
 from src import insights as I
 from src import preferences as P
 from src import ui
@@ -88,6 +89,7 @@ def use_regional_units() -> None:
 
 
 def pick_favourite() -> None:
+    G.use_manual(G.state(st.session_state))  # a manual choice always wins over device location
     label = st.session_state.get("fav_pick")
     for fav in P.load().favourite_places():
         if fav.label == label:
@@ -96,64 +98,134 @@ def pick_favourite() -> None:
     st.session_state["fav_pick"] = None
 
 
-# --- Header, favourites and search -------------------------------------------------------
+# --- Header and location (device or manual) --------------------------------------------
+
+def request_location() -> None:
+    G.start(G.state(st.session_state))
+
+
+def cancel_location() -> None:
+    G.cancel(G.state(st.session_state))
+
+
+def search_instead() -> None:
+    G.use_manual(G.state(st.session_state))
+
+
+def toggle_auto_locate() -> None:
+    prefs_now = P.load()
+    prefs_now.auto_locate = bool(st.session_state.get("auto_locate"))
+    P.save(prefs_now)
+
 
 st.html(V.CSS)
 # st.html's browser-side sanitiser drops <svg> and data-URI images; markdown keeps the mascot.
 st.markdown(V.brand_html(), unsafe_allow_html=True)
 prefs = P.load()
-
-favs = prefs.favourite_places()
-if favs:
-    st.pills("Favourite places", [f.label for f in favs], key="fav_pick", on_change=pick_favourite,
-             help="Saved on this computer only.")
-
 params = st.query_params
-if "search" not in st.session_state:
-    st.session_state["search"] = params.get("q", DEFAULT_QUERY)
-query = st.text_input("Search for a city or town", key="search", placeholder="e.g. Mumbai, Reykjavik, Lagos",
-                      max_chars=80, help="Press Enter to search. Results use Open-Meteo's geocoding service.").strip()
-if len(query) < 2:
-    st.info("Type at least two letters to search for a place.", icon="🔎")
-    st.stop()
+geo = G.state(st.session_state)
 
-try:
-    with st.spinner("Looking for that place…"):
-        places = cached_search(query)
-except (ProviderError, DataCollectionError) as exc:
-    st.error(f"Location search is unavailable right now. {exc}", icon="⚠️")
-    retry_button("retry-search")
-    st.stop()
+# Opt-in: look up the location once when a session opens, unless the link names a city.
+if prefs.auto_locate and not geo["auto_tried"] and "q" not in params:
+    geo["auto_tried"] = True
+    G.start(geo)
 
-if not places:
-    st.warning(f"No places match “{query}”. Check the spelling, or try a nearby larger town.", icon="🗺️")
-    st.stop()
+# The invisible browser script runs one lookup per request number. Its answer is applied only if it
+# matches the request still pending, so late answers can't override a newer choice.
+G.handle(geo, G.browser_location(geo["pending"] or 0))
 
-target = st.session_state.pop("_fav_target", None)
-if target:  # a favourite was picked: choose the result with its exact coordinates
-    start_index = next((i for i, p in enumerate(places)
-                        if abs(p.latitude - target[0]) < 0.01 and abs(p.longitude - target[1]) < 0.01), 0)
+show_panel = geo["pending"] is not None or geo["mode"] != "device" or geo["error"] is not None
+with st.container(border=True) if show_panel else st.empty():
+    if geo["pending"] is not None:
+        msg_col, cancel_col = st.columns([4, 1], vertical_alignment="center")
+        msg_col.info("**Finding your location…** If your browser asks, choose *Allow*. Cloudzy looks your "
+                     "position up once and doesn't track you.", icon="📍")
+        cancel_col.button("Cancel", on_click=cancel_location, width="stretch")
+    elif geo["mode"] != "device":
+        btn_col, text_col = st.columns([1.3, 3], vertical_alignment="center")
+        btn_col.button("Use my location", icon="📍", type="primary", on_click=request_location, width="stretch",
+                       help="Your browser will ask for permission. Cloudzy uses the position once to load the weather.")
+        text_col.caption("Uses your browser's location, with your permission. The position is used once for "
+                         "the weather and a place name, and isn't saved or tracked. Or search for a city below.")
+        st.toggle("Detect my location when Cloudzy opens", key="auto_locate", value=prefs.auto_locate,
+                  on_change=toggle_auto_locate, help="Saved on this computer as a yes/no choice. Your location "
+                  "itself is never saved.")
+    err = geo["error"]
+    if err is not None and geo["pending"] is None:
+        st.warning(f"**{err.title}** {err.detail}", icon="📍")
+        if err.retry:
+            st.button("Try again", icon="🔄", key="geo-retry", on_click=request_location)
+
+detected_slot = None
+if geo["mode"] == "device" and geo["fix"] is not None:
+    fix = geo["fix"]
+    with st.spinner("Looking up the place name…"):
+        rev = G.reverse_geocode(fix.latitude, fix.longitude)
+    place = G.device_place(fix, rev)
+    for k in ("q", "i"):  # the URL must not name a different place, and never carries coordinates
+        if k in params:
+            del params[k]
+    loc_col, unit_col = st.columns([5, 1.7], vertical_alignment="bottom")
+    with loc_col:
+        st.markdown(f"**📍 {place.label}** · your device location")
+        detected_slot = st.empty()
+        a, b = st.columns(2)
+        a.button("Refresh location", icon="🔄", on_click=request_location, width="stretch",
+                 disabled=geo["pending"] is not None)
+        b.button("Search for a city instead", icon="🔎", on_click=search_instead, width="stretch")
 else:
-    try:
-        start_index = int(params.get("i", 0)) if params.get("q") == query else 0
-    except ValueError:
-        start_index = 0
-pick_col, fav_col, unit_col = st.columns([5, 1.5, 1.7], vertical_alignment="bottom")
-with pick_col:
-    place = st.selectbox("Choose the right match", places, index=min(max(start_index, 0), len(places) - 1),
-                         format_func=place_label, help="Several places can share a name. Pick the one you mean.")
-params["q"], params["i"] = query, str(places.index(place))
+    favs = prefs.favourite_places()
+    if favs:
+        st.pills("Favourite places", [f.label for f in favs], key="fav_pick", on_change=pick_favourite,
+                 help="Saved on this computer only.")
+    if "search" not in st.session_state:
+        # Streamlit drops a widget's value while it's hidden (device mode), so restore the last manual city.
+        st.session_state["search"] = params.get("q") or st.session_state.get("_last_query", DEFAULT_QUERY)
+    query = st.text_input("Search for a city or town", key="search", placeholder="e.g. Mumbai, Reykjavik, Lagos",
+                          max_chars=80, help="Press Enter to search. Results use Open-Meteo's geocoding service.").strip()
+    if len(query) < 2:
+        st.info("Type at least two letters to search for a place.", icon="🔎")
+        st.stop()
 
-with fav_col:
-    saved = prefs.is_favourite(place)
-    if st.button("★ Saved" if saved else "☆ Save", width="stretch",
-                 help="Remove from favourites" if saved else "Save as a favourite place"):
+    try:
+        with st.spinner("Looking for that place…"):
+            places = cached_search(query)
+    except (ProviderError, DataCollectionError) as exc:
+        st.error(f"Location search is unavailable right now. {exc}", icon="⚠️")
+        retry_button("retry-search")
+        st.stop()
+
+    if not places:
+        st.warning(f"No places match “{query}”. Check the spelling, or try a nearby larger town.", icon="🗺️")
+        st.stop()
+
+    target = st.session_state.pop("_fav_target", None)
+    if target:  # a favourite was picked: choose the result with its exact coordinates
+        start_index = next((i for i, p in enumerate(places)
+                            if abs(p.latitude - target[0]) < 0.01 and abs(p.longitude - target[1]) < 0.01), 0)
+    else:
         try:
-            prefs.toggle_favourite(place)
-            P.save(prefs)
-        except ValueError as exc:
-            st.toast(str(exc))
-        st.rerun()
+            start_index = int(params.get("i", st.session_state.get("_last_index", 0))) \
+                if params.get("q", st.session_state.get("_last_query")) == query else 0
+        except ValueError:
+            start_index = 0
+    pick_col, fav_col, unit_col = st.columns([5, 1.5, 1.7], vertical_alignment="bottom")
+    with pick_col:
+        place = st.selectbox("Choose the right match", places, index=min(max(start_index, 0), len(places) - 1),
+                             format_func=place_label, help="Several places can share a name. Pick the one you mean.")
+    params["q"], params["i"] = query, str(places.index(place))  # never device coordinates in the URL
+    st.session_state["_last_query"], st.session_state["_last_index"] = query, places.index(place)
+
+    with fav_col:
+        saved = prefs.is_favourite(place)
+        if st.button("★ Saved" if saved else "☆ Save", width="stretch",
+                     help="Remove from favourites" if saved else "Save as a favourite place"):
+            try:
+                prefs.toggle_favourite(place)
+                P.save(prefs)
+            except ValueError as exc:
+                st.toast(str(exc))
+            st.rerun()
 
 # Units: the saved override if any, else the place's regional default.
 regional = U.default_for_country(place.country_code)
@@ -196,6 +268,13 @@ daily = forecast.daily
 today_key = now.tz_convert(tz).date()
 today = daily.loc[today_key] if today_key in daily.index else (daily.iloc[0] if len(daily) else None)
 
+if detected_slot is not None:
+    fix = geo["fix"]
+    acc = f" · accuracy about ±{fix.accuracy_m:,.0f} m" if fix.accuracy_m is not None else ""
+    name_note = "" if place.name != G.NEUTRAL_LABEL else " · place name unavailable, weather uses your exact coordinates"
+    detected_slot.caption(f"Location detected {pd.Timestamp(fix.detected_at_utc).tz_convert(tz):%H:%M} local time"
+                          f"{acc} · one-time lookup, not tracking{name_note}"
+                          + ("" if place.name == G.NEUTRAL_LABEL else f" · {G.OSM_ATTRIBUTION}"))
 st.html(V.hero_html(place.label, cur, today, units, local_now.tzname() or str(tz)))
 st.caption(f"{forecast.source_label} · {V.updated_label(forecast.retrieved_at_utc, tz)}, refreshed at most every "
            "10 minutes · current values are model estimates for this location, not a station reading")

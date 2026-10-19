@@ -25,6 +25,9 @@ request.
           │                                                            │      src/refit.py (monthly)
           │  Delhi only (≤ 15 km)                                      │
           ▼                                                            │
+   Browser ── navigator.geolocation (one-time, with permission) ── src/geolocation.py
+          │   validate → exact coords to Forecast API; rounded coords to Nominatim (place name)
+          ▼
    src/briefing.cloudzy_block ──► src/service.py ── live IFS inputs ───┘
           │                        (validates 25 h, refuses if incomplete)
           ▼
@@ -40,7 +43,7 @@ request.
 | Layer | Modules | Responsibility |
 |---|---|---|
 | HTTP | `data_collection.fetch_json` | Every network call goes through this one function, which handles timeouts, retries with backoff, HTTP 429 `Retry-After`, 4xx/5xx handling and user-readable errors. `INTERACTIVE` settings fail within about 25 s. Batch downloads are patient. |
-| Data services | `provider`, `history`, `service`, `data_validation` | Validate units, time zones, array lengths and physical bounds. Missing values stay missing; optional variables a model lacks are reported as unavailable; wrong units are fatal. |
+| Data services | `provider`, `history`, `service`, `data_validation`, `geolocation` | Validate units, time zones, array lengths and physical bounds. Missing values stay missing; optional variables a model lacks are reported as unavailable; wrong units are fatal. |
 | Domain logic | `insights`, `units`, `preferences`, `monitoring` | Pure functions, testable without Streamlit or the network. |
 | Presentation | `weather_view`, `ui`, `lab_ui` | Build HTML and Plotly figures from data and units. They never fetch anything. |
 | Pages | `app_pages/weather.py`, `app_pages/lab.py`, `streamlit_app.py` | Lay out the page, cache results, and handle loading, empty and error states. |
@@ -77,10 +80,19 @@ request.
 
 ## Tests
 
-- **Offline suite:** `python -m pytest` runs 303 tests and needs no network.
+- **Offline suite:** `python -m pytest` runs 365 tests and needs no network.
   `tests/conftest.py` points preferences, monitoring and snapshots at temporary
   folders, so tests never touch real user data.
 - **Live checks:** `python -m pytest -m integration` runs 5 tests against the
   real APIs.
 - **App states:** headless `streamlit.testing.v1.AppTest` covers every page
   state, with the network replaced by fakes.
+
+## Device location
+
+`src/geolocation.py` holds a components-v2 script that runs in the page (no iframe, so no iframe
+permission policy is involved). It answers each numbered request exactly once: coordinates, or a
+reason code. Python validates the result and applies it only if the request number matches the one
+pending. The coordinates live in `st.session_state` only. Exact coordinates go to the Open-Meteo
+Forecast API; coordinates rounded to 2 decimals go to Nominatim, cached and throttled to 1 request
+per second.

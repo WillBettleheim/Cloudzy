@@ -28,6 +28,7 @@ the UI comes only after the ML pipeline works and has been measured.
 
 | Area | Features |
 |---|---|
+| **Your location** | "Use my location": a one-time browser location lookup with permission. The weather is fetched for the exact coordinates, and the place name comes from OpenStreetMap. Clear messages for every failure; manual search is always available |
 | **Weather app** | City search with a match picker (same-name places kept apart by coordinates); current conditions; next 24 hours (cards and graph); 7-day forecast; detail cards (UV, humidity and dew point, wind, feels-like, rain, clouds, pressure, visibility, sun) |
 | **Preferences** | °C/°F, km/h, m/s, mph or knots, mm/in; defaults follow the place's region; favourite places; adjustable alert thresholds; all saved locally |
 | **Weather intelligence** | "Cloudzy says" summary, unofficial alerts (reason, value, period, uncertainty), daily briefing, suggestions with reasons (umbrella, clothing, outdoor comfort, UV). Rule-based, built from the forecast numbers, with no language model |
@@ -46,7 +47,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 streamlit run streamlit_app.py   # the app: weather at http://localhost:8501, Cloudzy Lab at /lab
-python -m pytest                 # 303 offline tests, no network needed
+python -m pytest                 # 365 offline tests, no network needed
 python -m pytest -m integration   # 5 live checks against the Open-Meteo APIs
 python -m src.data_validation    # download (first run only), validate, write processed CSV
 python -m src.features           # build the feature table
@@ -736,7 +737,7 @@ trained on 2023-01-02 → 2026-08-31.
 
 | Suite | What it covers | How to run |
 |---|---|---|
-| Offline (303) | Everything in phases A–E, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
+| Offline (365) | Everything in phases A–E, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
 | Integration (5) | Live calls: both archive sources validate, live IFS inputs give 25 complete hours, the provider forecast and geocoding work, and a nonsense search returns nothing | `python -m pytest -m integration` |
 
 GitHub Actions (`.github/workflows/tests.yml`) runs the offline suite on every
@@ -844,6 +845,90 @@ are written in plain language ("the weather service didn't respond within
   52,417 rounded values between runs.
 - **Still checked:** all 17 reproduction checks pass.
 
+## Device location ("Use my location")
+
+Open the app at **http://localhost:8501** (or over HTTPS). Browsers only share
+location with secure pages: `localhost` counts, a `http://192.168…` network
+address does not. Then press **📍 Use my location**.
+
+**How it works.**
+1. **The browser script** (`src/geolocation.py`) is a small Streamlit
+   components-v2 script that runs in the app page itself, not in a sandboxed
+   iframe. It calls `navigator.geolocation.getCurrentPosition` **once** per
+   request (high accuracy, 15 s timeout, fixes up to 60 s old accepted; the
+   timeout can be changed with `CLOUDZY_GEO_TIMEOUT_MS`). The browser shows its
+   own permission prompt, and Cloudzy never tries to get around it. There is no
+   `watchPosition` and no background tracking.
+2. **Validation:** the coordinates are checked (finite, latitude −90…90,
+   longitude −180…180) before any request is made.
+3. **Weather:** the forecast is requested from Open-Meteo for those **exact**
+   coordinates, through the same validated client as city search. The whole
+   dashboard, local time zone and Cloudzy Core section switch to that location.
+4. **Place name:** this comes from **Nominatim**, OpenStreetMap's reverse
+   geocoder, because Open-Meteo's geocoding API only searches by name.
+   - *Rounded coordinates:* Nominatim receives coordinates rounded to 2
+     decimals (about 1 km), enough for a city name.
+   - *Policy compliance:* Cloudzy sends an identifying User-Agent, caches
+     results, and makes at most one request per second, as the
+     [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/)
+     requires. Place names are © OpenStreetMap contributors (ODbL), credited
+     under the location line.
+   - *If there is no name* (for example over the open ocean) or Nominatim
+     fails, Cloudzy shows "Your current location" and still loads the weather.
+
+**Every outcome has a message, a next step, and manual search beside it:**
+
+| Situation | What the user sees |
+|---|---|
+| Waiting | "Finding your location…" with **Cancel**. The rest of the page keeps working |
+| Permission denied | How to allow location in the browser's site settings, **Try again**, search |
+| Position unavailable | Check device location services, **Try again**, search |
+| Timeout | It took too long, **Try again** |
+| Unanswered permission prompt | After 75 s: "No answer to the location request", **Try again**, so it never loads forever |
+| Unsupported browser | Search instead (no retry) |
+| Insecure page (not HTTPS or localhost) | Open it at localhost, or search; never "disable security" |
+| Invalid coordinates | Rejected before any request |
+| Place-name lookup fails | "Your current location"; the weather still loads |
+| Weather API or network failure | The location is kept; error plus **Try again** |
+
+**Request handling.**
+- **Numbered requests:** each request gets a number, and a browser answer is
+  used only if it matches the request still pending. Double clicks reuse it,
+  a late answer after the user chose a city is ignored, and a refresh can't be
+  overwritten by an older answer.
+- **Refresh and switching back:** **Refresh location** asks once more.
+  **Search for a city instead** returns to the last manual choice, and picking
+  a favourite also switches to manual.
+- **Two separate times:** the page shows when the location was detected (with
+  its accuracy) apart from when the weather was updated.
+
+**Privacy.**
+- **Not stored:** coordinates live only in the browser session. They are
+  never written to disk, logs or the URL (the city is removed from the URL
+  while device location is shown).
+- **Not sent elsewhere:** they go only to Open-Meteo (weather) and, rounded,
+  to Nominatim (place name).
+- **Opt-in auto-detect:** "Detect my location when Cloudzy opens" is optional
+  and stores only that on/off choice. It is skipped when a link names a city.
+- **No favourite for device locations:** saving the device location as a
+  favourite isn't offered (search for the city to save it).
+
+**Cloudzy Core** uses the same rule as for searched places: its prediction
+appears only within 15 km of its Delhi training point. Anywhere else the
+weather dashboard works fully and the panel explains why there is no ML
+prediction.
+
+**Verified in a real browser on localhost (2026-10-19):**
+- **Denial path:** the in-app browser pane blocks location automatically, and
+  the denial message, **Try again** and manual search all appeared.
+- **Success path:** the page's `navigator.geolocation` was replaced with fixed
+  test coordinates (Tokyo, not a real user location). The real component, real
+  Nominatim and real Open-Meteo then produced "Suginami, Japan", with weather
+  in JST.
+
+The automated tests fake the browser and every API; they never use a real
+location.
+
 ## Using a trained model
 
 ```python
@@ -893,6 +978,7 @@ src/insights.py          summary, unofficial alerts, recommendations, daily brie
 src/preferences.py       local preferences: unit override, favourites, alert thresholds
 src/monitoring.py        live prediction log and delayed scoring against the reanalysis
 src/history.py           historical weather explorer (archive API)
+src/geolocation.py       one-time browser location, request handling, reverse geocoding (Nominatim)
 docs/ARCHITECTURE.md     architecture diagram, layers, data types, local state
 streamlit_app.py         entry point: navigation between the two pages
 app_pages/weather.py     the weather app (Phase D)
@@ -906,7 +992,7 @@ DEPLOYMENT.md            deployment and maintenance guide
 .github/workflows/       CI: offline tests on push, live API checks weekly
 reports/lab/             the Lab's committed data (~600 KB)
 .streamlit/config.toml   brand theme: light and dark palettes
-tests/                   303 offline tests + 5 live integration tests
+tests/                   365 offline tests + 5 live integration tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
 ```

@@ -49,6 +49,7 @@ class Preferences:
     units: dict | None = None            # None = use the selected place's regional default
     favourites: list[dict] = field(default_factory=list)
     alerts: AlertThresholds = field(default_factory=AlertThresholds)
+    auto_locate: bool = False            # opt-in; only this on/off choice is stored, never coordinates
 
     def unit_override(self) -> U.Units | None:
         if not self.units:
@@ -114,6 +115,7 @@ def load(path: Path | None = None) -> Preferences:
             if isinstance(value, (int, float)) and lo <= value <= hi:
                 setattr(defaults, key, float(value))
         prefs.alerts = defaults
+    prefs.auto_locate = raw.get("auto_locate") is True
     return prefs
 
 
@@ -121,7 +123,8 @@ def save(prefs: Preferences, path: Path | None = None) -> None:
     path = Path(path or prefs_path())
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {"units": prefs.units, "favourites": prefs.favourites,
-            "alerts": {k: getattr(prefs.alerts, k) for k in AlertThresholds.LIMITS}}
+            "alerts": {k: getattr(prefs.alerts, k) for k in AlertThresholds.LIMITS},
+            "auto_locate": bool(prefs.auto_locate)}
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
     tmp.replace(path)
