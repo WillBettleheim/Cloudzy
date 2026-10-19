@@ -6,6 +6,7 @@ can always be traced back to an exact location, period, source and variable set.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -43,9 +44,22 @@ START_DATE = date(2023, 1, 1)
 END_DATE = date(2025, 12, 31)
 
 # A single reanalysis model instead of Open-Meteo's default "best_match" blend,
-# so the data source is homogeneous across the whole period. ERA5 is ECMWF's
-# global reanalysis on a ~0.25° (~25 km) grid.
-WEATHER_MODEL = "era5"
+# so the data source is homogeneous across the whole period.
+#   era5_seamless (default): ERA5-Land (~0.1°, ~9 km) for temperature and
+#         humidity, which evolve smoothly hour to hour, and ERA5 for the
+#         variables ERA5-Land does not provide through Open-Meteo (pressure,
+#         wind, precipitation are all-null for plain "era5_land").
+#   era5: ECMWF ERA5, ~0.25° (~25 km). At this grid cell its hourly 2 m
+#         temperature steps unevenly at fixed UTC hours (see README), which
+#         flatters any model that knows the hour of day. Kept for comparison.
+# Override per run with:  CLOUDZY_WEATHER_MODEL=era5 python -m ...
+SUPPORTED_WEATHER_MODELS = ("era5_seamless", "era5")
+WEATHER_MODEL = os.environ.get("CLOUDZY_WEATHER_MODEL", "era5_seamless")
+if WEATHER_MODEL not in SUPPORTED_WEATHER_MODELS:
+    raise ValueError(f"CLOUDZY_WEATHER_MODEL must be one of {SUPPORTED_WEATHER_MODELS}, got {WEATHER_MODEL!r}")
+
+# Prefix for every generated file, so runs on different sources never collide.
+RUN_TAG = f"{DELHI.slug}_{WEATHER_MODEL}"
 
 # Open-Meteo variable name -> unit we expect the API to report.
 # We request UTC ("GMT") timestamps to avoid any time-zone ambiguity in storage.

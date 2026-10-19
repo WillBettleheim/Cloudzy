@@ -1,0 +1,118 @@
+{
+  "rows_raw": 26304,
+  "rows_clean": 26304,
+  "exact_duplicates_dropped": 0,
+  "was_sorted": true,
+  "missing_timestamps_inserted": 0,
+  "non_numeric_set_to_nan": {},
+  "out_of_range_set_to_nan": {},
+  "missing_values": {
+    "temperature_2m": 0,
+    "relative_humidity_2m": 0,
+    "surface_pressure": 0,
+    "wind_speed_10m": 0,
+    "precipitation": 0
+  },
+  "longest_missing_run_hours": {
+    "temperature_2m": 0,
+    "relative_humidity_2m": 0,
+    "surface_pressure": 0,
+    "wind_speed_10m": 0,
+    "precipitation": 0
+  },
+  "suspicious_temperature_jumps": 0,
+  "start_utc": "2023-01-01T00:00:00+00:00",
+  "end_utc": "2025-12-31T23:00:00+00:00",
+  "summary_stats": {
+    "temperature_2m": {
+      "min": 2.7,
+      "max": 45.6,
+      "mean": 24.448,
+      "std": 7.855
+    },
+    "relative_humidity_2m": {
+      "min": 6.0,
+      "max": 100.0,
+      "mean": 63.838,
+      "std": 23.286
+    },
+    "surface_pressure": {
+      "min": 967.3,
+      "max": 1001.5,
+      "mean": 984.208,
+      "std": 6.581
+    },
+    "wind_speed_10m": {
+      "min": 0.0,
+      "max": 31.3,
+      "mean": 8.766,
+      "std": 4.221
+    },
+    "precipitation": {
+      "min": 0.0,
+      "max": 13.2,
+      "mean": 0.094,
+      "std": 0.49
+    }
+  },
+  "source_metadata": [
+    {
+      "latitude": 28.599998,
+      "longitude": 77.20001,
+      "generationtime_ms": 207.44073390960693,
+      "utc_offset_seconds": 0,
+      "timezone": "GMT",
+      "timezone_abbreviation": "GMT",
+      "elevation": 214.0,
+      "hourly_units": {
+        "time": "iso8601",
+        "temperature_2m": "°C",
+        "relative_humidity_2m": "%",
+        "surface_pressure": "hPa",
+        "wind_speed_10m": "km/h",
+        "precipitation": "mm"
+      },
+      "file": "delhi_era5_seamless_2023-01-01_2023-12-31_b75c6907.json",
+      "retrieved_at_utc": "2026-10-19T06:08:00+00:00"
+    },
+    {
+      "latitude": 28.599998,
+      "longitude": 77.20001,
+      "generationtime_ms": 202.27253437042236,
+      "utc_offset_seconds": 0,
+      "timezone": "GMT",
+      "timezone_abbreviation": "GMT",
+      "elevation": 214.0,
+      "hourly_units": {
+        "time": "iso8601",
+        "temperature_2m": "°C",
+        "relative_humidity_2m": "%",
+        "surface_pressure": "hPa",
+        "wind_speed_10m": "km/h",
+        "precipitation": "mm"
+      },
+      "file": "delhi_era5_seamless_2024-01-01_2024-12-31_f36411fd.json",
+      "retrieved_at_utc": "2026-10-19T06:08:00+00:00"
+    },
+    {
+      "latitude": 28.599998,
+      "longitude": 77.20001,
+      "generationtime_ms": 259.116530418396,
+      "utc_offset_seconds": 0,
+      "timezone": "GMT",
+      "timezone_abbreviation": "GMT",
+      "elevation": 214.0,
+      "hourly_units": {
+        "time": "iso8601",
+        "temperature_2m": "°C",
+        "relative_humidity_2m": "%",
+        "surface_pressure": "hPa",
+        "wind_speed_10m": "km/h",
+        "precipitation": "mm"
+      },
+      "file": "delhi_era5_seamless_2025-01-01_2025-12-31_c1580e07.json",
+      "retrieved_at_utc": "2026-10-19T06:08:01+00:00"
+    }
+  ],
+  "warnings": []
+}

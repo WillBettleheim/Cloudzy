@@ -92,6 +92,20 @@ def test_null_values_from_api_are_counted_not_filled():
     assert report.non_numeric_set_to_nan == {}
 
 
+def test_variable_with_no_values_is_fatal():
+    raw = raw_frame()
+    raw["relative_humidity_2m"] = None
+    with pytest.raises(DataValidationError, match="no values at all"):
+        validate_and_clean(raw, VARS, RANGES)
+
+
+def test_mostly_missing_variable_warns():
+    raw = raw_frame(hours=20)
+    raw.loc[:4, "relative_humidity_2m"] = None
+    _, report = validate_and_clean(raw, VARS, RANGES)
+    assert any("relative_humidity_2m" in w and "25.0% missing" in w for w in report.warnings)
+
+
 def test_temperature_jumps_are_flagged_but_kept():
     raw = raw_frame()
     raw.loc[3, "temperature_2m"] = 40.0

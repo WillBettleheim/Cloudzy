@@ -1,0 +1,765 @@
+{
+  "task": "Predict temperature_2m at t+1h from data available at t (Delhi, era5_seamless)",
+  "splits": {
+    "train": {
+      "rows": 8735,
+      "first_issue_time_utc": "2023-01-02T00:00:00+00:00",
+      "last_issue_time_utc": "2023-12-31T22:00:00+00:00"
+    },
+    "validation": {
+      "rows": 8783,
+      "first_issue_time_utc": "2024-01-01T00:00:00+00:00",
+      "last_issue_time_utc": "2024-12-31T22:00:00+00:00"
+    },
+    "test": {
+      "rows": 8759,
+      "first_issue_time_utc": "2025-01-01T00:00:00+00:00",
+      "last_issue_time_utc": "2025-12-31T22:00:00+00:00"
+    }
+  },
+  "split_note": "Split by issue time. Rows whose target falls in the next split were purged.",
+  "feature_rows": 26279,
+  "tuning": [
+    {
+      "family": "persistence",
+      "params": {},
+      "validation_mae_c": 0.944,
+      "fit_seconds": 0.0
+    },
+    {
+      "family": "diurnal_baseline",
+      "params": {},
+      "validation_mae_c": 0.3274,
+      "fit_seconds": 0.0
+    },
+    {
+      "family": "linear_regression",
+      "params": {},
+      "validation_mae_c": 0.3756,
+      "fit_seconds": 0.01
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": false,
+        "max_depth": 12,
+        "min_samples_leaf": 1
+      },
+      "validation_mae_c": 0.3724,
+      "fit_seconds": 0.63
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": false,
+        "max_depth": 12,
+        "min_samples_leaf": 5
+      },
+      "validation_mae_c": 0.3806,
+      "fit_seconds": 0.58
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": false,
+        "max_depth": null,
+        "min_samples_leaf": 1
+      },
+      "validation_mae_c": 0.3686,
+      "fit_seconds": 0.76
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": false,
+        "max_depth": null,
+        "min_samples_leaf": 5
+      },
+      "validation_mae_c": 0.38,
+      "fit_seconds": 0.62
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": true,
+        "max_depth": 12,
+        "min_samples_leaf": 1
+      },
+      "validation_mae_c": 0.257,
+      "fit_seconds": 0.68
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": true,
+        "max_depth": 12,
+        "min_samples_leaf": 5
+      },
+      "validation_mae_c": 0.2513,
+      "fit_seconds": 0.63
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": true,
+        "max_depth": null,
+        "min_samples_leaf": 1
+      },
+      "validation_mae_c": 0.2568,
+      "fit_seconds": 0.89
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": true,
+        "max_depth": null,
+        "min_samples_leaf": 5
+      },
+      "validation_mae_c": 0.2519,
+      "fit_seconds": 0.7
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.362,
+      "fit_seconds": 0.56
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 15,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.352,
+      "fit_seconds": 1.33
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 31,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.3566,
+      "fit_seconds": 1.0
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 31,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.3561,
+      "fit_seconds": 2.56
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.3597,
+      "fit_seconds": 0.53
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 15,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.3591,
+      "fit_seconds": 1.29
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 31,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.355,
+      "fit_seconds": 0.97
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 31,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.36,
+      "fit_seconds": 2.42
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.2627,
+      "fit_seconds": 0.71
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 15,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.2686,
+      "fit_seconds": 1.65
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 31,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.2619,
+      "fit_seconds": 1.14
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 31,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.2703,
+      "fit_seconds": 2.95
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.2682,
+      "fit_seconds": 0.56
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 15,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.2815,
+      "fit_seconds": 1.39
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 31,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.2721,
+      "fit_seconds": 1.23
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 31,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.2841,
+      "fit_seconds": 3.28
+    }
+  ],
+  "best_per_family": {
+    "persistence": {
+      "params": {},
+      "validation_mae_c": 0.944
+    },
+    "diurnal_baseline": {
+      "params": {},
+      "validation_mae_c": 0.3274
+    },
+    "linear_regression": {
+      "params": {},
+      "validation_mae_c": 0.3756
+    },
+    "random_forest": {
+      "params": {
+        "residual": true,
+        "max_depth": 12,
+        "min_samples_leaf": 5
+      },
+      "validation_mae_c": 0.2513
+    },
+    "gradient_boosting": {
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 31,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.2619
+    }
+  },
+  "selected": {
+    "family": "random_forest",
+    "params": {
+      "residual": true,
+      "max_depth": 12,
+      "min_samples_leaf": 5
+    }
+  },
+  "test_metrics": {
+    "persistence": {
+      "n": 8759,
+      "mae_c": 0.924,
+      "rmse_c": 1.2628,
+      "bias_c": -0.0004,
+      "abs_error_p50_c": 0.7,
+      "abs_error_p90_c": 2.1,
+      "abs_error_p99_c": 4.0,
+      "abs_error_max_c": 6.4
+    },
+    "diurnal_baseline": {
+      "n": 8759,
+      "mae_c": 0.3373,
+      "rmse_c": 0.523,
+      "bias_c": -0.0005,
+      "abs_error_p50_c": 0.215,
+      "abs_error_p90_c": 0.768,
+      "abs_error_p99_c": 1.943,
+      "abs_error_max_c": 5.785
+    },
+    "linear_regression": {
+      "n": 8759,
+      "mae_c": 0.3813,
+      "rmse_c": 0.568,
+      "bias_c": 0.0006,
+      "abs_error_p50_c": 0.262,
+      "abs_error_p90_c": 0.846,
+      "abs_error_p99_c": 2.102,
+      "abs_error_max_c": 6.047
+    },
+    "random_forest": {
+      "n": 8759,
+      "mae_c": 0.2423,
+      "rmse_c": 0.4099,
+      "bias_c": 0.0048,
+      "abs_error_p50_c": 0.141,
+      "abs_error_p90_c": 0.543,
+      "abs_error_p99_c": 1.581,
+      "abs_error_max_c": 6.026
+    },
+    "gradient_boosting": {
+      "n": 8759,
+      "mae_c": 0.2484,
+      "rmse_c": 0.408,
+      "bias_c": 0.0035,
+      "abs_error_p50_c": 0.152,
+      "abs_error_p90_c": 0.556,
+      "abs_error_p99_c": 1.584,
+      "abs_error_max_c": 5.954
+    }
+  },
+  "test_vs_persistence_bootstrap": {
+    "mae_diff_c": -0.6817,
+    "ci95_low_c": -0.7603,
+    "ci95_high_c": -0.5983,
+    "block": "7D",
+    "n_blocks": 53,
+    "n_boot": 1000
+  },
+  "test_vs_diurnal_baseline_bootstrap": {
+    "mae_diff_c": -0.095,
+    "ci95_low_c": -0.1137,
+    "ci95_high_c": -0.0786,
+    "block": "7D",
+    "n_blocks": 53,
+    "n_boot": 1000
+  },
+  "beats_baseline": true,
+  "verdict": "random_forest beats persistence on the test year: MAE 0.242 \u00b0C vs 0.924 \u00b0C (73.8% lower). The 95% week-block bootstrap interval for the MAE difference is [-0.760, -0.598] \u00b0C and excludes zero.",
+  "test_breakdown": {
+    "by_local_hour": {
+      "0": {
+        "persistence": 0.4833,
+        "diurnal_baseline": 0.216,
+        "linear_regression": 0.3467,
+        "random_forest": 0.1823,
+        "gradient_boosting": 0.2012,
+        "n": 365.0
+      },
+      "1": {
+        "persistence": 0.4877,
+        "diurnal_baseline": 0.2203,
+        "linear_regression": 0.2698,
+        "random_forest": 0.1811,
+        "gradient_boosting": 0.1872,
+        "n": 365.0
+      },
+      "2": {
+        "persistence": 0.4162,
+        "diurnal_baseline": 0.2015,
+        "linear_regression": 0.2439,
+        "random_forest": 0.1474,
+        "gradient_boosting": 0.1514,
+        "n": 365.0
+      },
+      "3": {
+        "persistence": 0.4044,
+        "diurnal_baseline": 0.2004,
+        "linear_regression": 0.2881,
+        "random_forest": 0.1651,
+        "gradient_boosting": 0.1714,
+        "n": 365.0
+      },
+      "4": {
+        "persistence": 0.3558,
+        "diurnal_baseline": 0.1866,
+        "linear_regression": 0.4079,
+        "random_forest": 0.1489,
+        "gradient_boosting": 0.1579,
+        "n": 364.0
+      },
+      "5": {
+        "persistence": 0.3066,
+        "diurnal_baseline": 0.1938,
+        "linear_regression": 0.5776,
+        "random_forest": 0.1828,
+        "gradient_boosting": 0.1971,
+        "n": 365.0
+      },
+      "6": {
+        "persistence": 0.9499,
+        "diurnal_baseline": 0.469,
+        "linear_regression": 0.6848,
+        "random_forest": 0.303,
+        "gradient_boosting": 0.2969,
+        "n": 365.0
+      },
+      "7": {
+        "persistence": 2.2323,
+        "diurnal_baseline": 0.7323,
+        "linear_regression": 0.7718,
+        "random_forest": 0.4261,
+        "gradient_boosting": 0.3987,
+        "n": 365.0
+      },
+      "8": {
+        "persistence": 2.3304,
+        "diurnal_baseline": 0.5866,
+        "linear_regression": 0.4067,
+        "random_forest": 0.2882,
+        "gradient_boosting": 0.2839,
+        "n": 365.0
+      },
+      "9": {
+        "persistence": 1.8896,
+        "diurnal_baseline": 0.3857,
+        "linear_regression": 0.2565,
+        "random_forest": 0.2027,
+        "gradient_boosting": 0.2115,
+        "n": 365.0
+      },
+      "10": {
+        "persistence": 1.4395,
+        "diurnal_baseline": 0.3083,
+        "linear_regression": 0.2446,
+        "random_forest": 0.2103,
+        "gradient_boosting": 0.2332,
+        "n": 365.0
+      },
+      "11": {
+        "persistence": 1.04,
+        "diurnal_baseline": 0.5721,
+        "linear_regression": 0.5872,
+        "random_forest": 0.5209,
+        "gradient_boosting": 0.5164,
+        "n": 365.0
+      },
+      "12": {
+        "persistence": 0.6655,
+        "diurnal_baseline": 0.2608,
+        "linear_regression": 0.4376,
+        "random_forest": 0.2537,
+        "gradient_boosting": 0.266,
+        "n": 365.0
+      },
+      "13": {
+        "persistence": 0.3682,
+        "diurnal_baseline": 0.2226,
+        "linear_regression": 0.2365,
+        "random_forest": 0.1808,
+        "gradient_boosting": 0.2034,
+        "n": 365.0
+      },
+      "14": {
+        "persistence": 0.2674,
+        "diurnal_baseline": 0.2641,
+        "linear_regression": 0.3785,
+        "random_forest": 0.23,
+        "gradient_boosting": 0.2355,
+        "n": 365.0
+      },
+      "15": {
+        "persistence": 0.5877,
+        "diurnal_baseline": 0.3247,
+        "linear_regression": 0.4087,
+        "random_forest": 0.2927,
+        "gradient_boosting": 0.2938,
+        "n": 365.0
+      },
+      "16": {
+        "persistence": 1.1129,
+        "diurnal_baseline": 0.3579,
+        "linear_regression": 0.3742,
+        "random_forest": 0.2661,
+        "gradient_boosting": 0.2733,
+        "n": 365.0
+      },
+      "17": {
+        "persistence": 1.5455,
+        "diurnal_baseline": 0.394,
+        "linear_regression": 0.3793,
+        "random_forest": 0.247,
+        "gradient_boosting": 0.2584,
+        "n": 365.0
+      },
+      "18": {
+        "persistence": 1.4326,
+        "diurnal_baseline": 0.3807,
+        "linear_regression": 0.3383,
+        "random_forest": 0.2447,
+        "gradient_boosting": 0.2551,
+        "n": 365.0
+      },
+      "19": {
+        "persistence": 1.0679,
+        "diurnal_baseline": 0.3421,
+        "linear_regression": 0.2705,
+        "random_forest": 0.2101,
+        "gradient_boosting": 0.2214,
+        "n": 365.0
+      },
+      "20": {
+        "persistence": 0.8307,
+        "diurnal_baseline": 0.2726,
+        "linear_regression": 0.239,
+        "random_forest": 0.1652,
+        "gradient_boosting": 0.1778,
+        "n": 365.0
+      },
+      "21": {
+        "persistence": 0.7277,
+        "diurnal_baseline": 0.2883,
+        "linear_regression": 0.2231,
+        "random_forest": 0.1876,
+        "gradient_boosting": 0.1911,
+        "n": 365.0
+      },
+      "22": {
+        "persistence": 0.6403,
+        "diurnal_baseline": 0.2641,
+        "linear_regression": 0.2592,
+        "random_forest": 0.1759,
+        "gradient_boosting": 0.1794,
+        "n": 365.0
+      },
+      "23": {
+        "persistence": 0.5929,
+        "diurnal_baseline": 0.4492,
+        "linear_regression": 0.5216,
+        "random_forest": 0.4018,
+        "gradient_boosting": 0.4003,
+        "n": 365.0
+      }
+    },
+    "by_month": {
+      "1": {
+        "persistence": 1.0077,
+        "diurnal_baseline": 0.305,
+        "linear_regression": 0.3937,
+        "random_forest": 0.2212,
+        "gradient_boosting": 0.2321,
+        "n": 743.0
+      },
+      "2": {
+        "persistence": 1.0597,
+        "diurnal_baseline": 0.3052,
+        "linear_regression": 0.3969,
+        "random_forest": 0.2279,
+        "gradient_boosting": 0.2283,
+        "n": 672.0
+      },
+      "3": {
+        "persistence": 1.2476,
+        "diurnal_baseline": 0.3439,
+        "linear_regression": 0.43,
+        "random_forest": 0.2524,
+        "gradient_boosting": 0.2513,
+        "n": 744.0
+      },
+      "4": {
+        "persistence": 1.2969,
+        "diurnal_baseline": 0.3694,
+        "linear_regression": 0.4539,
+        "random_forest": 0.2704,
+        "gradient_boosting": 0.2707,
+        "n": 720.0
+      },
+      "5": {
+        "persistence": 1.0117,
+        "diurnal_baseline": 0.4735,
+        "linear_regression": 0.4571,
+        "random_forest": 0.3226,
+        "gradient_boosting": 0.3316,
+        "n": 744.0
+      },
+      "6": {
+        "persistence": 0.7646,
+        "diurnal_baseline": 0.4698,
+        "linear_regression": 0.3857,
+        "random_forest": 0.2927,
+        "gradient_boosting": 0.3042,
+        "n": 720.0
+      },
+      "7": {
+        "persistence": 0.5103,
+        "diurnal_baseline": 0.3146,
+        "linear_regression": 0.347,
+        "random_forest": 0.264,
+        "gradient_boosting": 0.2735,
+        "n": 744.0
+      },
+      "8": {
+        "persistence": 0.4565,
+        "diurnal_baseline": 0.2468,
+        "linear_regression": 0.2869,
+        "random_forest": 0.2041,
+        "gradient_boosting": 0.2149,
+        "n": 744.0
+      },
+      "9": {
+        "persistence": 0.6454,
+        "diurnal_baseline": 0.2699,
+        "linear_regression": 0.2649,
+        "random_forest": 0.177,
+        "gradient_boosting": 0.1899,
+        "n": 720.0
+      },
+      "10": {
+        "persistence": 0.8492,
+        "diurnal_baseline": 0.412,
+        "linear_regression": 0.3972,
+        "random_forest": 0.2748,
+        "gradient_boosting": 0.2761,
+        "n": 744.0
+      },
+      "11": {
+        "persistence": 1.1618,
+        "diurnal_baseline": 0.2685,
+        "linear_regression": 0.392,
+        "random_forest": 0.1992,
+        "gradient_boosting": 0.1945,
+        "n": 720.0
+      },
+      "12": {
+        "persistence": 1.0956,
+        "diurnal_baseline": 0.2661,
+        "linear_regression": 0.3715,
+        "random_forest": 0.1985,
+        "gradient_boosting": 0.2111,
+        "n": 744.0
+      }
+    },
+    "by_season": {
+      "monsoon": {
+        "persistence": 0.5924,
+        "diurnal_baseline": 0.3246,
+        "linear_regression": 0.321,
+        "random_forest": 0.2345,
+        "gradient_boosting": 0.2456,
+        "n": 2928.0
+      },
+      "post-monsoon": {
+        "persistence": 1.0029,
+        "diurnal_baseline": 0.3414,
+        "linear_regression": 0.3946,
+        "random_forest": 0.2376,
+        "gradient_boosting": 0.2359,
+        "n": 1464.0
+      },
+      "pre-monsoon": {
+        "persistence": 1.1842,
+        "diurnal_baseline": 0.3959,
+        "linear_regression": 0.4469,
+        "random_forest": 0.282,
+        "gradient_boosting": 0.2847,
+        "n": 2208.0
+      },
+      "winter": {
+        "persistence": 1.0541,
+        "diurnal_baseline": 0.2917,
+        "linear_regression": 0.387,
+        "random_forest": 0.2155,
+        "gradient_boosting": 0.2237,
+        "n": 2159.0
+      }
+    }
+  },
+  "figures": [
+    "reports/figures/delhi_era5_seamless/test_predicted_vs_observed.png",
+    "reports/figures/delhi_era5_seamless/test_error_distribution.png",
+    "reports/figures/delhi_era5_seamless/test_mae_by_hour.png",
+    "reports/figures/delhi_era5_seamless/test_mae_by_month.png"
+  ],
+  "provenance": {
+    "created_at_utc": "2026-10-19T06:10:59+00:00",
+    "python": "3.13.6",
+    "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "packages": {
+      "numpy": "2.5.4",
+      "pandas": "3.0.6",
+      "scikit-learn": "1.9.1",
+      "joblib": "1.6.0",
+      "requests": "2.34.2",
+      "matplotlib": "3.11.2"
+    },
+    "random_seed": 42,
+    "data": {
+      "source": "Open-Meteo Historical Weather API",
+      "model": "era5_seamless",
+      "location": "New Delhi, India",
+      "requested_lat_lon": [
+        28.6139,
+        77.209
+      ],
+      "processed_file": "delhi_hourly_era5_seamless_2023-01-01_2025-12-31.csv"
+    }
+  }
+}

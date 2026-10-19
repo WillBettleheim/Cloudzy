@@ -8,11 +8,12 @@ explicitly.
 
 Fatal:        missing columns, wrong units, non-UTC timestamps, unparseable or
               off-the-hour timestamps, duplicate timestamps with *conflicting*
-              values, empty data.
+              values, empty data, a variable with no values at all.
 Recoverable:  exact duplicate rows (dropped), unsorted rows (sorted), missing
               hours (inserted as NaN rows, flagged in `is_gap_fill`),
               non-numeric or physically implausible values (set to NaN).
-Flag only:    suspiciously large hour-to-hour temperature jumps (counted, kept).
+Flag only:    suspiciously large hour-to-hour temperature jumps (counted, kept);
+              variables more than 5% missing (warning).
 
 Run:  python -m src.data_validation
 """
@@ -36,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 TIME_FORMAT = "%Y-%m-%dT%H:%M"
 MAX_PLAUSIBLE_TEMP_JUMP_C = 8.0  # per hour; flagged, not removed
+MISSING_WARN_FRACTION = 0.05
 
 
 class DataValidationError(ValueError):
@@ -187,7 +189,14 @@ def validate_and_clean(
 
     # --- Summary ------------------------------------------------------------
     for var in variables:
-        report.missing_values[var] = int(df[var].isna().sum())
+        n_missing = int(df[var].isna().sum())
+        if n_missing == len(df):
+            raise DataValidationError(
+                f"'{var}' has no values at all; the selected weather model may not provide it"
+            )
+        if n_missing > MISSING_WARN_FRACTION * len(df):
+            report.warnings.append(f"'{var}' is {100 * n_missing / len(df):.1f}% missing")
+        report.missing_values[var] = n_missing
         report.longest_missing_run_hours[var] = _longest_nan_run(df[var])
         s = df[var]
         report.summary_stats[var] = {
@@ -233,7 +242,7 @@ def run_pipeline(force_download: bool = False) -> tuple[pd.DataFrame, QualityRep
 
     out = processed_path()
     save_processed(clean, out)
-    report_path = config.REPORTS_DIR / f"data_quality_{config.DELHI.slug}.json"
+    report_path = config.REPORTS_DIR / f"data_quality_{config.RUN_TAG}.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
     logger.info("Processed data: %s (%d rows, %s → %s)", out.name, report.rows_clean,

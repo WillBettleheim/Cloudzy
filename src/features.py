@@ -153,9 +153,9 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = FeatureConfig()
     table, report = build_features(load_processed(processed_path()), cfg)
-    out = config.PROCESSED_DIR / f"{config.DELHI.slug}_features_h{cfg.horizon_hours}.csv"
+    out = config.PROCESSED_DIR / f"{config.RUN_TAG}_features_h{cfg.horizon_hours}.csv"
     table.reset_index().assign(time=lambda d: d["time"].dt.strftime("%Y-%m-%dT%H:%M:%SZ")).to_csv(out, index=False)
-    report_path = config.REPORTS_DIR / f"features_{config.DELHI.slug}.json"
+    report_path = config.REPORTS_DIR / f"features_{config.RUN_TAG}.json"
     report_path.write_text(json.dumps({"config": cfg.to_dict(), **asdict(report)}, indent=2))
     logger.info("Feature table: %s (%d rows, %d features, %d rows dropped)", out.name,
                 report.rows_output, len(report.feature_columns), report.rows_dropped_incomplete)
