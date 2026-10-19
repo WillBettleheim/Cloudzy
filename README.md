@@ -4,7 +4,8 @@ Cloudzy is a weather app backed by **Cloudzy Core**, a machine-learning forecast
 engine evaluated against honest baselines. This repository is built engine-first:
 the UI comes only after the ML pipeline works and has been measured.
 
-> **Status:** Phases A (ML engine) and B (forecast service) are complete for Delhi.
+> **Status:** Phases A (ML engine), B (forecast service) and C (provider forecasts) are complete.
+> Cloudzy's own predictions cover Delhi only; provider forecasts work for any place.
 > - **Research setting** (reanalysis in, reanalysis out): MAE is **0.242 °C** one
 >   hour ahead on the untouched 2025 test year. Persistence scores 0.924 °C and a
 >   climatological diurnal baseline 0.337 °C.
@@ -33,6 +34,10 @@ python -m src.shift              # distribution shift study (~15 s)
 python -m src.multistep          # direct vs recursive, horizons 1-24 h; saves the serving bundle (~1 min)
 python -m src.service            # live forecast for Delhi right now (needs internet)
 python -m src.refit              # monthly: refit serving models on data to the latest complete month
+
+# Phase C
+python -m src.provider "Reykjavik"   # Open-Meteo forecast for any place
+python -m src.briefing "New Delhi"   # provider forecast + rain outlook + Cloudzy (Delhi only)
 ```
 
 The data step downloads three yearly files on its first run (about 1 s each).
@@ -425,6 +430,74 @@ with a `ServiceError`, and nothing is imputed.
   1.178). One month is a small sample, so treat these per-horizon gaps as
   noisy.
 
+## Phase C: real provider forecasts
+
+Phase C adds Open-Meteo's operational forecasts next to Cloudzy's predictions.
+The two are kept strictly apart in code and in output:
+- `src/provider.py` returns only provider data.
+- `src/service.py` returns only Cloudzy predictions.
+- `src/briefing.py` places them side by side under separate labels.
+
+```bash
+python -m src.provider "Reykjavik"     # provider forecast for any place
+python -m src.briefing "New Delhi"     # provider forecast + rain outlook + Cloudzy (Delhi only)
+python -m src.briefing "Mumbai" --json # the JSON a front end will consume
+```
+
+**Provider forecast.** This comes from the Open-Meteo Forecast API with
+`models=best_match`, Open-Meteo's default blend of the best models for each
+location. For Delhi it gives the same values as ECMWF IFS, and it also fills
+fields IFS lacks (UV index is all-null under `ecmwf_ifs`). The forecast
+contains:
+- **Current conditions:** temperature, feels-like temperature, humidity, wind,
+  gusts, cloud cover and weather. These are 15-minute model values, not station
+  observations.
+- **Hourly forecast:** 7 days, including precipitation probability.
+- **Daily outlook:** 7 days of min/max temperature, rain total and probability,
+  maximum wind, sunrise and sunset, and UV.
+
+Weather codes are translated with the WMO table Open-Meteo documents. Unknown
+codes are shown as "Unknown (WMO n)" rather than guessed.
+
+**Validation.** Responses are checked before use:
+- **Fatal:** units, section and array lengths, a consecutive hourly sequence, and
+  daily dates being unique.
+- **Removed and reported in `warnings`:** values outside physical bounds that
+  hold anywhere on Earth.
+- **Counted, never filled:** missing values.
+
+**Time zones.** Requests use `timeformat=unixtime`, so every hourly timestamp is
+an unambiguous instant, shown in the place's own time zone. One API quirk
+matters here: Open-Meteo builds *daily* timestamps with one fixed UTC offset,
+so after a daylight-saving change, "2 Nov" arrives as "1 Nov 23:00 −05:00".
+Daily dates are therefore decoded with that same fixed offset. A New York test
+across the 2026-11-01 clock change covers this.
+
+**Location search.** This uses the Open-Meteo Geocoding API (GeoNames). Queries
+need at least 2 characters, and no match returns an empty list. The top result
+is not always the place the user means. For example, "Gurgaon" returns a
+village in Maharashtra, not the city near Delhi (now officially Gurugram). So
+the app must let the user choose from the list.
+
+**Rain indicator.** An hour in the next 24 is flagged when precipitation
+probability is ≥ 50% *or* forecast rain is ≥ 0.5 mm. It is labelled "Derived
+from the provider forecast; not an official weather warning". Open-Meteo does
+not provide official alerts, and Cloudzy doesn't invent them.
+
+**When Cloudzy is shown.** Cloudzy always predicts for one point: the Delhi grid
+cell it was trained on. It is shown only for places within **15 km** of that
+point, and the output names the point and the distance. That covers the Delhi
+geocode (4.8 km) but not Noida (19.8 km) or Gurugram (24.7 km). Further away,
+showing it would put Delhi's weather under another city's name. If live inputs
+fail validation or the network fails, the Cloudzy block gives the reason, and
+the provider forecast is still shown.
+
+**Rate limits.** A Delhi briefing makes three API calls: geocoding, provider
+forecast, and live IFS inputs. During testing Open-Meteo returned
+`HTTP 503 service overloaded` three times in a row, and the existing
+retry-with-backoff recovered on the fourth attempt. The Phase D app must cache
+responses (for example, 10 minutes per place).
+
 ## Using a trained model
 
 ```python
@@ -464,6 +537,8 @@ src/shift.py             reanalysis vs live-source comparison and shift experime
 src/multistep.py         direct vs recursive multi-step evaluation; serving bundle
 src/service.py           live inputs → validated → labelled Cloudzy + provider forecasts
 src/refit.py             monthly refit of the serving models, held-out check, dated backup
+src/provider.py          Open-Meteo provider forecasts and location search (provider data only)
+src/briefing.py          provider forecast, rain outlook and Cloudzy side by side, labelled
 tests/                   124 offline tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
@@ -480,7 +555,7 @@ Three modules go beyond the suggested layout, and each has a reason:
 - **B — Forecast service** ✅ live IFS inputs, shift study, direct multi-horizon models, service.
   Monthly refit is now a command (`python -m src.refit`); scheduling it is up to the host (e.g. cron).
   Open follow-up: measuring the real-time vs. archive input gap from snapshots.
-- **C — Real weather:** the Open-Meteo forecast API, kept clearly separate from Cloudzy's own predictions
+- **C — Real weather** ✅ provider current/hourly/7-day forecasts, location search, rain indicator, labelled briefing
 - **D — Web app:** Streamlit and Plotly
 - **E — Cloudzy Lab:** a model-evaluation dashboard
 - **F — Quality and deployment**
