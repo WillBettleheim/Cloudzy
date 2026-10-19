@@ -164,7 +164,7 @@ def horizon_mae(serving: pd.DataFrame) -> pd.DataFrame:
     ).groupby("horizon_h")[["cloudzy", "provider", "persistence"]].mean()
 
 
-def horizon_chart(serving: pd.DataFrame, colors: dict) -> go.Figure:
+def horizon_chart(serving: pd.DataFrame, colors: dict, deployed: dict | None = None) -> go.Figure:
     """Live setting: MAE by horizon for Cloudzy and the provider's own values.
 
     Persistence is left out on purpose: its 4-6 °C errors at mid horizons would
@@ -172,8 +172,14 @@ def horizon_chart(serving: pd.DataFrame, colors: dict) -> go.Figure:
     """
     g = horizon_mae(serving)
     fig = go.Figure()
+    if deployed:  # the compact models actually served by the app (src.compact)
+        hs = sorted(int(h) for h in deployed)
+        fig.add_scatter(x=hs, y=[deployed[h] if h in deployed else deployed[str(h)] for h in hs],
+                        name="Cloudzy deployed (compact)", mode="lines+markers",
+                        line={"color": colors["third"], "width": 2, "dash": "dash"}, marker={"size": 7},
+                        hovertemplate="%{y:.2f} °C<extra>Deployed (compact)</extra>")
     for col, name, color, dash in (("provider", "IFS value at t+h (optimistic)", colors["provider"], None),
-                                   ("cloudzy", "Cloudzy (direct)", colors["cloudzy"], None)):
+                                   ("cloudzy", "Cloudzy research forest", colors["cloudzy"], None)):
         fig.add_scatter(x=g.index, y=g[col], name=name, mode="lines+markers",
                         line={"color": color, "width": 2, "dash": dash}, marker={"size": 7},
                         hovertemplate=f"%{{y:.2f}} °C<extra>{name}</extra>")

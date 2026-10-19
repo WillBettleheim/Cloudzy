@@ -92,9 +92,11 @@ def test_horizon_chart_aggregates_per_horizon():
                             "persistence": [10.0, 10, 10, 10]}, index=idx)
     fig = lab_ui.horizon_chart(serving, lab_ui.lab_palette("light"))
     by_name = {t.name: list(t.y) for t in fig.data}
-    assert by_name["Cloudzy (direct)"] == [1.0, 2.0]
+    assert by_name["Cloudzy research forest"] == [1.0, 2.0]
     assert by_name["IFS value at t+h (optimistic)"] == [0.0, 3.0]
     assert "Persistence" not in by_name  # reported in text instead; it would squash the scale
+    with_deployed = lab_ui.horizon_chart(serving, lab_ui.lab_palette(), {1: 0.9, 24: 1.9})
+    assert [t.name for t in with_deployed.data][0] == "Cloudzy deployed (compact)"
     assert list(lab_ui.horizon_mae(serving)["persistence"]) == [0.0, 0.0]
 
 

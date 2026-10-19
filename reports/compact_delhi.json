@@ -1,0 +1,237 @@
+{
+  "constraint": "compressed bundle <= 50.0 MB",
+  "bundle_file": "cloudzy_core_delhi_serving_compact.joblib",
+  "bundle_size_mb": 1.93,
+  "research_bundle_size_note": "random-forest serving bundle: 1.8 GB raw, 408 MB compressed",
+  "protocol": "Tuned on 2024 (fit 2023), tested once on 2025 (fit 2023-2024); deployed fit 2023-2025.",
+  "horizons": {
+    "1": {
+      "params": {
+        "residual": true,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.8487,
+      "compact_test": {
+        "n": 8736,
+        "mae_c": 1.1191,
+        "rmse_c": 1.4217,
+        "bias_c": 0.7792,
+        "abs_error_p50_c": 0.929,
+        "abs_error_p90_c": 2.36,
+        "abs_error_p99_c": 3.695,
+        "abs_error_max_c": 7.842
+      },
+      "research_rf_test_mae_c": 1.0988,
+      "provider_optimistic_test_mae_c": 1.419,
+      "compact_vs_research_rf": {
+        "mae_diff_c": 0.0202,
+        "ci95_low_c": -0.0152,
+        "ci95_high_c": 0.0547,
+        "block": "7D",
+        "n_blocks": 52,
+        "n_boot": 1000
+      },
+      "compact_vs_provider": {
+        "mae_diff_c": -0.2999,
+        "ci95_low_c": -0.3894,
+        "ci95_high_c": -0.2161,
+        "block": "7D",
+        "n_blocks": 52,
+        "n_boot": 1000
+      },
+      "model_size_mb": 0.24
+    },
+    "2": {
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 31,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.8853,
+      "compact_test": {
+        "n": 8736,
+        "mae_c": 1.124,
+        "rmse_c": 1.4347,
+        "bias_c": 0.7701,
+        "abs_error_p50_c": 0.916,
+        "abs_error_p90_c": 2.37,
+        "abs_error_p99_c": 3.82,
+        "abs_error_max_c": 6.537
+      },
+      "research_rf_test_mae_c": 1.1201,
+      "provider_optimistic_test_mae_c": 1.419,
+      "compact_vs_research_rf": {
+        "mae_diff_c": 0.0039,
+        "ci95_low_c": -0.0304,
+        "ci95_high_c": 0.0379,
+        "block": "7D",
+        "n_blocks": 52,
+        "n_boot": 1000
+      },
+      "compact_vs_provider": {
+        "mae_diff_c": -0.295,
+        "ci95_low_c": -0.3846,
+        "ci95_high_c": -0.2098,
+        "block": "7D",
+        "n_blocks": 52,
+        "n_boot": 1000
+      },
+      "model_size_mb": 0.49
+    },
+    "3": {
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 31,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.9159,
+      "compact_test": {
+        "n": 8736,
+        "mae_c": 1.1274,
+        "rmse_c": 1.4469,
+        "bias_c": 0.7693,
+        "abs_error_p50_c": 0.916,
+        "abs_error_p90_c": 2.357,
+        "abs_error_p99_c": 3.838,
+        "abs_error_max_c": 7.117
+      },
+      "research_rf_test_mae_c": 1.1536,
+      "provider_optimistic_test_mae_c": 1.419,
+      "compact_vs_research_rf": {
+        "mae_diff_c": -0.0263,
+        "ci95_low_c": -0.0689,
+        "ci95_high_c": 0.0143,
+        "block": "7D",
+        "n_blocks": 52,
+        "n_boot": 1000
+      },
+      "compact_vs_provider": {
+        "mae_diff_c": -0.2916,
+        "ci95_low_c": -0.391,
+        "ci95_high_c": -0.1999,
+        "block": "7D",
+        "n_blocks": 52,
+        "n_boot": 1000
+      },
+      "model_size_mb": 0.49
+    },
+    "6": {
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "validation_mae_c": 1.0235,
+      "compact_test": {
+        "n": 8736,
+        "mae_c": 1.2319,
+        "rmse_c": 1.5797,
+        "bias_c": 0.7582,
+        "abs_error_p50_c": 1.008,
+        "abs_error_p90_c": 2.554,
+        "abs_error_p99_c": 4.408,
+        "abs_error_max_c": 9.096
+      },
+      "research_rf_test_mae_c": 1.2144,
+      "provider_optimistic_test_mae_c": 1.4189,
+      "compact_vs_research_rf": {
+        "mae_diff_c": 0.0175,
+        "ci95_low_c": -0.0176,
+        "ci95_high_c": 0.0534,
+        "block": "7D",
+        "n_blocks": 52,
+        "n_boot": 1000
+      },
+      "compact_vs_provider": {
+        "mae_diff_c": -0.187,
+        "ci95_low_c": -0.2931,
+        "ci95_high_c": -0.0882,
+        "block": "7D",
+        "n_blocks": 52,
+        "n_boot": 1000
+      },
+      "model_size_mb": 0.24
+    },
+    "12": {
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "validation_mae_c": 1.1675,
+      "compact_test": {
+        "n": 8736,
+        "mae_c": 1.2828,
+        "rmse_c": 1.6542,
+        "bias_c": 0.7312,
+        "abs_error_p50_c": 1.041,
+        "abs_error_p90_c": 2.669,
+        "abs_error_p99_c": 4.658,
+        "abs_error_max_c": 8.492
+      },
+      "research_rf_test_mae_c": 1.2866,
+      "provider_optimistic_test_mae_c": 1.4192,
+      "compact_vs_research_rf": {
+        "mae_diff_c": -0.0038,
+        "ci95_low_c": -0.0346,
+        "ci95_high_c": 0.0288,
+        "block": "7D",
+        "n_blocks": 52,
+        "n_boot": 1000
+      },
+      "compact_vs_provider": {
+        "mae_diff_c": -0.1364,
+        "ci95_low_c": -0.2554,
+        "ci95_high_c": -0.0255,
+        "block": "7D",
+        "n_blocks": 52,
+        "n_boot": 1000
+      },
+      "model_size_mb": 0.24
+    },
+    "24": {
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "validation_mae_c": 1.3862,
+      "compact_test": {
+        "n": 8736,
+        "mae_c": 1.3434,
+        "rmse_c": 1.7265,
+        "bias_c": 0.587,
+        "abs_error_p50_c": 1.101,
+        "abs_error_p90_c": 2.761,
+        "abs_error_p99_c": 5.058,
+        "abs_error_max_c": 8.536
+      },
+      "research_rf_test_mae_c": 1.3699,
+      "provider_optimistic_test_mae_c": 1.4203,
+      "compact_vs_research_rf": {
+        "mae_diff_c": -0.0264,
+        "ci95_low_c": -0.0517,
+        "ci95_high_c": 0.0003,
+        "block": "7D",
+        "n_blocks": 52,
+        "n_boot": 1000
+      },
+      "compact_vs_provider": {
+        "mae_diff_c": -0.0769,
+        "ci95_low_c": -0.249,
+        "ci95_high_c": 0.0735,
+        "block": "7D",
+        "n_blocks": 52,
+        "n_boot": 1000
+      },
+      "model_size_mb": 0.24
+    }
+  }
+}

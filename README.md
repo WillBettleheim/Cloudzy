@@ -4,15 +4,22 @@ Cloudzy is a weather app backed by **Cloudzy Core**, a machine-learning forecast
 engine evaluated against honest baselines. This repository is built engine-first:
 the UI comes only after the ML pipeline works and has been measured.
 
-> **Status:** Phases A–E are complete: ML engine, forecast service, provider forecasts, the web app
-> and Cloudzy Lab, the model-evaluation dashboard.
+[![tests](https://github.com/WillBettleheim/Cloudzy/actions/workflows/tests.yml/badge.svg)](https://github.com/WillBettleheim/Cloudzy/actions/workflows/tests.yml)
+
+> ⚠️ **Experimental student project.** Cloudzy Core's predictions are not an
+> operational weather forecast. For decisions, use the provider forecast shown
+> beside them, or your national weather service.
+
+> **Status:** All phases (A–F) are complete: ML engine, forecast service, provider
+> forecasts, the web app, Cloudzy Lab, and quality and deployment.
 > Cloudzy's own predictions cover Delhi only; provider forecasts work for any place.
+> See the [model card](MODEL_CARD.md) and the [deployment guide](DEPLOYMENT.md).
 > - **Research setting** (reanalysis in, reanalysis out): MAE is **0.242 °C** one
 >   hour ahead on the untouched 2025 test year. Persistence scores 0.924 °C and a
 >   climatological diurnal baseline 0.337 °C.
-> - **Live setting** (real-time ECMWF IFS inputs): MAE is **1.10 °C** one hour
->   ahead and **1.37 °C** 24 hours ahead. The bottleneck is the disagreement
->   between the two data sources, not the model.
+> - **Live setting** (real-time ECMWF IFS inputs, deployed 2 MB models): MAE is
+>   **1.12 °C** one hour ahead and **1.34 °C** 24 hours ahead. The bottleneck is
+>   the disagreement between the two data sources, not the model.
 >
 > All errors are measured against **reanalysis data, not a thermometer**.
 
@@ -24,7 +31,8 @@ python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-python -m pytest                 # 171 offline tests, no network needed
+python -m pytest                 # 179 offline tests, no network needed
+python -m pytest -m integration   # 5 live checks against the Open-Meteo APIs
 python -m src.data_validation    # download (first run only), validate, write processed CSV
 python -m src.features           # build the feature table
 python -m src.train              # tune on 2024, test on 2025, save model and report (~1 min)
@@ -43,6 +51,9 @@ python -m src.briefing "New Delhi"   # provider forecast + rain outlook + Cloudz
 # Phase D and E
 streamlit run streamlit_app.py       # weather app at http://localhost:8501, Cloudzy Lab at /lab
 python -m src.lab_data               # rebuild the Lab's data after re-running the experiments (~15 s)
+
+# Phase F
+python -m src.compact                # size-constrained serving models → the deployed 2 MB bundle (~1 min)
 ```
 
 The data step downloads three yearly files on its first run (about 1 s each).
@@ -561,10 +572,9 @@ minutes per place, because one Delhi page view otherwise makes three API calls.
 Live IFS snapshots are saved to `data/live_snapshots/`; set
 `CLOUDZY_SNAPSHOTS=0` to turn that off.
 
-**Running Cloudzy Core in the app** needs the trained serving bundle
-(`python -m src.multistep`, or a monthly `python -m src.refit`). Model files
-aren't committed. Without one, the Cloudzy tab says so, and everything else
-works.
+**Running Cloudzy Core in the app** uses the compact serving bundle (about 2 MB),
+which is committed (see Phase F). If it's missing, the Cloudzy tab says so, and
+everything else works.
 
 ## Phase E: Cloudzy Lab
 
@@ -612,6 +622,76 @@ by hand.
 - **Live chart scale:** persistence is left off the live-setting chart, because
   its 4–6 °C errors would squash the scale. Its values appear in a caption.
 
+## Phase F: quality and deployment
+
+### A deployable model: 1.8 GB → 2 MB, at no measurable cost
+
+The Phase B serving bundle is six random forests, three grown to full depth:
+**1.8 GB** (408 MB compressed). That is too big for GitHub and for free hosting
+with about 1 GB of memory. So `python -m src.compact` treats size as a
+deployment constraint and re-runs the same honest protocol on models that
+satisfy it:
+- **Candidates:** residual `HistGradientBoostingRegressor` configurations.
+- **Selection:** chosen per horizon on 2024, then tested once on 2025.
+- **Comparison:** compared with the forests' committed 2025 predictions, with
+  bootstrap intervals.
+
+| Horizon | Compact (deployed) | Research forest | Compact − forest (95% CI) | Compact − IFS value (95% CI) |
+|---|---|---|---|---|
+| 1 h | 1.119 | 1.099 | +0.020 [−0.015, +0.055] | −0.300 [−0.389, −0.216] |
+| 2 h | 1.124 | 1.120 | +0.004 [−0.030, +0.038] | −0.295 [−0.385, −0.210] |
+| 3 h | 1.127 | 1.154 | −0.026 [−0.069, +0.014] | −0.292 [−0.391, −0.200] |
+| 6 h | 1.232 | 1.214 | +0.018 [−0.018, +0.053] | −0.187 [−0.293, −0.088] |
+| 12 h | 1.283 | 1.287 | −0.004 [−0.035, +0.029] | −0.136 [−0.255, −0.025] |
+| 24 h | 1.343 | 1.370 | −0.026 [−0.052, +0.000] | −0.077 [−0.249, +0.073] |
+
+What the comparison shows:
+- **No accuracy cost:** no difference from the forest is significant at any
+  horizon (every interval includes zero).
+- **Same conclusion against IFS:** closer to the reanalysis than IFS's own
+  values up to 12 h, and not significantly different at 24 h.
+- **Size:** the bundle is **1.94 MB**, about 950 times smaller, and is
+  committed, so the app runs anywhere.
+- **Service default:** the service uses it by default.
+  `CLOUDZY_SERVING_BUNDLE=/path` selects another bundle.
+
+**Monthly refit.** I ran it for real on 2026-10-19. The refit command compressed
+the bundle (I added `compress=3`, since the bundle is committed), refitted on
+data through August 2026, and checked the new models on held-out September 2026.
+The new models were better at all six horizons (mean MAE 0.939 vs 0.952 °C), so
+they were installed, with a dated backup. The deployed models are therefore
+trained on 2023-01-02 → 2026-08-31.
+
+### Tests
+
+| Suite | What it covers | How to run |
+|---|---|---|
+| Offline (179) | Everything in phases A–E, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
+| Integration (5) | Live calls: both archive sources validate, live IFS inputs give 25 complete hours, the provider forecast and geocoding work, and a nonsense search returns nothing | `python -m pytest -m integration` |
+
+GitHub Actions (`.github/workflows/tests.yml`) runs the offline suite on every
+push and pull request, and the live checks every Monday or on demand. These
+catch upstream API changes before users do.
+
+### Documentation
+
+- **[MODEL_CARD.md](MODEL_CARD.md):** intended use and out-of-scope uses, data
+  and licences, the evaluation protocol and results, limitations, ethical
+  considerations and maintenance.
+- **[DEPLOYMENT.md](DEPLOYMENT.md):** step-by-step Streamlit Community Cloud
+  deployment (free, no secrets needed), the monthly model update, CI and API
+  usage limits.
+
+### Experimental vs. operational
+
+The distinction is kept consistent across the whole project:
+- **Order:** the provider forecast always comes first. Cloudzy sits in its own
+  labelled panel with its prediction point and average error.
+- **Location limit:** Cloudzy is hidden more than 15 km from its training point.
+- **Rain indicator:** labelled as unofficial.
+- **Disclaimers:** every page footer, the README banner and the model card say
+  that Cloudzy is experimental.
+
 ## Using a trained model
 
 ```python
@@ -632,8 +712,9 @@ The bundle stores:
 - validation and test metrics
 - package versions, Python version, platform, seed and data source
 
-Model files (about 24 MB) are generated by `python -m src.train` and are not
-committed.
+Research model files (the Phase A model is about 24 MB; the forest serving
+bundle 1.8 GB) are generated by the experiment commands and are not committed.
+Only the deployed compact bundle is.
 
 ## Project layout
 
@@ -659,9 +740,14 @@ app_pages/weather.py     the weather app (Phase D)
 app_pages/lab.py         Cloudzy Lab (Phase E)
 src/lab_data.py          refits selected models, exports 2025 test predictions, checks they reproduce
 src/lab_ui.py            Lab metrics and charts (no Streamlit calls; tested)
+src/compact.py           size-constrained serving models (the deployed bundle)
+models/…_serving_compact.joblib   the deployed 2 MB serving bundle (committed)
+MODEL_CARD.md            model card
+DEPLOYMENT.md            deployment and maintenance guide
+.github/workflows/       CI: offline tests on push, live API checks weekly
 reports/lab/             the Lab's committed data (~600 KB)
 .streamlit/config.toml   brand theme: light and dark palettes
-tests/                   171 offline tests
+tests/                   179 offline tests + 5 live integration tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
 ```
@@ -680,7 +766,7 @@ Three modules go beyond the suggested layout, and each has a reason:
 - **C — Real weather** ✅ provider current/hourly/7-day forecasts, location search, rain indicator, labelled briefing
 - **D — Web app** ✅ Streamlit + Plotly: search, current, 48-hour and 7-day views, rain indicator, Cloudzy panel, both themes
 - **E — Cloudzy Lab** ✅ scoreboard, predictions vs observed, error trends, live setting, multi-step, limitations
-- **F — Quality and deployment**
+- **F — Quality and deployment** ✅ 2 MB deployable models, integration tests, CI, model card, deployment guide
 
 ## Attribution and terms
 

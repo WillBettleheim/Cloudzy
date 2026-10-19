@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,7 +48,12 @@ from src.features import TEMP, FeatureConfig, add_features
 
 logger = logging.getLogger(__name__)
 
-SERVING_BUNDLE = config.MODELS_DIR / f"cloudzy_core_{config.DELHI.slug}_serving_direct.joblib"
+# The deployed models: size-constrained gradient boosting (src.compact), about 2 MB
+# and committed to git. The research random-forest bundle (src.multistep) is
+# 1.8 GB. It is no more accurate on 2025, but can be selected with
+# CLOUDZY_SERVING_BUNDLE=/path/to/bundle.joblib.
+SERVING_BUNDLE = Path(os.environ.get(
+    "CLOUDZY_SERVING_BUNDLE", config.MODELS_DIR / f"cloudzy_core_{config.DELHI.slug}_serving_compact.joblib"))
 SNAPSHOT_DIR = config.DATA_DIR / "live_snapshots"
 MIN_HISTORY_HOURS = 25
 CLOUDZY_LABEL = "Cloudzy Core ML prediction (experimental)"
@@ -94,7 +100,7 @@ def fetch_live(location: config.Location = config.DELHI, session: requests.Sessi
 class CloudzyForecaster:
     def __init__(self, bundle_path: Path = SERVING_BUNDLE):
         if not Path(bundle_path).exists():
-            raise FileNotFoundError(f"{bundle_path} not found; run `python -m src.multistep` first")
+            raise FileNotFoundError(f"{bundle_path} not found; run `python -m src.compact` first")
         self.bundle = joblib.load(bundle_path)
         for key in ("horizons", "feature_columns", "feature_config", "test_2025_mae_c"):
             if key not in self.bundle:

@@ -18,6 +18,7 @@ from src.lab_data import LAB_DIR, MULTISTEP_REPORT, load_predictions
 from src.ui import CHART_CONFIG
 
 TZ = config.DELHI.local_timezone
+COMPACT_REPORT = config.REPORTS_DIR / f"compact_{config.DELHI.slug}.json"
 SHIFT_REPORT = config.REPORTS_DIR / f"shift_{config.DELHI.slug}_{config.REANALYSIS.model}_vs_{config.LIVE_ARCHIVE.model}.json"
 MODELS = ["persistence", "diurnal_baseline", "linear_regression", "gradient_boosting", "random_forest"]
 
@@ -31,6 +32,7 @@ def load_lab():
         "manifest": json.loads((LAB_DIR / "manifest.json").read_text()),
         "multistep": json.loads(MULTISTEP_REPORT.read_text()),
         "shift": json.loads(SHIFT_REPORT.read_text()),
+        "compact": json.loads(COMPACT_REPORT.read_text()) if COMPACT_REPORT.exists() else None,
     }
 
 
@@ -146,14 +148,21 @@ with tabs[2]:
 with tabs[3]:
     st.markdown("In the live app, Cloudzy has no reanalysis to work from: it gets **ECMWF IFS** model "
                 "output instead. These charts replay archived IFS inputs for 2025.")
-    chart(lab_ui.horizon_chart(serving, colors))
+    compact = lab["compact"]
+    deployed = {int(h): v["compact_test"]["mae_c"] for h, v in compact["horizons"].items()} if compact else None
+    chart(lab_ui.horizon_chart(serving, colors, deployed))
+    if compact:
+        st.caption(f"The app serves the **compact** models: gradient boosting, {compact['bundle_size_mb']} MB, "
+                   "chosen on 2024 under a size limit. The research random forests are 1.8 GB. On 2025 the two "
+                   "differ by at most 0.03 °C at any horizon, and no difference is statistically significant.")
     pers = lab_ui.horizon_mae(serving)["persistence"]
     st.caption("Persistence is left off the chart because it would squash the scale: its MAE is "
                + ", ".join(f"{v:.2f} °C at {h} h" for h, v in pers.items()) + ".")
     rows = []
     for h, v in lab["multistep"]["part2_serving_live_inputs_to_reanalysis"].items():
-        d = v["direct_vs_provider"]
-        rows.append({"Hours ahead": int(h), "Cloudzy MAE °C": v["direct"]["mae_c"],
+        d = v["direct_vs_provider"]  # research forest vs IFS
+        rows.append({"Hours ahead": int(h), "Research forest MAE °C": v["direct"]["mae_c"],
+                     **({"Deployed compact MAE °C": compact["horizons"][h]["compact_test"]["mae_c"]} if compact else {}),
                      "IFS value (optimistic) MAE °C": v["provider_optimistic"]["mae_c"],
                      "Difference °C": d["mae_diff_c"], "95% CI low": d["ci95_low_c"], "95% CI high": d["ci95_high_c"]})
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", column_config={
@@ -196,3 +205,7 @@ with tabs[5]:
         "between models, not the uncertainty of any single prediction.\n"
         "- **No official warnings.** Neither Cloudzy nor the app's rain indicator is a weather warning. "
         "Use national weather services for safety decisions.")
+
+st.divider()
+st.caption("Weather data by Open-Meteo.com (CC BY 4.0). Reanalysis: Copernicus Climate Change Service "
+           "(ERA5, ERA5-Land). Cloudzy is an experimental student project, not an operational weather service.")

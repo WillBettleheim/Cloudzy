@@ -3,50 +3,50 @@
   "holdout_month": "2026-09",
   "holdout_mae_c": {
     "1": {
-      "new_mae_c": 0.8121,
-      "current_mae_c": 0.8425,
+      "new_mae_c": 0.829,
+      "current_mae_c": 0.8354,
       "holdout_rows": 719,
       "current_saw_holdout": false
     },
     "2": {
-      "new_mae_c": 0.8152,
-      "current_mae_c": 0.8378,
+      "new_mae_c": 0.8602,
+      "current_mae_c": 0.869,
       "holdout_rows": 718,
       "current_saw_holdout": false
     },
     "3": {
-      "new_mae_c": 0.8498,
-      "current_mae_c": 0.869,
+      "new_mae_c": 0.8759,
+      "current_mae_c": 0.9054,
       "holdout_rows": 717,
       "current_saw_holdout": false
     },
     "6": {
-      "new_mae_c": 0.9054,
-      "current_mae_c": 0.9048,
+      "new_mae_c": 0.9174,
+      "current_mae_c": 0.93,
       "holdout_rows": 714,
       "current_saw_holdout": false
     },
     "12": {
-      "new_mae_c": 0.9861,
-      "current_mae_c": 0.9979,
+      "new_mae_c": 0.9841,
+      "current_mae_c": 0.9981,
       "holdout_rows": 708,
       "current_saw_holdout": false
     },
     "24": {
-      "new_mae_c": 1.196,
-      "current_mae_c": 1.1777,
+      "new_mae_c": 1.1677,
+      "current_mae_c": 1.1732,
       "holdout_rows": 696,
       "current_saw_holdout": false
     }
   },
   "mean_holdout_mae_c": {
-    "new": 0.9274,
-    "current": 0.9383
+    "new": 0.939,
+    "current": 0.9518
   },
   "replaced": true,
-  "backup": "cloudzy_core_delhi_serving_direct.backup-2026-10-19.joblib",
+  "backup": "cloudzy_core_delhi_serving_compact.backup-2026-10-19.joblib",
   "provenance": {
-    "created_at_utc": "2026-10-19T06:43:17+00:00",
+    "created_at_utc": "2026-10-19T07:20:26+00:00",
     "command": "python -m src.refit",
     "data_start_date": "2023-01-01",
     "data_end_date": "2026-09-30",
@@ -81,7 +81,7 @@
         "holdout": 696
       }
     },
-    "hyperparameters_from": "cloudzy_core_delhi_serving_direct.joblib",
+    "hyperparameters_from": "cloudzy_core_delhi_serving_compact.joblib",
     "previous_bundle_trained_on": {
       "1": [
         "2023-01-02T00:00:00+00:00",

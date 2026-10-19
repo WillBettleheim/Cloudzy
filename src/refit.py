@@ -187,7 +187,7 @@ def install_bundle(bundle: dict, path: Path, stamp: date) -> Path | None:
     The new bundle is written to a temporary file before anything is moved, so
     a failed write leaves the current bundle in place."""
     tmp = path.with_suffix(".joblib.tmp")
-    joblib.dump(bundle, tmp)
+    joblib.dump(bundle, tmp, compress=3)  # the deployed bundle is committed to git; keep it small
     backup = None
     if path.exists():
         backup = backup_path(path, stamp)
