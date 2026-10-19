@@ -171,8 +171,16 @@ MASCOT_SVG = """<svg width="54" height="40" viewBox="0 0 54 40" aria-hidden="tru
 </svg>"""
 
 
+def mascot_img(width: int = 54) -> str:
+    """The mascot as a data-URI image: st.html's sanitiser strips inline <svg>, but keeps <img>."""
+    import base64
+    svg = MASCOT_SVG.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ', 1)
+    data = base64.b64encode(svg.encode()).decode()
+    return f'<img src="data:image/svg+xml;base64,{data}" width="{width}" alt="" aria-hidden="true">'
+
+
 def brand_html(tagline: str = "Weather with a little intelligence.") -> str:
-    return (f'<div class="cz-brand">{MASCOT_SVG}<div><h2>Cloudzy</h2><p>{escape(tagline)}</p></div></div>')
+    return (f'<div class="cz-brand">{mascot_img()}<div><h2>Cloudzy</h2><p>{escape(tagline)}</p></div></div>')
 
 
 def summary_html(sentences: list[str], title: str = "Cloudzy says") -> str:

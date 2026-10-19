@@ -99,7 +99,8 @@ def pick_favourite() -> None:
 # --- Header, favourites and search -------------------------------------------------------
 
 st.html(V.CSS)
-st.html(V.brand_html())
+# st.html's browser-side sanitiser drops <svg> and data-URI images; markdown keeps the mascot.
+st.markdown(V.brand_html(), unsafe_allow_html=True)
 prefs = P.load()
 
 favs = prefs.favourite_places()
@@ -137,7 +138,7 @@ else:
         start_index = int(params.get("i", 0)) if params.get("q") == query else 0
     except ValueError:
         start_index = 0
-pick_col, fav_col, unit_col = st.columns([6, 1.4, 1.4], vertical_alignment="bottom")
+pick_col, fav_col, unit_col = st.columns([5, 1.5, 1.7], vertical_alignment="bottom")
 with pick_col:
     place = st.selectbox("Choose the right match", places, index=min(max(start_index, 0), len(places) - 1),
                          format_func=place_label, help="Several places can share a name. Pick the one you mean.")

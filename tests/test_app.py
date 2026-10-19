@@ -154,7 +154,8 @@ def test_happy_path_delhi_shows_full_app(fake_network):
         assert f'aria-label="{title}"' in body
     assert "No rain expected" in texts(at.success)
     assert len(at.dataframe) == 3  # hourly table + daily details + Cloudzy table
-    assert "Cloudzy says" in body and "Daily briefing" in body and "<svg" in body
+    assert "Cloudzy says" in body and "Daily briefing" in body
+    assert any("data:image/svg+xml;base64," in m.value for m in at.markdown)  # mascot (via markdown)
     assert "not a station reading" in texts(at.caption)
     assert "Open-Meteo" in texts(at.caption)
     assert dict(at.query_params) == {"q": ["New Delhi"], "i": ["0"]} or at.query_params["q"] == "New Delhi"

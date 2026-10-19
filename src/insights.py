@@ -99,7 +99,8 @@ def _span(times: pd.DatetimeIndex) -> str:
     times = pd.DatetimeIndex(sorted(times))
     start, end = times.min(), times.max() + pd.Timedelta(hours=1)
     same_day = start.date() == (end - pd.Timedelta(minutes=1)).date()
-    a, b = (f"{start:%H:%M}", f"{end:%H:%M} {start:%a}") if same_day else (f"{start:%a %H:%M}", f"{end:%a %H:%M}")
+    end_txt = "midnight" if end.hour == 0 and end.minute == 0 else f"{end:%H:%M}"  # not an ambiguous "00:00"
+    a, b = (f"{start:%H:%M}", f"{end_txt} {start:%a}") if same_day else (f"{start:%a %H:%M}", f"{end:%a %H:%M}")
     continuous = len(times) == int((end - start) / pd.Timedelta(hours=1))
     return f"{a}–{b}" if continuous else f"between {a} and {b} ({len(times)} hours)"
 
@@ -365,7 +366,9 @@ def briefing(forecast: ProviderForecast, now: pd.Timestamp, thresholds: AlertThr
         tot = U.precipitation(total, units.precipitation)
         tot_txt = "—" if tot is None else f"{tot:.{U.precipitation_digits(units.precipitation)}f} {units.precipitation}"
         precip = f"Up to {prob:.0f}% chance; {tot_txt} expected in total." if pd.notna(prob) else f"{tot_txt} expected."
-    changes = [s for s in summary(forecast, now, units) if any(k in s for k in ("warming", "cooling", "cloud", "Tomorrow", "gusty", "more likely"))]
+    # Only real changes, not the static "Expect …" or "Rain is unlikely" lines shown in the summary.
+    change_words = ("warming", "cooling", "increasing", "clearing", "more likely", "gusty", "Tomorrow is forecast")
+    changes = [s for s in summary(forecast, now, units) if any(k in s for k in change_words)]
     return Briefing(
         date=f"{pd.Timestamp(today_date):%A %d %B}",
         temperature_range=f"{_t(row['temperature_2m_min'], units)} to {_t(row['temperature_2m_max'], units)}",

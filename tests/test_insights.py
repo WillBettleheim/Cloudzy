@@ -148,3 +148,14 @@ def test_briefing_reports_range_conditions_and_precipitation():
 
 def test_briefing_none_when_today_missing():
     assert I.briefing(forecast(), pd.Timestamp("2030-01-01T00:00Z")) is None
+
+
+def test_period_ending_at_midnight_is_unambiguous():
+    times = pd.date_range("2026-10-19T21:00", periods=3, freq="h", tz="Asia/Kolkata")
+    assert I._span(times) == "21:00–midnight Mon"
+
+
+def test_briefing_changes_exclude_static_lines():
+    b = I.briefing(forecast(), NOW)  # calm, clear day: only the warming trend is a change
+    assert all("Expect" not in c and "unlikely" not in c for c in b.changes)
+    assert any("warming" in c or "cooling" in c for c in b.changes)
