@@ -31,7 +31,7 @@ python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-python -m pytest                 # 179 offline tests, no network needed
+python -m pytest                 # 222 offline tests, no network needed
 python -m pytest -m integration   # 5 live checks against the Open-Meteo APIs
 python -m src.data_validation    # download (first run only), validate, write processed CSV
 python -m src.features           # build the feature table
@@ -520,37 +520,86 @@ responses (for example, 10 minutes per place).
 streamlit run streamlit_app.py
 ```
 
+A phone-style weather app built on real Open-Meteo data. Every number on the
+page comes from the API response for the selected coordinates. Nothing is
+hard-coded or estimated.
+
 **What it shows, top to bottom:**
-- **Search:** a place search with a "choose the right match" picker. Picking from
-  the list is required, because the top geocoding result can be the wrong town
-  (see Phase C).
-- **Current conditions:** temperature, feels-like, humidity, cloud cover, wind
-  with compass direction, gusts and precipitation. It also shows today's range
-  and sunrise/sunset.
-- **Rain indicator:** a coloured banner ("Rain likely from …" or "No rain
-  expected"). It always shows its rule and states that it is not an official
-  warning.
-- **Next 48 hours:** a temperature and feels-like chart, a chance-of-rain chart
-  (amounts appear on hover), and an hour-by-hour table with humidity and wind.
-- **7-day outlook:** day cards (icon, high/low, rain chance and amount, wind, UV)
-  and a low-to-high range chart.
-- **Cloudzy Core 🧪:** for places within 15 km of the Delhi training point, it
-  shows Cloudzy's predictions beside the provider's values for the same times,
-  with the prediction point, issue time and each horizon's 2025 average error.
-  Elsewhere it explains why Cloudzy isn't available.
+- **Search:** type a city or town, then pick the right match (country and region
+  are shown). Changing place needs no restart. The place is kept in the URL
+  (`?q=Mumbai&i=0`), so a refresh or a shared link shows the same place. No
+  device location is used.
+- **Units** (⚙️): °C/°F, km/h, m/s, mph or knots, and mm or inches.
+  Visibility follows mm/in as km/mi. Forecasts are fetched in metric units and
+  converted for display, so one cached response serves every choice.
+- **Current weather (hero):** temperature, a WMO-code icon and label,
+  feels-like, today's high and low, and sunrise/sunset, in the place's own time
+  zone. It is sky-blue by day and midnight-navy at night, using the API's
+  `is_day` flag.
+- **Rain banner:** "Rain likely from …" or "No rain expected". It always shows
+  its rule and says it isn't an official warning.
+- **Next 24 hours:** scrollable hourly cards (time, icon, temperature, chance of
+  rain), a temperature and feels-like graph, a rain chart when rain is
+  forecast, and an hour-by-hour table as an accessible text alternative.
+- **7-day forecast:** one row per day with icon, chance of rain (shown from
+  10%), low and high, and a range bar on the week's scale.
+- **"Right now" detail cards:** UV index with its WHO category, humidity and dew
+  point, wind (speed, direction, gusts), feels-like, precipitation (today's
+  total, chance, current), cloud cover, sea-level pressure, visibility, and
+  sunrise/sunset with daylight length.
+- **🧪 Cloudzy Core · experimental:** a separate, bordered section below the
+  forecast:
+  - **Within 15 km of the Delhi training point:** Cloudzy's 1–24 h predictions,
+    beside the ECMWF IFS values it starts from, with the prediction point,
+    issue time and each horizon's average error **on the 2025 test replay**.
+    That error is labelled as historical test performance, not a promise of
+    future accuracy and not a confidence interval.
+  - **Incomplete inputs:** if the last 25 hours of live inputs are incomplete,
+    it says why and shows no prediction.
+  - **Elsewhere:** it explains that Cloudzy was never validated there.
+
+  The text states plainly that Cloudzy doesn't beat the provider forecast and
+  that the forecast above should be used for decisions.
+
+**Data handled honestly.**
+- **Weather codes:** icons and labels come only from the WMO weather codes
+  Open-Meteo documents. That includes code 97 (heavy thunderstorm), which was
+  missing until now.
+- **Optional fields:** a variable the model doesn't provide for a location (UV,
+  visibility, …) is shown as "—" and listed under "Data notes".
+- **Wrong units:** a wrong unit on a variable that has values is still rejected,
+  because converting it would be a guess.
+
+**Usage limits** (checked on Open-Meteo's terms page, 2026-10-19):
+- **Free tier:** non-commercial use only, with fewer than 600 calls per minute,
+  5,000 per hour and 10,000 per day (300,000 per month), counted per IP address.
+- **Attribution:** data is licensed CC BY 4.0, and the attribution is in every
+  page footer.
+- **How Cloudzy stays inside:** one place costs at most three calls (geocoding,
+  forecast, and Cloudzy's live inputs near Delhi), each cached for 10 minutes.
 
 **States.** Every state is covered by headless `AppTest` tests, with the network
 replaced by fakes:
 
 | State | What the user sees |
 |---|---|
-| Loading | A spinner for each slow step ("Checking the sky…", "Asking Cloudzy Core…") |
+| Loading | A spinner for each slow step ("Checking the sky over …", "Asking Cloudzy Core…") |
 | Query too short | A hint to type at least two letters |
 | No matching place | "No places match …", with a suggestion |
-| Search or forecast outage | An error with the reason and a **Try again** button, which clears the cache |
-| Cloudzy unavailable | A warning with the reason; the provider forecast is unaffected |
-| Missing or implausible provider values | Shown as "—", never zero, and listed under "Data notes" |
-| No rain in 48 h | A one-line note instead of an empty chart |
+| Search or forecast outage | An error with the reason and a **Try again** button, which clears the cache. Tests check that no temperature appears, and that the page recovers when the API is back |
+| Cloudzy unavailable | A warning with the reason; the forecast is unaffected |
+| Missing, unavailable or implausible provider values | Shown as "—", never zero, and listed under "Data notes" |
+| No rain in 24 h | No empty rain chart |
+
+**Accessibility.**
+- **Contrast:** the hero's text and background pairs are well above 4.5:1, and
+  cards inherit the theme's text colour.
+- **Screen readers:** every weather icon has a text label, every hourly card and
+  day row has a full spoken summary, and every detail card is a labelled group.
+- **Keyboard:** the hourly strip can be reached with Tab and scrolled with the
+  arrow keys, and all controls are standard keyboard-operable widgets.
+- **Small screens:** the layout has no sideways page scrolling at phone width
+  (checked at 375 px). Detail cards wrap, and 7-day rows narrow.
 
 **Themes.** `.streamlit/config.toml` defines separate light (pale sky and navy
 text) and dark (midnight navy) palettes. Streamlit follows the viewer's system
@@ -666,7 +715,7 @@ trained on 2023-01-02 → 2026-08-31.
 
 | Suite | What it covers | How to run |
 |---|---|---|
-| Offline (179) | Everything in phases A–E, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
+| Offline (222) | Everything in phases A–E, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
 | Integration (5) | Live calls: both archive sources validate, live IFS inputs give 25 complete hours, the provider forecast and geocoding work, and a nonsense search returns nothing | `python -m pytest -m integration` |
 
 GitHub Actions (`.github/workflows/tests.yml`) runs the offline suite on every
@@ -735,6 +784,8 @@ src/refit.py             monthly refit of the serving models, held-out check, da
 src/provider.py          Open-Meteo provider forecasts and location search (provider data only)
 src/briefing.py          provider forecast, rain outlook and Cloudzy side by side, labelled
 src/ui.py                chart, icon and table helpers for the app (no Streamlit calls; tested)
+src/weather_view.py      HTML for the hero, hourly cards, 7-day list and detail cards (tested)
+src/units.py             display-unit conversions (°C/°F, km/h/m/s/mph/kn, mm/in, km/mi)
 streamlit_app.py         entry point: navigation between the two pages
 app_pages/weather.py     the weather app (Phase D)
 app_pages/lab.py         Cloudzy Lab (Phase E)
@@ -747,7 +798,7 @@ DEPLOYMENT.md            deployment and maintenance guide
 .github/workflows/       CI: offline tests on push, live API checks weekly
 reports/lab/             the Lab's committed data (~600 KB)
 .streamlit/config.toml   brand theme: light and dark palettes
-tests/                   179 offline tests + 5 live integration tests
+tests/                   222 offline tests + 5 live integration tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
 ```

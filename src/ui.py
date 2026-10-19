@@ -81,24 +81,28 @@ def _layout(fig: go.Figure, colors: dict, title: str, y_title: str, height: int 
     return fig
 
 
-def temperature_chart(hourly: pd.DataFrame, colors: dict) -> go.Figure:
+def temperature_chart(hourly: pd.DataFrame, colors: dict, unit: str = "°C", title: str = "Temperature") -> go.Figure:
+    """`hourly` must already be in display units (src.units.convert_frame)."""
     fig = go.Figure()
-    fig.add_scatter(x=hourly.index, y=hourly["temperature_2m"], name="Temperature", mode="lines",
-                    line={"color": colors["provider"], "width": 2},
-                    hovertemplate="%{y:.1f} °C<extra>Temperature</extra>")
+    fig.add_scatter(x=hourly.index, y=hourly["temperature_2m"], name="Temperature", mode="lines+markers",
+                    line={"color": colors["provider"], "width": 2.5}, marker={"size": 5},
+                    hovertemplate=f"%{{y:.1f}} {unit}<extra>Temperature</extra>")
     fig.add_scatter(x=hourly.index, y=hourly["apparent_temperature"], name="Feels like", mode="lines",
                     line={"color": colors["muted"], "width": 2, "dash": "dot"},
-                    hovertemplate="%{y:.1f} °C<extra>Feels like</extra>")
-    return _layout(fig, colors, "Temperature", "°C")
+                    hovertemplate=f"%{{y:.1f}} {unit}<extra>Feels like</extra>")
+    fig = _layout(fig, colors, title, unit)
+    fig.update_xaxes(tickformat="%H:%M\n%a")
+    return fig
 
 
-def rain_chart(hourly: pd.DataFrame, colors: dict) -> go.Figure:
+def rain_chart(hourly: pd.DataFrame, colors: dict, precip_unit: str = "mm") -> go.Figure:
     """Rain probability bars. Amounts go in the hover text: one axis, one unit."""
+    digits = 2 if precip_unit == "in" else 1
     fig = go.Figure()
     fig.add_bar(x=hourly.index, y=hourly["precipitation_probability"], name="Chance of rain",
                 marker={"color": colors["provider"], "cornerradius": 3},
                 customdata=hourly["precipitation"],
-                hovertemplate="%{y:.0f}% · %{customdata:.1f} mm<extra>Rain</extra>")
+                hovertemplate=f"%{{y:.0f}}% · %{{customdata:.{digits}f}} {precip_unit}<extra>Rain</extra>")
     fig = _layout(fig, colors, "Chance of rain", "%", height=220)
     fig.update_yaxes(range=[0, 100])
     fig.update_layout(bargap=0.15, showlegend=False)
@@ -125,41 +129,47 @@ def daily_range_chart(daily: pd.DataFrame, colors: dict) -> go.Figure:
     return fig
 
 
-def cloudzy_chart(predictions: list[dict], provider: list[dict], colors: dict) -> go.Figure:
-    """Cloudzy and provider values for the same valid times, as two labelled series."""
+def cloudzy_chart(predictions: list[dict], provider: list[dict], colors: dict, unit: str = "°C") -> go.Figure:
+    """Cloudzy and provider values for the same valid times, as two labelled series.
+
+    Values are read from "temperature_2m_c" and must already be in `unit`."""
     t_c = [pd.Timestamp(p["valid_time_local"]) for p in predictions]
     t_p = [pd.Timestamp(p["valid_time_local"]) for p in provider]
     fig = go.Figure()
-    fig.add_scatter(x=t_p, y=[p["temperature_2m_c"] for p in provider], name="Provider (ECMWF IFS)",
+    fig.add_scatter(x=t_p, y=[p["temperature_2m_c"] for p in provider], name="ECMWF IFS (Cloudzy's input)",
                     mode="lines+markers", line={"color": colors["provider"], "width": 2},
-                    marker={"size": 8}, hovertemplate="%{y:.1f} °C<extra>Provider</extra>")
+                    marker={"size": 8}, hovertemplate=f"%{{y:.1f}} {unit}<extra>ECMWF IFS</extra>")
     fig.add_scatter(x=t_c, y=[p["temperature_2m_c"] for p in predictions], name="Cloudzy Core",
                     mode="lines+markers", line={"color": colors["cloudzy"], "width": 2},
                     marker={"size": 9, "symbol": "diamond"},
-                    hovertemplate="%{y:.1f} °C<extra>Cloudzy</extra>")
-    return _layout(fig, colors, "Temperature at each horizon", "°C", height=300)
+                    hovertemplate=f"%{{y:.1f}} {unit}<extra>Cloudzy</extra>")
+    return _layout(fig, colors, "Temperature at each horizon", unit, height=300)
 
 
-def hourly_table(hourly: pd.DataFrame) -> pd.DataFrame:
+def hourly_table(hourly: pd.DataFrame, temp_unit: str = "°C", wind_unit: str = "km/h",
+                 precip_unit: str = "mm") -> pd.DataFrame:
+    """Accessible table view of the hourly chart. `hourly` must be in display units."""
     return pd.DataFrame({
         "Time": [t.strftime("%a %H:%M") for t in hourly.index],
         "": [weather_icon(c, d) for c, d in zip(hourly["weather_code"], hourly["is_day"])],
-        "Temp °C": hourly["temperature_2m"].round(1).to_numpy(),
-        "Feels °C": hourly["apparent_temperature"].round(1).to_numpy(),
+        f"Temp {temp_unit}": hourly["temperature_2m"].round(1).to_numpy(),
+        f"Feels {temp_unit}": hourly["apparent_temperature"].round(1).to_numpy(),
         "Rain %": hourly["precipitation_probability"].to_numpy(),
-        "Rain mm": hourly["precipitation"].round(1).to_numpy(),
+        f"Rain {precip_unit}": hourly["precipitation"].round(2 if precip_unit == "in" else 1).to_numpy(),
         "Humidity %": hourly["relative_humidity_2m"].to_numpy(),
-        "Wind km/h": hourly["wind_speed_10m"].round(0).to_numpy(),
+        "UV": hourly["uv_index"].round(1).to_numpy() if "uv_index" in hourly else None,
+        f"Wind {wind_unit}": hourly["wind_speed_10m"].round(0).to_numpy(),
         "From": [compass(d) for d in hourly["wind_direction_10m"]],
     })
 
 
-def cloudzy_table(predictions: list[dict], provider: list[dict]) -> pd.DataFrame:
+def cloudzy_table(predictions: list[dict], provider: list[dict], unit: str = "°C") -> pd.DataFrame:
+    """Values (and typical errors) must already be in `unit`."""
     prov = {p["horizon_h"]: p["temperature_2m_c"] for p in provider}
     return pd.DataFrame({
         "Ahead": [f"+{p['horizon_h']} h" for p in predictions],
         "Local time": [pd.Timestamp(p["valid_time_local"]).strftime("%a %H:%M") for p in predictions],
-        "Cloudzy °C": [round(p["temperature_2m_c"], 1) for p in predictions],
-        "Provider °C": [prov.get(p["horizon_h"]) for p in predictions],
-        "Cloudzy avg error °C (2025)": [round(p["typical_error_c"], 2) for p in predictions],
+        f"Cloudzy {unit}": [round(p["temperature_2m_c"], 1) for p in predictions],
+        f"ECMWF IFS {unit}": [prov.get(p["horizon_h"]) for p in predictions],
+        f"Cloudzy avg error in 2025 test {unit}": [round(p["typical_error_c"], 2) for p in predictions],
     })

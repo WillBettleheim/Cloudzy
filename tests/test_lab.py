@@ -160,4 +160,4 @@ def test_lab_page_explains_missing_data(monkeypatch, tmp_path):
 def test_router_opens_weather_page_by_default(fake_network):  # noqa: F811
     at = AppTest.from_file("../streamlit_app.py", default_timeout=30).run()
     assert not at.exception, [e.value for e in at.exception]
-    assert len(at.metric) == 6
+    assert any("cz-hero" in h.proto.body for h in at.html)

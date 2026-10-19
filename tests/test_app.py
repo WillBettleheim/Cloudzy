@@ -52,7 +52,7 @@ def test_charts_use_provider_and_cloudzy_colours_consistently():
     preds = [{"horizon_h": 1, "valid_time_local": "2026-10-19T13:00:00+05:30", "temperature_2m_c": 28.0}]
     prov = [{"horizon_h": 1, "valid_time_local": "2026-10-19T13:00:00+05:30", "temperature_2m_c": 28.5}]
     cz = ui.cloudzy_chart(preds, prov, colors)
-    assert {t.name: t.line.color for t in cz.data} == {"Provider (ECMWF IFS)": colors["provider"],
+    assert {t.name: t.line.color for t in cz.data} == {"ECMWF IFS (Cloudzy's input)": colors["provider"],
                                                        "Cloudzy Core": colors["cloudzy"]}
 
 
@@ -71,7 +71,9 @@ def test_tables_have_expected_columns():
               "typical_error_c": 1.154}]
     prov = [{"horizon_h": 3, "valid_time_local": "2026-10-19T15:00:00+05:30", "temperature_2m_c": 29.1}]
     row = ui.cloudzy_table(preds, prov).iloc[0]
-    assert row["Cloudzy °C"] == 29.0 and row["Provider °C"] == 29.1 and row["Cloudzy avg error °C (2025)"] == 1.15
+    assert row["Cloudzy °C"] == 29.0 and row["ECMWF IFS °C"] == 29.1
+    assert row["Cloudzy avg error in 2025 test °C"] == 1.15
+    assert "Temp °F" in ui.hourly_table(f.hourly.iloc[:2], "°F", "mph", "in").columns
 
 
 # --- App states ------------------------------------------------------------------
@@ -126,26 +128,64 @@ def texts(elements):
     return " ".join(str(e.value) for e in elements)
 
 
-def test_happy_path_delhi_shows_provider_and_cloudzy(fake_network):
+def html_text(at) -> str:
+    """All HTML rendered by st.html (hero, hourly cards, 7-day list, detail cards)."""
+    return " ".join(h.proto.body for h in at.html)
+
+
+NUMBER_RE = __import__("re").compile(r"\d+°")
+
+
+def assert_no_weather_numbers(at):
+    """Error and empty states must not show any temperatures (stale or invented)."""
+    assert not NUMBER_RE.search(html_text(at)), "temperature shown in an error/empty state"
+    assert not at.dataframe
+
+
+def test_happy_path_delhi_shows_full_app(fake_network):
     at = run_app()
-    assert [m.label for m in at.metric][:3] == ["Feels like", "Humidity", "Cloud cover"]
+    body = html_text(at)
+    assert "cz-hero" in body and "28°" in body                        # current temperature from the payload
+    assert body.count('class="cz-hour') == 24 and ">Now<" in body     # 24 hourly cards
+    assert body.count('class="cz-day"') == 7 and "Today" in body      # 7-day list
+    for title in ("UV index", "Humidity", "Wind", "Feels like", "Pressure", "Visibility", "Sunrise · Sunset"):
+        assert f'aria-label="{title}"' in body
     assert "No rain expected" in texts(at.success)
-    assert [t.label for t in at.tabs] == ["Next 48 hours", "7-day outlook", "Cloudzy Core 🧪"]
     assert len(at.dataframe) == 2  # hourly table + Cloudzy table
     assert "not a station reading" in texts(at.caption)
     assert "Open-Meteo" in texts(at.caption)
+    assert dict(at.query_params) == {"q": ["New Delhi"], "i": ["0"]} or at.query_params["q"] == "New Delhi"
+
+
+def test_units_switch_converts_every_temperature(fake_network):
+    at = run_app()
+    at.segmented_control(key="unit_temp").set_value("°F").run()
+    assert not at.exception
+    body = html_text(at)
+    assert "83°" in body          # 28.1 °C current temperature
+    assert ">28°<" not in body    # no Celsius value left in the hero
+    at.segmented_control(key="unit_wind").set_value("mph").run()
+    assert "4 mph" in html_text(at)  # 7.0 km/h
+
+
+def test_location_change_without_restart(fake_network):
+    at = run_app()
+    at.text_input[0].set_value("Paris").run()
+    assert not at.exception
+    assert "Paris, Île-de-France, France" in html_text(at)
+    assert at.query_params["q"] == "Paris" or at.query_params["q"] == ["Paris"]
 
 
 def test_too_short_query_shows_hint(fake_network):
     at = run_app(" a ")
     assert "at least two letters" in texts(at.info)
-    assert not at.metric
+    assert_no_weather_numbers(at)
 
 
 def test_no_matches_shows_empty_state(fake_network):
     at = run_app("Atlantis")
     assert "No places match" in texts(at.warning)
-    assert not at.metric
+    assert_no_weather_numbers(at)
 
 
 def test_search_outage_shows_error_and_retry(fake_network):
@@ -153,6 +193,7 @@ def test_search_outage_shows_error_and_retry(fake_network):
     at = run_app()
     assert "Location search is unavailable" in texts(at.error)
     assert any(b.label == "Try again" for b in at.button)
+    assert_no_weather_numbers(at)
 
 
 def test_forecast_outage_shows_error_and_retry(fake_network):
@@ -160,20 +201,39 @@ def test_forecast_outage_shows_error_and_retry(fake_network):
     at = run_app()
     assert "couldn't get the forecast" in texts(at.error)
     assert any(b.label == "Try again" for b in at.button)
+    assert_no_weather_numbers(at)
+
+
+def test_recovery_after_outage(fake_network):
+    fake_network["forecast_error"] = ProviderError("timed out")
+    at = run_app()
+    assert at.error
+    fake_network["forecast_error"] = None
+    next(b for b in at.button if b.label == "Try again").click().run()
+    assert not at.exception and not at.error
+    assert "cz-hero" in html_text(at)
 
 
 def test_far_place_explains_cloudzy_is_delhi_only(fake_network):
     at = run_app("Paris")
-    assert "trained only for" in texts(at.info)
-    assert at.tabs[2].label == "Cloudzy Core"
-    assert len(at.dataframe) == 1  # hourly table only
+    assert "trained and tested only for" in texts(at.info)
+    assert len(at.dataframe) == 1  # hourly table only: no Cloudzy numbers for Paris
 
 
 def test_cloudzy_failure_keeps_provider_forecast(fake_network):
-    fake_network["cloudzy"] = {"available": False, "reason": "Live inputs could not be used: HTTP 503"}
+    fake_network["cloudzy"] = {"available": False, "reason": "Live inputs could not be used: HTTP 503."}
     at = run_app()
-    assert "Cloudzy Core is unavailable right now" in texts(at.warning)
-    assert len(at.metric) == 6
+    assert "No Cloudzy prediction right now" in texts(at.warning)
+    assert "cz-hero" in html_text(at)
+    assert len(at.dataframe) == 1  # no Cloudzy table
+
+
+def test_cloudzy_values_follow_units(fake_network):
+    at = run_app()
+    at.segmented_control(key="unit_temp").set_value("°F").run()
+    table = at.dataframe[1].value
+    assert table["Cloudzy °F"].iloc[0] == pytest.approx(82.4)                       # 28.0 °C
+    assert table["Cloudzy avg error in 2025 test °F"].iloc[0] == pytest.approx(1.98)  # 1.1 °C difference
 
 
 def test_rain_expected_banner(fake_network):

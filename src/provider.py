@@ -43,20 +43,34 @@ SOURCE_LABEL = "Open-Meteo forecast (best_match model blend)"
 ATTRIBUTION = "Weather data by Open-Meteo.com (CC BY 4.0)"
 FORECAST_DAYS = 7
 
+# Variables requested, with the units the app expects. All values are fetched in
+# metric units, and src.units converts them for display, so one cached response
+# serves every unit choice.
 CURRENT_UNITS = {
     "temperature_2m": "°C", "relative_humidity_2m": "%", "apparent_temperature": "°C",
     "is_day": "", "precipitation": "mm", "weather_code": "wmo code", "cloud_cover": "%",
     "wind_speed_10m": "km/h", "wind_direction_10m": "°", "wind_gusts_10m": "km/h",
+    "uv_index": "", "pressure_msl": "hPa", "visibility": "m", "dew_point_2m": "°C",
 }
 HOURLY_UNITS = {
     "temperature_2m": "°C", "relative_humidity_2m": "%", "apparent_temperature": "°C",
     "precipitation_probability": "%", "precipitation": "mm", "weather_code": "wmo code",
     "wind_speed_10m": "km/h", "wind_direction_10m": "°", "is_day": "",
+    "uv_index": "", "cloud_cover": "%", "wind_gusts_10m": "km/h",
 }
 DAILY_UNITS = {
     "weather_code": "wmo code", "temperature_2m_max": "°C", "temperature_2m_min": "°C",
     "precipitation_sum": "mm", "precipitation_probability_max": "%", "wind_speed_10m_max": "km/h",
     "sunrise": "unixtime", "sunset": "unixtime", "uv_index_max": "",
+    "wind_direction_10m_dominant": "°", "daylight_duration": "s",
+}
+# Without these the forecast is unusable. Any other variable may be missing for a
+# location (some models don't provide UV or visibility, for example). It is then
+# shown as unavailable, never filled in.
+REQUIRED = {
+    "current": {"temperature_2m", "weather_code"},
+    "hourly": {"temperature_2m", "weather_code"},
+    "daily": {"weather_code", "temperature_2m_max", "temperature_2m_min", "sunrise", "sunset"},
 }
 # Physical bounds valid anywhere on Earth. Values outside them become None and are reported.
 BOUNDS = {
@@ -65,6 +79,8 @@ BOUNDS = {
     "wind_speed_10m": (0, 400), "wind_gusts_10m": (0, 500), "wind_direction_10m": (0, 360),
     "temperature_2m_max": (-90, 60), "temperature_2m_min": (-90, 60), "precipitation_sum": (0, 2000),
     "precipitation_probability_max": (0, 100), "wind_speed_10m_max": (0, 400), "uv_index_max": (0, 20),
+    "uv_index": (0, 20), "pressure_msl": (850, 1090), "visibility": (0, 200_000), "dew_point_2m": (-90, 40),
+    "wind_direction_10m_dominant": (0, 360), "daylight_duration": (0, 86_400),
 }
 
 # WMO weather interpretation codes as documented by Open-Meteo.
@@ -78,7 +94,8 @@ WMO_CODES = {
     71: "Slight snowfall", 73: "Moderate snowfall", 75: "Heavy snowfall", 77: "Snow grains",
     80: "Slight rain showers", 81: "Moderate rain showers", 82: "Violent rain showers",
     85: "Slight snow showers", 86: "Heavy snow showers",
-    95: "Thunderstorm", 96: "Thunderstorm with slight hail", 99: "Thunderstorm with heavy hail",
+    95: "Thunderstorm", 96: "Thunderstorm with slight hail", 97: "Heavy thunderstorm",
+    99: "Thunderstorm with heavy hail",
 }
 
 # Rain indicator thresholds (documented in the README; not an official warning).
@@ -172,19 +189,40 @@ def search_locations(name: str, count: int = 5, session: requests.Session | None
 
 # --- Forecast --------------------------------------------------------------------
 
-def _check_units(section: str, got: dict, expected: dict) -> None:
-    for var, unit in expected.items():
-        if got.get(var) != unit:
-            raise ProviderError(f"{section}.{var}: expected unit {unit!r}, got {got.get(var)!r}")
+def _all_missing(value) -> bool:
+    if value is None:
+        return True
+    return isinstance(value, list) and all(v is None for v in value)
+
+
+def _check_units(section: str, got: dict, expected: dict, data: dict, warnings: list[str]) -> set[str]:
+    """Check each variable's unit. Returns optional variables that are unavailable.
+
+    A wrong unit on a variable that has values is fatal: converting it would
+    be a guess. An optional variable the model doesn't provide (missing, or
+    all null with a placeholder unit) is reported and left empty.
+    """
     if got.get("time") != "unixtime":
         raise ProviderError(f"{section}.time: expected unixtime, got {got.get('time')!r}")
+    unavailable = set()
+    for var, unit in expected.items():
+        if got.get(var) == unit:
+            continue
+        if var not in REQUIRED[section] and _all_missing(data.get(var)):
+            unavailable.add(var)
+            warnings.append(f"{section}.{var}: not available for this location")
+            continue
+        raise ProviderError(f"{section}.{var}: expected unit {unit!r}, got {got.get(var)!r}")
+    return unavailable
 
 
-def _clean(df: pd.DataFrame, section: str, warnings: list[str]) -> pd.DataFrame:
+def _clean(df: pd.DataFrame, section: str, warnings: list[str], skip: set[str] = frozenset()) -> pd.DataFrame:
     for col in df.columns:
         if col in ("sunrise", "sunset"):
             continue
         df[col] = pd.to_numeric(df[col], errors="coerce")
+        if col in skip:  # already reported as unavailable
+            continue
         if col in BOUNDS:
             lo, hi = BOUNDS[col]
             bad = df[col].notna() & ~df[col].between(lo, hi)
@@ -210,10 +248,11 @@ def parse_forecast(payload: dict, place: Place, retrieved_at: str) -> ProviderFo
     offset = payload.get("utc_offset_seconds")
     if not isinstance(offset, int):
         raise ProviderError("Forecast response has no utc_offset_seconds")
-    _check_units("current", payload.get("current_units", {}), CURRENT_UNITS)
-    _check_units("hourly", payload.get("hourly_units", {}), HOURLY_UNITS)
-    _check_units("daily", payload.get("daily_units", {}), DAILY_UNITS)
     warnings: list[str] = []
+    gone = {
+        section: _check_units(section, payload.get(f"{section}_units", {}), units, payload[section], warnings)
+        for section, units in (("current", CURRENT_UNITS), ("hourly", HOURLY_UNITS), ("daily", DAILY_UNITS))
+    }
 
     # Hourly: consecutive instants, shown in local time.
     hourly_raw = payload["hourly"]
@@ -221,14 +260,14 @@ def parse_forecast(payload: dict, place: Place, retrieved_at: str) -> ProviderFo
     if n == 0:
         raise ProviderError("Forecast contains no hourly data")
     for var in HOURLY_UNITS:
-        if len(hourly_raw.get(var, [])) != n:
+        if var not in gone["hourly"] and len(hourly_raw.get(var, [])) != n:
             raise ProviderError(f"hourly.{var} length does not match time")
-    hourly = pd.DataFrame({v: hourly_raw[v] for v in HOURLY_UNITS})
+    hourly = pd.DataFrame({v: [None] * n if v in gone["hourly"] else hourly_raw[v] for v in HOURLY_UNITS})
     hourly.index = pd.to_datetime(hourly_raw["time"], unit="s", utc=True).tz_convert(tz)
     hourly.index.name = "time"
     if not hourly.index.is_unique or not ((hourly.index[1:] - hourly.index[:-1]) == pd.Timedelta("1h")).all():
         raise ProviderError("Hourly timestamps are not a consecutive hourly sequence")
-    hourly = _clean(hourly, "hourly", warnings)
+    hourly = _clean(hourly, "hourly", warnings, skip=gone["hourly"])
     if hourly["temperature_2m"].isna().all():
         raise ProviderError("Hourly temperature is entirely missing")
 
@@ -238,16 +277,16 @@ def parse_forecast(payload: dict, place: Place, retrieved_at: str) -> ProviderFo
     if m == 0:
         raise ProviderError("Forecast contains no daily data")
     for var in DAILY_UNITS:
-        if len(daily_raw.get(var, [])) != m:
+        if var not in gone["daily"] and len(daily_raw.get(var, [])) != m:
             raise ProviderError(f"daily.{var} length does not match time")
-    daily = pd.DataFrame({v: daily_raw[v] for v in DAILY_UNITS})
+    daily = pd.DataFrame({v: [None] * m if v in gone["daily"] else daily_raw[v] for v in DAILY_UNITS})
     fixed = pd.to_datetime(daily_raw["time"], unit="s", utc=True) + pd.Timedelta(seconds=offset)
     daily.index = pd.Index(fixed.date, name="date")
     if not daily.index.is_unique:
         raise ProviderError("Daily dates are not unique")
     for col in ("sunrise", "sunset"):
         daily[col] = pd.to_datetime(daily[col], unit="s", utc=True).dt.tz_convert(tz)
-    daily = _clean(daily, "daily", warnings)
+    daily = _clean(daily, "daily", warnings, skip=gone["daily"])
     daily["description"] = daily["weather_code"].map(lambda c: describe_weather(None if pd.isna(c) else c))
 
     # Current: one 15-minute model value.
@@ -257,7 +296,7 @@ def parse_forecast(payload: dict, place: Place, retrieved_at: str) -> ProviderFo
     current = {"time": pd.Timestamp(cur["time"], unit="s", tz="UTC").tz_convert(tz).isoformat(),
                "interval_seconds": cur.get("interval")}
     for var in CURRENT_UNITS:
-        val = cur.get(var)
+        val = None if var in gone["current"] else cur.get(var)
         lo_hi = BOUNDS.get(var)
         if val is not None and lo_hi and not (lo_hi[0] <= val <= lo_hi[1]):
             warnings.append(f"current.{var}: implausible value {val} removed")

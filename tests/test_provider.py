@@ -27,30 +27,33 @@ def payload(tz="Asia/Kolkata", offset=19800, start="2026-10-19T00:00", days=7, d
         daily_epochs = [int((day0 + pd.Timedelta(days=i) - pd.Timestamp("1970-01-01", tz="UTC")).total_seconds())
                         for i in range(days)]
     m = len(daily_epochs)
+    current = {"time": int(epochs[12]), "interval": 900, **{v: CURRENT_DEFAULTS[v] for v in CURRENT_UNITS}}
+    hourly = {"time": [int(e) for e in epochs],
+              **{v: [HOURLY_DEFAULTS[v]] * n for v in HOURLY_UNITS}}
+    hourly["temperature_2m"] = [20.0 + (i % 24) / 2 for i in range(n)]
+    daily = {"time": daily_epochs, **{v: [DAILY_DEFAULTS[v]] * m for v in DAILY_UNITS if v not in ("sunrise", "sunset")}}
+    daily["weather_code"] = [61] + [0] * (m - 1)
+    daily["sunrise"] = [e + 6 * 3600 for e in daily_epochs]
+    daily["sunset"] = [e + 18 * 3600 for e in daily_epochs]
     return {
         "latitude": 28.58, "longitude": 77.19, "elevation": 214.0, "timezone": tz, "utc_offset_seconds": offset,
-        "current_units": {"time": "unixtime", "interval": "seconds", **CURRENT_UNITS},
-        "current": {"time": int(epochs[12]), "interval": 900, "temperature_2m": 28.1, "relative_humidity_2m": 50,
-                    "apparent_temperature": 30.4, "is_day": 1, "precipitation": 0.0, "weather_code": 0,
-                    "cloud_cover": 0, "wind_speed_10m": 7.0, "wind_direction_10m": 312, "wind_gusts_10m": 20.2},
-        "hourly_units": {"time": "unixtime", **HOURLY_UNITS},
-        "hourly": {
-            "time": [int(e) for e in epochs],
-            "temperature_2m": [20.0 + (i % 24) / 2 for i in range(n)],
-            "relative_humidity_2m": [50] * n, "apparent_temperature": [21.0] * n,
-            "precipitation_probability": [0] * n, "precipitation": [0.0] * n, "weather_code": [0] * n,
-            "wind_speed_10m": [5.0] * n, "wind_direction_10m": [180] * n, "is_day": [1] * n,
-        },
-        "daily_units": {"time": "unixtime", **DAILY_UNITS},
-        "daily": {
-            "time": daily_epochs, "weather_code": [61] + [0] * (m - 1),
-            "temperature_2m_max": [30.0] * m, "temperature_2m_min": [19.0] * m,
-            "precipitation_sum": [0.0] * m, "precipitation_probability_max": [0] * m,
-            "wind_speed_10m_max": [9.0] * m,
-            "sunrise": [e + 6 * 3600 for e in daily_epochs], "sunset": [e + 18 * 3600 for e in daily_epochs],
-            "uv_index_max": [5.0] * m,
-        },
+        "current_units": {"time": "unixtime", "interval": "seconds", **CURRENT_UNITS}, "current": current,
+        "hourly_units": {"time": "unixtime", **HOURLY_UNITS}, "hourly": hourly,
+        "daily_units": {"time": "unixtime", **DAILY_UNITS}, "daily": daily,
     }
+
+
+# Realistic defaults for every requested variable (new variables must be added here).
+CURRENT_DEFAULTS = {"temperature_2m": 28.1, "relative_humidity_2m": 50, "apparent_temperature": 30.4, "is_day": 1,
+                    "precipitation": 0.0, "weather_code": 0, "cloud_cover": 0, "wind_speed_10m": 7.0,
+                    "wind_direction_10m": 312, "wind_gusts_10m": 20.2, "uv_index": 5.2, "pressure_msl": 1015.3,
+                    "visibility": 9940.0, "dew_point_2m": 16.1}
+HOURLY_DEFAULTS = {"temperature_2m": 20.0, "relative_humidity_2m": 50, "apparent_temperature": 21.0,
+                   "precipitation_probability": 0, "precipitation": 0.0, "weather_code": 0, "wind_speed_10m": 5.0,
+                   "wind_direction_10m": 180, "is_day": 1, "uv_index": 3.0, "cloud_cover": 20, "wind_gusts_10m": 12.0}
+DAILY_DEFAULTS = {"weather_code": 0, "temperature_2m_max": 30.0, "temperature_2m_min": 19.0, "precipitation_sum": 0.0,
+                  "precipitation_probability_max": 0, "wind_speed_10m_max": 9.0, "uv_index_max": 5.0,
+                  "wind_direction_10m_dominant": 300, "daylight_duration": 41_000.0}
 
 
 NOW = pd.Timestamp("2026-10-19T06:40Z")  # 12:10 IST
