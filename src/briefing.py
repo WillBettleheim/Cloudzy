@@ -27,6 +27,7 @@ import pandas as pd
 import requests
 
 from src import config
+from src.artifacts import ArtifactError
 from src.provider import Place, ProviderError, fetch_forecast, rain_outlook, search_locations, upcoming
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,9 @@ def cloudzy_block(place: Place, session: requests.Session | None = None, snapsho
         result = forecast_now(snapshot=snapshot, session=session)
     except FileNotFoundError as exc:
         return {"available": False, "reason": f"No trained serving model: {exc}"}
+    except ArtifactError as exc:  # corrupted, incomplete or incompatible model file: say so plainly
+        logger.warning("Cloudzy Core model unusable: %s", exc)
+        return {"available": False, "reason": f"The Cloudzy Core model file can't be used: {exc}"}
     except Exception as exc:  # validation or network failure: report it, keep the provider forecast
         logger.warning("Cloudzy prediction unavailable: %s", exc)
         _monitor("failure", f"{type(exc).__name__}: {exc}")

@@ -193,6 +193,8 @@ def install_bundle(bundle: dict, path: Path, stamp: date) -> Path | None:
         backup = backup_path(path, stamp)
         os.replace(path, backup)
     os.replace(tmp, path)
+    from src.artifacts import write_metadata
+    write_metadata(path, bundle)  # the sidecar must always describe the exact file now in place
     return backup
 
 

@@ -26,11 +26,9 @@ REQUIRED_KEYS = {"model", "feature_columns", "feature_config", "target", "model_
 
 
 def load_bundle(path: Path) -> dict:
-    bundle = joblib.load(path)
-    missing = REQUIRED_KEYS - set(bundle)
-    if missing:
-        raise ValueError(f"Model bundle {path} is missing keys: {sorted(missing)}")
-    return bundle
+    """Load and verify a single-horizon model (see src.artifacts.load_trusted)."""
+    from src.artifacts import load_trusted
+    return load_trusted(path, REQUIRED_KEYS)
 
 
 def predict(bundle: dict, X: pd.DataFrame) -> np.ndarray:

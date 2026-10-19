@@ -1,0 +1,416 @@
+{
+  "schema_version": 1,
+  "artifact_file": "cloudzy_core_delhi_serving_compact.joblib",
+  "artifact_sha256": "547848be14756a3d6dfeda0711340460609b69a7774ade06da111bda4dd2a04c",
+  "artifact_version": "cloudzy_core_delhi_serving_compact@547848be1475",
+  "described_at_utc": "2026-10-19T15:00:35+00:00",
+  "kind": "direct_multi_horizon",
+  "horizons_h": [
+    1,
+    2,
+    3,
+    6,
+    12,
+    24
+  ],
+  "models": {
+    "1": {
+      "type": "ResidualRegressor(HistGradientBoostingRegressor)",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "trained_on": [
+        "2023-01-02T00:00:00+00:00",
+        "2026-08-31T22:00:00+00:00",
+        32111
+      ]
+    },
+    "2": {
+      "type": "ResidualRegressor(HistGradientBoostingRegressor)",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 31,
+        "max_iter": 300
+      },
+      "trained_on": [
+        "2023-01-02T00:00:00+00:00",
+        "2026-08-31T21:00:00+00:00",
+        32110
+      ]
+    },
+    "3": {
+      "type": "ResidualRegressor(HistGradientBoostingRegressor)",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 31,
+        "max_iter": 300
+      },
+      "trained_on": [
+        "2023-01-02T00:00:00+00:00",
+        "2026-08-31T20:00:00+00:00",
+        32109
+      ]
+    },
+    "6": {
+      "type": "ResidualRegressor(HistGradientBoostingRegressor)",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "trained_on": [
+        "2023-01-02T00:00:00+00:00",
+        "2026-08-31T17:00:00+00:00",
+        32106
+      ]
+    },
+    "12": {
+      "type": "ResidualRegressor(HistGradientBoostingRegressor)",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "trained_on": [
+        "2023-01-02T00:00:00+00:00",
+        "2026-08-31T11:00:00+00:00",
+        32100
+      ]
+    },
+    "24": {
+      "type": "ResidualRegressor(HistGradientBoostingRegressor)",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "trained_on": [
+        "2023-01-02T00:00:00+00:00",
+        "2026-08-30T23:00:00+00:00",
+        32088
+      ]
+    }
+  },
+  "features": [
+    {
+      "name": "temperature_2m",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_lag_1h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_lag_2h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_lag_3h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_lag_6h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_lag_12h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_lag_24h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_change_1h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_change_24h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_roll_mean_3h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_roll_std_3h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_roll_mean_6h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_roll_std_6h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_roll_mean_24h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_roll_std_24h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_roll_min_24h",
+      "unit": "°C"
+    },
+    {
+      "name": "temp_roll_max_24h",
+      "unit": "°C"
+    },
+    {
+      "name": "relative_humidity_2m",
+      "unit": "%"
+    },
+    {
+      "name": "surface_pressure",
+      "unit": "hPa"
+    },
+    {
+      "name": "wind_speed_10m",
+      "unit": "km/h"
+    },
+    {
+      "name": "precipitation",
+      "unit": "mm"
+    },
+    {
+      "name": "pressure_change_3h",
+      "unit": "hPa"
+    },
+    {
+      "name": "precip_sum_3h",
+      "unit": "mm"
+    },
+    {
+      "name": "hour_sin",
+      "unit": "unitless"
+    },
+    {
+      "name": "hour_cos",
+      "unit": "unitless"
+    },
+    {
+      "name": "doy_sin",
+      "unit": "unitless"
+    },
+    {
+      "name": "doy_cos",
+      "unit": "unitless"
+    }
+  ],
+  "feature_config": {
+    "horizon_hours": 1,
+    "temp_lags": [
+      1,
+      2,
+      3,
+      6,
+      12,
+      24
+    ],
+    "rolling_windows": [
+      3,
+      6,
+      24
+    ],
+    "current_vars": [
+      "relative_humidity_2m",
+      "surface_pressure",
+      "wind_speed_10m",
+      "precipitation"
+    ],
+    "local_timezone": "Asia/Kolkata"
+  },
+  "target": "temperature_2m (°C) at issue time t +1 h, +2 h, +3 h, +6 h, +12 h, +24 h, from the reanalysis target source; inputs use only values at or before t",
+  "inputs_source": "ecmwf_ifs",
+  "target_source": "era5_seamless",
+  "metrics": {
+    "test_2025_mae_c": {
+      "1": 1.1191,
+      "2": 1.124,
+      "3": 1.1274,
+      "6": 1.2319,
+      "12": 1.2828,
+      "24": 1.3434
+    },
+    "test_2025_provider_optimistic_mae_c": {
+      "1": 1.419,
+      "2": 1.419,
+      "3": 1.419,
+      "6": 1.4189,
+      "12": 1.4192,
+      "24": 1.4203
+    },
+    "holdout_mae_c": {
+      "1": 0.829,
+      "2": 0.8602,
+      "3": 0.8759,
+      "6": 0.9174,
+      "12": 0.9841,
+      "24": 1.1677
+    }
+  },
+  "provenance": {
+    "created_at_utc": "2026-10-19T07:20:26+00:00",
+    "command": "python -m src.refit",
+    "data_start_date": "2023-01-01",
+    "data_end_date": "2026-09-30",
+    "holdout_month": [
+      "2026-09-01",
+      "2026-09-30"
+    ],
+    "refit_data_end_exclusive": "2026-09-01",
+    "sources": {
+      "era5_seamless": {
+        "rows": 32856,
+        "start_utc": "2023-01-01T00:00:00+00:00",
+        "end_utc": "2026-09-30T23:00:00+00:00",
+        "missing_timestamps_inserted": 0,
+        "missing_values": {
+          "temperature_2m": 0,
+          "relative_humidity_2m": 0,
+          "surface_pressure": 0,
+          "wind_speed_10m": 0,
+          "precipitation": 0
+        },
+        "warnings": [],
+        "raw_files": [
+          {
+            "file": "delhi_era5_seamless_2023-01-01_2023-12-31_b75c6907.json",
+            "retrieved_at_utc": "2026-10-19T06:08:00+00:00"
+          },
+          {
+            "file": "delhi_era5_seamless_2024-01-01_2024-12-31_f36411fd.json",
+            "retrieved_at_utc": "2026-10-19T06:08:00+00:00"
+          },
+          {
+            "file": "delhi_era5_seamless_2025-01-01_2025-12-31_c1580e07.json",
+            "retrieved_at_utc": "2026-10-19T06:08:01+00:00"
+          },
+          {
+            "file": "delhi_era5_seamless_2026-01-01_2026-09-30_cf8f8a04.json",
+            "retrieved_at_utc": "2026-10-19T06:42:52+00:00"
+          }
+        ]
+      },
+      "ecmwf_ifs": {
+        "rows": 32856,
+        "start_utc": "2023-01-01T00:00:00+00:00",
+        "end_utc": "2026-09-30T23:00:00+00:00",
+        "missing_timestamps_inserted": 0,
+        "missing_values": {
+          "temperature_2m": 0,
+          "relative_humidity_2m": 0,
+          "surface_pressure": 0,
+          "wind_speed_10m": 0,
+          "precipitation": 0
+        },
+        "warnings": [],
+        "raw_files": [
+          {
+            "file": "delhi_ecmwf_ifs_2023-01-01_2023-12-31_376a7280.json",
+            "retrieved_at_utc": "2026-10-19T06:19:05+00:00"
+          },
+          {
+            "file": "delhi_ecmwf_ifs_2024-01-01_2024-12-31_4087ab7f.json",
+            "retrieved_at_utc": "2026-10-19T06:19:05+00:00"
+          },
+          {
+            "file": "delhi_ecmwf_ifs_2025-01-01_2025-12-31_b480ff58.json",
+            "retrieved_at_utc": "2026-10-19T06:19:06+00:00"
+          },
+          {
+            "file": "delhi_ecmwf_ifs_2026-01-01_2026-09-30_f797685b.json",
+            "retrieved_at_utc": "2026-10-19T06:42:54+00:00"
+          }
+        ]
+      }
+    },
+    "rows_per_horizon": {
+      "1": {
+        "refit": 32111,
+        "holdout": 719
+      },
+      "2": {
+        "refit": 32110,
+        "holdout": 718
+      },
+      "3": {
+        "refit": 32109,
+        "holdout": 717
+      },
+      "6": {
+        "refit": 32106,
+        "holdout": 714
+      },
+      "12": {
+        "refit": 32100,
+        "holdout": 708
+      },
+      "24": {
+        "refit": 32088,
+        "holdout": 696
+      }
+    },
+    "hyperparameters_from": "cloudzy_core_delhi_serving_compact.joblib",
+    "previous_bundle_trained_on": {
+      "1": [
+        "2023-01-02T00:00:00+00:00",
+        "2025-12-31T22:00:00+00:00",
+        26279
+      ],
+      "2": [
+        "2023-01-02T00:00:00+00:00",
+        "2025-12-31T21:00:00+00:00",
+        26278
+      ],
+      "3": [
+        "2023-01-02T00:00:00+00:00",
+        "2025-12-31T20:00:00+00:00",
+        26277
+      ],
+      "6": [
+        "2023-01-02T00:00:00+00:00",
+        "2025-12-31T17:00:00+00:00",
+        26274
+      ],
+      "12": [
+        "2023-01-02T00:00:00+00:00",
+        "2025-12-31T11:00:00+00:00",
+        26268
+      ],
+      "24": [
+        "2023-01-02T00:00:00+00:00",
+        "2025-12-30T23:00:00+00:00",
+        26256
+      ]
+    },
+    "python": "3.13.6",
+    "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "packages": {
+      "numpy": "2.5.4",
+      "pandas": "3.0.6",
+      "scikit-learn": "1.9.1",
+      "joblib": "1.6.0",
+      "requests": "2.34.2"
+    }
+  },
+  "library_versions": {
+    "scikit-learn": "1.9.1",
+    "joblib": "1.6.0",
+    "numpy": "2.5.4",
+    "pandas": "3.0.6"
+  },
+  "python": "3.13.6"
+}

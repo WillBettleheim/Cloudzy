@@ -99,12 +99,12 @@ def fetch_live(location: config.Location = config.DELHI, session: requests.Sessi
 
 class CloudzyForecaster:
     def __init__(self, bundle_path: Path = SERVING_BUNDLE):
+        from src.artifacts import load_trusted
         if not Path(bundle_path).exists():
             raise FileNotFoundError(f"{bundle_path} not found; run `python -m src.compact` first")
-        self.bundle = joblib.load(bundle_path)
-        for key in ("horizons", "feature_columns", "feature_config", "test_2025_mae_c"):
-            if key not in self.bundle:
-                raise ValueError(f"Serving bundle is missing '{key}'")
+        # Verified, then cached until the file changes: no re-reading on every request.
+        self.bundle = load_trusted(Path(bundle_path), {"horizons", "feature_columns", "feature_config",
+                                                       "test_2025_mae_c"})
         cfg = self.bundle["feature_config"]
         self.cfg = FeatureConfig(**{k: tuple(v) if isinstance(v, list) else v for k, v in cfg.items()})
 

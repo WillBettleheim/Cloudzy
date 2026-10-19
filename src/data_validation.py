@@ -226,28 +226,29 @@ def load_processed(path: Path) -> pd.DataFrame:
 
 
 def processed_path(
-    location: config.Location = config.DELHI, source: config.DataSource = config.REANALYSIS
+    location: config.Location = config.DELHI, source: config.DataSource = config.REANALYSIS,
+    start: date = config.START_DATE, end: date = config.END_DATE,
 ) -> Path:
-    return config.PROCESSED_DIR / (
-        f"{location.slug}_hourly_{source.model}_{config.START_DATE}_{config.END_DATE}.csv"
-    )
+    return config.PROCESSED_DIR / f"{location.slug}_hourly_{source.model}_{start}_{end}.csv"
 
 
 def run_pipeline(
-    force_download: bool = False, source: config.DataSource = config.REANALYSIS
+    force_download: bool = False, source: config.DataSource = config.REANALYSIS,
+    location: config.Location = config.DELHI, start: date = config.START_DATE, end: date = config.END_DATE,
 ) -> tuple[pd.DataFrame, QualityReport]:
-    paths = collect(source=source, force=force_download)
+    paths = collect(location=location, start=start, end=end, source=source, force=force_download)
     raw, metadata = load_raw_frames(paths)
     variables = list(config.HOURLY_VARIABLES)
     validate_metadata(metadata, config.HOURLY_VARIABLES)
     clean, report = validate_and_clean(
-        raw, variables, config.PLAUSIBLE_RANGES, config.START_DATE, config.END_DATE
+        raw, variables, config.PLAUSIBLE_RANGES, start, end
     )
     report.source_metadata = metadata
 
-    out = processed_path(source=source)
+    out = processed_path(location, source, start, end)
     save_processed(clean, out)
-    report_path = config.REPORTS_DIR / f"data_quality_{config.DELHI.slug}_{source.model}.json"
+    suffix = "" if (start, end) == (config.START_DATE, config.END_DATE) else f"_{start}_{end}"
+    report_path = config.REPORTS_DIR / f"data_quality_{location.slug}_{source.model}{suffix}.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
     logger.info("Processed data: %s (%d rows, %s → %s)", out.name, report.rows_clean,

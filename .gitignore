@@ -23,6 +23,7 @@ models/*
 !models/.gitkeep
 # The deployed serving bundle is small (~2 MB) and committed so the app runs anywhere.
 !models/cloudzy_core_delhi_serving_compact.joblib
+!models/cloudzy_core_delhi_serving_compact.json
 *.tmp
 
 # OS / editors

@@ -1,5 +1,17 @@
 {
-  "task": "Predict temperature_2m at t+1h from data available at t (Delhi, era5_seamless)",
+  "task": "Predict temperature_2m at t+1h from data available at t (New Delhi, India, era5_seamless)",
+  "location": {
+    "slug": "delhi",
+    "name": "New Delhi, India",
+    "latitude": 28.6139,
+    "longitude": 77.209,
+    "timezone": "Asia/Kolkata"
+  },
+  "period": [
+    "2023-01-01",
+    "2025-12-31"
+  ],
+  "split_rule": "calendar years",
   "splits": {
     "train": {
       "rows": 8735,
@@ -19,6 +31,39 @@
   },
   "split_note": "Split by issue time. Rows whose target falls in the next split were purged.",
   "feature_rows": 26279,
+  "rows_dropped_incomplete": 25,
+  "target_alignment_check": [
+    {
+      "issue_time_utc": "2025-01-01T00:00:00+00:00",
+      "temperature_at_t_c": 7.6,
+      "target_c": 7.2,
+      "raw_temperature_at_t_plus_1h_c": 7.2
+    },
+    {
+      "issue_time_utc": "2025-03-14T23:00:00+00:00",
+      "temperature_at_t_c": 18.9,
+      "target_c": 19.0,
+      "raw_temperature_at_t_plus_1h_c": 19.0
+    },
+    {
+      "issue_time_utc": "2025-05-26T22:00:00+00:00",
+      "temperature_at_t_c": 27.4,
+      "target_c": 27.1,
+      "raw_temperature_at_t_plus_1h_c": 27.1
+    },
+    {
+      "issue_time_utc": "2025-08-07T21:00:00+00:00",
+      "temperature_at_t_c": 27.6,
+      "target_c": 27.3,
+      "raw_temperature_at_t_plus_1h_c": 27.3
+    },
+    {
+      "issue_time_utc": "2025-10-19T20:00:00+00:00",
+      "temperature_at_t_c": 21.5,
+      "target_c": 21.1,
+      "raw_temperature_at_t_plus_1h_c": 21.1
+    }
+  ],
   "tuning": [
     {
       "family": "persistence",
@@ -46,7 +91,7 @@
         "min_samples_leaf": 1
       },
       "validation_mae_c": 0.3724,
-      "fit_seconds": 0.63
+      "fit_seconds": 0.65
     },
     {
       "family": "random_forest",
@@ -66,7 +111,7 @@
         "min_samples_leaf": 1
       },
       "validation_mae_c": 0.3686,
-      "fit_seconds": 0.76
+      "fit_seconds": 0.75
     },
     {
       "family": "random_forest",
@@ -76,7 +121,7 @@
         "min_samples_leaf": 5
       },
       "validation_mae_c": 0.38,
-      "fit_seconds": 0.62
+      "fit_seconds": 0.61
     },
     {
       "family": "random_forest",
@@ -86,7 +131,7 @@
         "min_samples_leaf": 1
       },
       "validation_mae_c": 0.257,
-      "fit_seconds": 0.68
+      "fit_seconds": 0.64
     },
     {
       "family": "random_forest",
@@ -96,7 +141,7 @@
         "min_samples_leaf": 5
       },
       "validation_mae_c": 0.2513,
-      "fit_seconds": 0.63
+      "fit_seconds": 0.6
     },
     {
       "family": "random_forest",
@@ -106,7 +151,7 @@
         "min_samples_leaf": 1
       },
       "validation_mae_c": 0.2568,
-      "fit_seconds": 0.89
+      "fit_seconds": 0.84
     },
     {
       "family": "random_forest",
@@ -116,7 +161,7 @@
         "min_samples_leaf": 5
       },
       "validation_mae_c": 0.2519,
-      "fit_seconds": 0.7
+      "fit_seconds": 0.68
     },
     {
       "family": "gradient_boosting",
@@ -127,7 +172,7 @@
         "max_iter": 300
       },
       "validation_mae_c": 0.362,
-      "fit_seconds": 0.56
+      "fit_seconds": 0.77
     },
     {
       "family": "gradient_boosting",
@@ -138,7 +183,7 @@
         "max_iter": 800
       },
       "validation_mae_c": 0.352,
-      "fit_seconds": 1.33
+      "fit_seconds": 1.35
     },
     {
       "family": "gradient_boosting",
@@ -149,7 +194,7 @@
         "max_iter": 300
       },
       "validation_mae_c": 0.3566,
-      "fit_seconds": 1.0
+      "fit_seconds": 0.99
     },
     {
       "family": "gradient_boosting",
@@ -160,7 +205,7 @@
         "max_iter": 800
       },
       "validation_mae_c": 0.3561,
-      "fit_seconds": 2.56
+      "fit_seconds": 2.43
     },
     {
       "family": "gradient_boosting",
@@ -171,7 +216,7 @@
         "max_iter": 300
       },
       "validation_mae_c": 0.3597,
-      "fit_seconds": 0.53
+      "fit_seconds": 0.49
     },
     {
       "family": "gradient_boosting",
@@ -182,7 +227,7 @@
         "max_iter": 800
       },
       "validation_mae_c": 0.3591,
-      "fit_seconds": 1.29
+      "fit_seconds": 1.26
     },
     {
       "family": "gradient_boosting",
@@ -193,7 +238,7 @@
         "max_iter": 300
       },
       "validation_mae_c": 0.355,
-      "fit_seconds": 0.97
+      "fit_seconds": 0.93
     },
     {
       "family": "gradient_boosting",
@@ -215,7 +260,7 @@
         "max_iter": 300
       },
       "validation_mae_c": 0.2627,
-      "fit_seconds": 0.71
+      "fit_seconds": 0.5
     },
     {
       "family": "gradient_boosting",
@@ -226,7 +271,7 @@
         "max_iter": 800
       },
       "validation_mae_c": 0.2686,
-      "fit_seconds": 1.65
+      "fit_seconds": 1.34
     },
     {
       "family": "gradient_boosting",
@@ -237,7 +282,7 @@
         "max_iter": 300
       },
       "validation_mae_c": 0.2619,
-      "fit_seconds": 1.14
+      "fit_seconds": 0.97
     },
     {
       "family": "gradient_boosting",
@@ -248,7 +293,7 @@
         "max_iter": 800
       },
       "validation_mae_c": 0.2703,
-      "fit_seconds": 2.95
+      "fit_seconds": 2.43
     },
     {
       "family": "gradient_boosting",
@@ -259,7 +304,7 @@
         "max_iter": 300
       },
       "validation_mae_c": 0.2682,
-      "fit_seconds": 0.56
+      "fit_seconds": 0.51
     },
     {
       "family": "gradient_boosting",
@@ -270,7 +315,7 @@
         "max_iter": 800
       },
       "validation_mae_c": 0.2815,
-      "fit_seconds": 1.39
+      "fit_seconds": 1.26
     },
     {
       "family": "gradient_boosting",
@@ -281,7 +326,7 @@
         "max_iter": 300
       },
       "validation_mae_c": 0.2721,
-      "fit_seconds": 1.23
+      "fit_seconds": 0.94
     },
     {
       "family": "gradient_boosting",
@@ -292,7 +337,7 @@
         "max_iter": 800
       },
       "validation_mae_c": 0.2841,
-      "fit_seconds": 3.28
+      "fit_seconds": 2.46
     }
   ],
   "best_per_family": {
@@ -332,7 +377,8 @@
       "residual": true,
       "max_depth": 12,
       "min_samples_leaf": 5
-    }
+    },
+    "reason": "lowest validation MAE among all candidates (test set not consulted)"
   },
   "test_metrics": {
     "persistence": {
@@ -738,8 +784,9 @@
     "reports/figures/delhi_era5_seamless/test_mae_by_hour.png",
     "reports/figures/delhi_era5_seamless/test_mae_by_month.png"
   ],
+  "model_file": "cloudzy_core_delhi_era5_seamless_h1.joblib",
   "provenance": {
-    "created_at_utc": "2026-10-19T06:10:59+00:00",
+    "created_at_utc": "2026-10-19T15:03:10+00:00",
     "python": "3.13.6",
     "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
     "packages": {
@@ -752,12 +799,17 @@
     },
     "random_seed": 42,
     "data": {
-      "source": "Open-Meteo Historical Weather API",
+      "source": "Open-Meteo Historical Weather API (reanalysis: model-based, not station observations)",
       "model": "era5_seamless",
       "location": "New Delhi, India",
       "requested_lat_lon": [
         28.6139,
         77.209
+      ],
+      "local_timezone": "Asia/Kolkata",
+      "period": [
+        "2023-01-01",
+        "2025-12-31"
       ],
       "processed_file": "delhi_hourly_era5_seamless_2023-01-01_2025-12-31.csv"
     }

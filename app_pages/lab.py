@@ -29,7 +29,9 @@ MODELS = ["persistence", "diurnal_baseline", "linear_regression", "gradient_boos
 
 @st.cache_data(show_spinner=False)
 def load_lab():
+    reports = sorted(config.REPORTS_DIR.glob("evaluation_*_era5_seamless*_h1.json"))
     return {
+        "evaluations": {p.name: json.loads(p.read_text()) for p in reports},
         "phase_a": load_predictions(LAB_DIR / "phase_a_test_2025.csv.gz"),
         "serving": load_predictions(LAB_DIR / "serving_test_2025.csv.gz"),
         "bias": pd.read_csv(LAB_DIR / "shift_bias_by_hour.csv"),
@@ -90,6 +92,15 @@ tabs = st.tabs(["Scoreboard", "Predictions vs observed", "Error breakdown", "Liv
 
 # --- Scoreboard --------------------------------------------------------------------
 with tabs[0]:
+    main_report = lab["evaluations"].get(f"evaluation_{config.RUN_TAG}_h1.json")
+    if main_report:
+        with st.container(border=True):
+            st.markdown("**Model card · Cloudzy Core 1-hour model (Delhi)**")
+            card = lab_ui.model_card(main_report)
+            st.markdown("\n".join(f"- **{k}:** {v}" for k, v in card.items()))
+            st.caption("Values come straight from the saved evaluation report (`python -m src.pipeline evaluate` "
+                       "re-checks them). The live app serves a compact gradient-boosting version of this "
+                       "task for live inputs: see *Live setting*.")
     table = lab_ui.summary(a, MODELS)
     chart(lab_ui.mae_bar_chart(table, colors))
     shown = table.assign(model=table["model"].map(lab_ui.MODEL_NAMES))
@@ -104,6 +115,18 @@ with tabs[0]:
         "persistence comes from simply knowing the daily cycle. The model's own contribution is the "
         "smaller gap to the diurnal baseline. That gap is real: a 95% week-block bootstrap interval "
         "excludes zero.")
+    others = [r for name, r in lab["evaluations"].items() if name != f"evaluation_{config.RUN_TAG}_h1.json"]
+    if others:
+        st.markdown("##### Other locations (research runs)")
+        st.dataframe(lab_ui.locations_table([main_report] + others if main_report else others), hide_index=True,
+                     width="stretch", column_config={c: st.column_config.NumberColumn(format="%.3f")
+                                                     for c in ("Model MAE °C", "Model RMSE °C", "Persistence MAE °C",
+                                                               "Diurnal baseline MAE °C")})
+        st.caption("The same pipeline (`python -m src.pipeline all --city …`), trained and tested separately for "
+                   "each place on its own reanalysis data. These show the method carries over, but each model is "
+                   "valid only for its own grid cell, and none of them is used in the live app, which serves "
+                   "Delhi only. Errors differ by climate: a strong daily cycle (Delhi, Mumbai) gives a model more "
+                   "to learn than Reykjavik's muted one.")
 
 # --- Predictions vs observed ---------------------------------------------------------
 with tabs[1]:

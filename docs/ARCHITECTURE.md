@@ -80,7 +80,7 @@ request.
 
 ## Tests
 
-- **Offline suite:** `python -m pytest` runs 365 tests and needs no network.
+- **Offline suite:** `python -m pytest` runs 385 tests and needs no network.
   `tests/conftest.py` points preferences, monitoring and snapshots at temporary
   folders, so tests never touch real user data.
 - **Live checks:** `python -m pytest -m integration` runs 5 tests against the
@@ -96,3 +96,11 @@ reason code. Python validates the result and applies it only if the request numb
 pending. The coordinates live in `st.session_state` only. Exact coordinates go to the Open-Meteo
 Forecast API; coordinates rounded to 2 decimals go to Nominatim, cached and throttled to 1 request
 per second.
+
+## Cloudzy Core pipeline and artifacts
+
+`python -m src.pipeline {fetch,train,evaluate,all} [--city … --country … | --lat --lon --name --timezone] [--start --end]`
+wires `data_collection` → `data_validation` → `features` → `splits` → `train` → `artifacts` for
+any location and period. Every model file has a `.json` sidecar describing it (version, SHA-256,
+features with units, target, provenance, splits, metrics). `artifacts.load_trusted` verifies the
+structure, feature schema and checksum before the app or the evaluator uses a model.

@@ -47,7 +47,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 streamlit run streamlit_app.py   # the app: weather at http://localhost:8501, Cloudzy Lab at /lab
-python -m pytest                 # 365 offline tests, no network needed
+python -m pytest                 # 385 offline tests, no network needed
+python -m src.pipeline all       # Cloudzy Core: fetch → train → evaluate (Delhi, 2023-2025, ~30 s when cached)
 python -m pytest -m integration   # 5 live checks against the Open-Meteo APIs
 python -m src.data_validation    # download (first run only), validate, write processed CSV
 python -m src.features           # build the feature table
@@ -737,7 +738,7 @@ trained on 2023-01-02 → 2026-08-31.
 
 | Suite | What it covers | How to run |
 |---|---|---|
-| Offline (365) | Everything in phases A–E, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
+| Offline (385) | Everything in phases A–E, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
 | Integration (5) | Live calls: both archive sources validate, live IFS inputs give 25 complete hours, the provider forecast and geocoding work, and a nonsense search returns nothing | `python -m pytest -m integration` |
 
 GitHub Actions (`.github/workflows/tests.yml`) runs the offline suite on every
@@ -929,6 +930,59 @@ prediction.
 The automated tests fake the browser and every API; they never use a real
 location.
 
+## Cloudzy Core: the ML pipeline in one command
+
+```bash
+python -m src.pipeline all                                       # Delhi, 2023-01-01 → 2025-12-31 (the app's model family)
+python -m src.pipeline all --city Mumbai --country IN            # any place found by Open-Meteo geocoding
+python -m src.pipeline all --city Reykjavik --country IS --start 2022-01-01 --end 2025-12-31
+python -m src.pipeline evaluate                                   # reload a saved model and re-check it (no training)
+```
+
+| Step | What happens | Writes |
+|---|---|---|
+| `fetch` | Downloads hourly reanalysis from the Open-Meteo archive (cached per year, retried, rate-limit aware), then validates it: units, UTC timestamps, duplicates, gaps, physical bounds. Nothing is imputed | `data/raw/`, `data/processed/`, `reports/data_quality_*.json` |
+| `train` | Builds 27 features from values at or before *t* (target: temperature at *t* + 1 h). Splits chronologically (one calendar year each for 2023–2025, otherwise **70/15/15 by time**), purging boundary rows. Tunes persistence, a diurnal baseline, linear regression, random forest and gradient boosting **on validation only**, refits the winner on train + validation, and scores every candidate once on test | `models/cloudzy_core_<place>_…_h1.joblib` + `.json` metadata, `reports/evaluation_*.json`, figures |
+| `evaluate` | Reloads the model through the verified loader, re-scores the test period, **fails if the result doesn't match** the recorded MAE, and makes an example prediction from real inputs | (prints) |
+
+**Training, evaluation and inference are separate.**
+- **Training** happens only when you run the pipeline.
+- **Evaluation** uses the held-out test period, which plays no part in any choice.
+- **The app only loads saved models.** It never trains, and it never trains per location or per page view.
+
+**Safeguards added in this round:**
+- **Location and dates are parameters,** and Delhi isn't assumed anywhere in the pipeline. Features use each place's own time zone.
+- **Global plausibility bounds.** The old Delhi-specific bounds (−10…55 °C) would have discarded **963 real hours** of Reykjavik's winter, down to −20.9 °C. The bounds are now physical limits valid anywhere: −90…60 °C, and 300–1100 hPa.
+- **Size and alignment checks.** Training stops with a clear error if a split is too small (less than 90 days for training, 30 days for validation or test). Each report records sample rows showing that the target equals the raw temperature one hour later, and the run fails if any row doesn't.
+- **Model metadata.** Each model file has a `.json` file beside it holding:
+  - the artifact version and the SHA-256 of the exact file;
+  - feature names, order and units;
+  - the target definition;
+  - data source and period, split dates;
+  - validation and test metrics, and library versions.
+- **Verified loading** (`src/artifacts.py`):
+  - *Clear errors:* a missing, corrupted, incomplete, schema-incompatible or checksum-mismatched model raises a clear error. The app then says "the Cloudzy Core model file can't be used" instead of crashing or quietly substituting another model.
+  - *Caching:* models are loaded once and cached until the file changes.
+  - *Trust:* only Cloudzy's own local model files are loaded.
+
+**Real results** (actual runs on 2026-10-19; reanalysis targets, 1 hour ahead, held-out test):
+
+| Place | Data, split | Test hours | Persistence MAE / RMSE | Selected on validation | Selected test MAE / RMSE | Reloaded check |
+|---|---|---|---|---|---|---|
+| New Delhi | 2023–2025, calendar years | 8,759 (2025) | 0.924 / 1.263 °C | Random forest | **0.242 / 0.410 °C** | ✓ matches |
+| Mumbai | 2023–2025, calendar years | 8,759 (2025) | 0.546 / 0.786 °C | Random forest | **0.170 / 0.257 °C** | ✓ matches |
+| Reykjavik | 2022–2025, 70/15/15 | 5,279 (2025-05-26 → 12-31) | 0.387 / 0.520 °C | Gradient boosting | **0.215 / 0.315 °C** | ✓ matches |
+
+What the results show:
+- **Beating persistence:** every model beats it, and the 95% week-block bootstrap intervals exclude zero.
+- **Selection is honest:** in Reykjavik, gradient boosting won on validation, and the random forest happened to score slightly better on test (0.214). Selection never looks at test, so gradient boosting stays.
+- **Climate matters:** gains are largest where the daily cycle is strong (Delhi, Mumbai).
+- **Per-place models only:** these are separate models for separate grid cells. The live app serves **Delhi only**, via the IFS-input serving models (Phase B/F). Serving another city live would need the same cross-source training and evaluation for it.
+
+**Retrain later:**
+- Run `python -m src.pipeline all` with new `--start/--end` dates.
+- For the live serving models, run `python -m src.refit` monthly. Each refit also refreshes the model's metadata file.
+
 ## Using a trained model
 
 ```python
@@ -979,6 +1033,8 @@ src/preferences.py       local preferences: unit override, favourites, alert thr
 src/monitoring.py        live prediction log and delayed scoring against the reanalysis
 src/history.py           historical weather explorer (archive API)
 src/geolocation.py       one-time browser location, request handling, reverse geocoding (Nominatim)
+src/pipeline.py          one command for Cloudzy Core: fetch → train → evaluate, any location and period
+src/artifacts.py         verified model loading, schema/checksum checks, metadata sidecars
 docs/ARCHITECTURE.md     architecture diagram, layers, data types, local state
 streamlit_app.py         entry point: navigation between the two pages
 app_pages/weather.py     the weather app (Phase D)
@@ -992,7 +1048,7 @@ DEPLOYMENT.md            deployment and maintenance guide
 .github/workflows/       CI: offline tests on push, live API checks weekly
 reports/lab/             the Lab's committed data (~600 KB)
 .streamlit/config.toml   brand theme: light and dark palettes
-tests/                   365 offline tests + 5 live integration tests
+tests/                   385 offline tests + 5 live integration tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
 ```

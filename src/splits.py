@@ -33,6 +33,25 @@ DEFAULT_SPLITS = (
 )
 
 
+def proportional_splits(start, end, fractions=(0.70, 0.15, 0.15)) -> tuple[SplitSpec, ...]:
+    """Train/validation/test periods covering [start, end] (dates, inclusive) in time order.
+
+    Boundaries fall on whole UTC days. Used when the data period isn't the default
+    three calendar years, which use DEFAULT_SPLITS (one full year each).
+    """
+    if abs(sum(fractions) - 1) > 1e-9 or len(fractions) != 3 or min(fractions) <= 0:
+        raise ValueError("fractions must be three positive numbers summing to 1")
+    t0 = pd.Timestamp(start)
+    t_end = pd.Timestamp(end) + pd.Timedelta(days=1)
+    days = (t_end - t0).days
+    b1 = t0 + pd.Timedelta(days=int(days * fractions[0]))
+    b2 = b1 + pd.Timedelta(days=int(days * fractions[1]))
+    fmt = "%Y-%m-%d"
+    return (SplitSpec("train", t0.strftime(fmt), b1.strftime(fmt)),
+            SplitSpec("validation", b1.strftime(fmt), b2.strftime(fmt)),
+            SplitSpec("test", b2.strftime(fmt), t_end.strftime(fmt)))
+
+
 def chronological_split(
     table: pd.DataFrame,
     specs: tuple[SplitSpec, ...] = DEFAULT_SPLITS,

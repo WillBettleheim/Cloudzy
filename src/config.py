@@ -101,9 +101,12 @@ HOURLY_VARIABLES: dict[str, str] = {
 # data errors (set to NaN and counted in the quality report), never silently
 # clipped.
 PLAUSIBLE_RANGES: dict[str, tuple[float, float]] = {
-    "temperature_2m": (-10.0, 55.0),
+    # Physical limits that hold anywhere on Earth, so other locations' real extremes
+    # (a Siberian winter, a high-altitude city's low pressure) are never discarded.
+    # Values outside them are treated as data errors (set to NaN and counted), never clipped.
+    "temperature_2m": (-90.0, 60.0),
     "relative_humidity_2m": (0.0, 100.0),
-    "surface_pressure": (900.0, 1050.0),
-    "wind_speed_10m": (0.0, 200.0),
-    "precipitation": (0.0, 300.0),
+    "surface_pressure": (300.0, 1100.0),
+    "wind_speed_10m": (0.0, 400.0),
+    "precipitation": (0.0, 500.0),
 }

@@ -1,0 +1,786 @@
+{
+  "task": "Predict temperature_2m at t+1h from data available at t (Reykjavik, Capital Region, Iceland, era5_seamless)",
+  "location": {
+    "slug": "reykjavik-is",
+    "name": "Reykjavik, Capital Region, Iceland",
+    "latitude": 64.13548,
+    "longitude": -21.89541,
+    "timezone": "Atlantic/Reykjavik"
+  },
+  "period": [
+    "2022-01-01",
+    "2025-12-31"
+  ],
+  "split_rule": "70/15/15 by time",
+  "splits": {
+    "train": {
+      "rows": 24503,
+      "first_issue_time_utc": "2022-01-02T00:00:00+00:00",
+      "last_issue_time_utc": "2024-10-18T22:00:00+00:00"
+    },
+    "validation": {
+      "rows": 5255,
+      "first_issue_time_utc": "2024-10-19T00:00:00+00:00",
+      "last_issue_time_utc": "2025-05-25T22:00:00+00:00"
+    },
+    "test": {
+      "rows": 5279,
+      "first_issue_time_utc": "2025-05-26T00:00:00+00:00",
+      "last_issue_time_utc": "2025-12-31T22:00:00+00:00"
+    }
+  },
+  "split_note": "Split by issue time. Rows whose target falls in the next split were purged.",
+  "feature_rows": 35039,
+  "rows_dropped_incomplete": 25,
+  "target_alignment_check": [
+    {
+      "issue_time_utc": "2025-05-26T00:00:00+00:00",
+      "temperature_at_t_c": 8.1,
+      "target_c": 8.2,
+      "raw_temperature_at_t_plus_1h_c": 8.2
+    },
+    {
+      "issue_time_utc": "2025-07-08T23:00:00+00:00",
+      "temperature_at_t_c": 10.6,
+      "target_c": 10.5,
+      "raw_temperature_at_t_plus_1h_c": 10.5
+    },
+    {
+      "issue_time_utc": "2025-08-21T22:00:00+00:00",
+      "temperature_at_t_c": 12.1,
+      "target_c": 11.6,
+      "raw_temperature_at_t_plus_1h_c": 11.6
+    },
+    {
+      "issue_time_utc": "2025-10-04T21:00:00+00:00",
+      "temperature_at_t_c": 6.2,
+      "target_c": 6.1,
+      "raw_temperature_at_t_plus_1h_c": 6.1
+    },
+    {
+      "issue_time_utc": "2025-11-17T20:00:00+00:00",
+      "temperature_at_t_c": -1.3,
+      "target_c": -1.7,
+      "raw_temperature_at_t_plus_1h_c": -1.7
+    }
+  ],
+  "tuning": [
+    {
+      "family": "persistence",
+      "params": {},
+      "validation_mae_c": 0.4094,
+      "fit_seconds": 0.0
+    },
+    {
+      "family": "diurnal_baseline",
+      "params": {},
+      "validation_mae_c": 0.3407,
+      "fit_seconds": 0.0
+    },
+    {
+      "family": "linear_regression",
+      "params": {},
+      "validation_mae_c": 0.2706,
+      "fit_seconds": 0.02
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": false,
+        "max_depth": 12,
+        "min_samples_leaf": 1
+      },
+      "validation_mae_c": 0.2809,
+      "fit_seconds": 1.8
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": false,
+        "max_depth": 12,
+        "min_samples_leaf": 5
+      },
+      "validation_mae_c": 0.2815,
+      "fit_seconds": 1.79
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": false,
+        "max_depth": null,
+        "min_samples_leaf": 1
+      },
+      "validation_mae_c": 0.2815,
+      "fit_seconds": 2.48
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": false,
+        "max_depth": null,
+        "min_samples_leaf": 5
+      },
+      "validation_mae_c": 0.2809,
+      "fit_seconds": 1.93
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": true,
+        "max_depth": 12,
+        "min_samples_leaf": 1
+      },
+      "validation_mae_c": 0.2489,
+      "fit_seconds": 2.03
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": true,
+        "max_depth": 12,
+        "min_samples_leaf": 5
+      },
+      "validation_mae_c": 0.2478,
+      "fit_seconds": 1.97
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": true,
+        "max_depth": null,
+        "min_samples_leaf": 1
+      },
+      "validation_mae_c": 0.2485,
+      "fit_seconds": 3.0
+    },
+    {
+      "family": "random_forest",
+      "params": {
+        "residual": true,
+        "max_depth": null,
+        "min_samples_leaf": 5
+      },
+      "validation_mae_c": 0.2469,
+      "fit_seconds": 2.44
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.2691,
+      "fit_seconds": 0.68
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 15,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.2672,
+      "fit_seconds": 1.57
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 31,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.2683,
+      "fit_seconds": 1.14
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 31,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.2678,
+      "fit_seconds": 2.87
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.2689,
+      "fit_seconds": 0.62
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 15,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.2715,
+      "fit_seconds": 1.56
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 31,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.2702,
+      "fit_seconds": 1.14
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": false,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 31,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.2754,
+      "fit_seconds": 2.76
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.2455,
+      "fit_seconds": 0.64
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 15,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.2452,
+      "fit_seconds": 1.81
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 31,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.2443,
+      "fit_seconds": 1.32
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 31,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.2466,
+      "fit_seconds": 2.86
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 15,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.2448,
+      "fit_seconds": 0.61
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 15,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.249,
+      "fit_seconds": 1.53
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 31,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.2468,
+      "fit_seconds": 1.1
+    },
+    {
+      "family": "gradient_boosting",
+      "params": {
+        "residual": true,
+        "learning_rate": 0.1,
+        "max_leaf_nodes": 31,
+        "max_iter": 800
+      },
+      "validation_mae_c": 0.2539,
+      "fit_seconds": 2.76
+    }
+  ],
+  "best_per_family": {
+    "persistence": {
+      "params": {},
+      "validation_mae_c": 0.4094
+    },
+    "diurnal_baseline": {
+      "params": {},
+      "validation_mae_c": 0.3407
+    },
+    "linear_regression": {
+      "params": {},
+      "validation_mae_c": 0.2706
+    },
+    "random_forest": {
+      "params": {
+        "residual": true,
+        "max_depth": null,
+        "min_samples_leaf": 5
+      },
+      "validation_mae_c": 0.2469
+    },
+    "gradient_boosting": {
+      "params": {
+        "residual": true,
+        "learning_rate": 0.05,
+        "max_leaf_nodes": 31,
+        "max_iter": 300
+      },
+      "validation_mae_c": 0.2443
+    }
+  },
+  "selected": {
+    "family": "gradient_boosting",
+    "params": {
+      "residual": true,
+      "learning_rate": 0.05,
+      "max_leaf_nodes": 31,
+      "max_iter": 300
+    },
+    "reason": "lowest validation MAE among all candidates (test set not consulted)"
+  },
+  "test_metrics": {
+    "persistence": {
+      "n": 5279,
+      "mae_c": 0.387,
+      "rmse_c": 0.5205,
+      "bias_c": 0.002,
+      "abs_error_p50_c": 0.3,
+      "abs_error_p90_c": 0.8,
+      "abs_error_p99_c": 1.6,
+      "abs_error_max_c": 3.0
+    },
+    "diurnal_baseline": {
+      "n": 5279,
+      "mae_c": 0.2888,
+      "rmse_c": 0.3936,
+      "bias_c": -0.0013,
+      "abs_error_p50_c": 0.219,
+      "abs_error_p90_c": 0.604,
+      "abs_error_p99_c": 1.318,
+      "abs_error_max_c": 2.562
+    },
+    "linear_regression": {
+      "n": 5279,
+      "mae_c": 0.2336,
+      "rmse_c": 0.3414,
+      "bias_c": -0.0166,
+      "abs_error_p50_c": 0.166,
+      "abs_error_p90_c": 0.502,
+      "abs_error_p99_c": 1.168,
+      "abs_error_max_c": 3.626
+    },
+    "random_forest": {
+      "n": 5279,
+      "mae_c": 0.214,
+      "rmse_c": 0.3163,
+      "bias_c": -0.0115,
+      "abs_error_p50_c": 0.148,
+      "abs_error_p90_c": 0.465,
+      "abs_error_p99_c": 1.072,
+      "abs_error_max_c": 3.051
+    },
+    "gradient_boosting": {
+      "n": 5279,
+      "mae_c": 0.2154,
+      "rmse_c": 0.3149,
+      "bias_c": -0.015,
+      "abs_error_p50_c": 0.15,
+      "abs_error_p90_c": 0.467,
+      "abs_error_p99_c": 1.075,
+      "abs_error_max_c": 3.042
+    }
+  },
+  "test_vs_persistence_bootstrap": {
+    "mae_diff_c": -0.1716,
+    "ci95_low_c": -0.2096,
+    "ci95_high_c": -0.1381,
+    "block": "7D",
+    "n_blocks": 32,
+    "n_boot": 1000
+  },
+  "test_vs_diurnal_baseline_bootstrap": {
+    "mae_diff_c": -0.0734,
+    "ci95_low_c": -0.0847,
+    "ci95_high_c": -0.0614,
+    "block": "7D",
+    "n_blocks": 32,
+    "n_boot": 1000
+  },
+  "beats_baseline": true,
+  "verdict": "gradient_boosting beats persistence on the test period: MAE 0.215 \u00b0C vs 0.387 \u00b0C (44.3% lower). The 95% week-block bootstrap interval for the MAE difference is [-0.210, -0.138] \u00b0C and excludes zero.",
+  "test_breakdown": {
+    "by_local_hour": {
+      "0": {
+        "persistence": 0.3591,
+        "diurnal_baseline": 0.2909,
+        "linear_regression": 0.1989,
+        "random_forest": 0.1907,
+        "gradient_boosting": 0.1885,
+        "n": 220.0
+      },
+      "1": {
+        "persistence": 0.2959,
+        "diurnal_baseline": 0.2423,
+        "linear_regression": 0.1843,
+        "random_forest": 0.1733,
+        "gradient_boosting": 0.1743,
+        "n": 220.0
+      },
+      "2": {
+        "persistence": 0.275,
+        "diurnal_baseline": 0.2388,
+        "linear_regression": 0.1982,
+        "random_forest": 0.1813,
+        "gradient_boosting": 0.1866,
+        "n": 220.0
+      },
+      "3": {
+        "persistence": 0.2486,
+        "diurnal_baseline": 0.2301,
+        "linear_regression": 0.1968,
+        "random_forest": 0.1675,
+        "gradient_boosting": 0.1704,
+        "n": 220.0
+      },
+      "4": {
+        "persistence": 0.2068,
+        "diurnal_baseline": 0.2126,
+        "linear_regression": 0.1904,
+        "random_forest": 0.1887,
+        "gradient_boosting": 0.1862,
+        "n": 220.0
+      },
+      "5": {
+        "persistence": 0.3127,
+        "diurnal_baseline": 0.2543,
+        "linear_regression": 0.2329,
+        "random_forest": 0.201,
+        "gradient_boosting": 0.2006,
+        "n": 220.0
+      },
+      "6": {
+        "persistence": 0.6009,
+        "diurnal_baseline": 0.5028,
+        "linear_regression": 0.4404,
+        "random_forest": 0.4049,
+        "gradient_boosting": 0.4096,
+        "n": 220.0
+      },
+      "7": {
+        "persistence": 0.475,
+        "diurnal_baseline": 0.3298,
+        "linear_regression": 0.3018,
+        "random_forest": 0.2674,
+        "gradient_boosting": 0.2654,
+        "n": 220.0
+      },
+      "8": {
+        "persistence": 0.5318,
+        "diurnal_baseline": 0.2989,
+        "linear_regression": 0.2329,
+        "random_forest": 0.2084,
+        "gradient_boosting": 0.2069,
+        "n": 220.0
+      },
+      "9": {
+        "persistence": 0.5309,
+        "diurnal_baseline": 0.3161,
+        "linear_regression": 0.2438,
+        "random_forest": 0.2223,
+        "gradient_boosting": 0.2249,
+        "n": 220.0
+      },
+      "10": {
+        "persistence": 0.5177,
+        "diurnal_baseline": 0.3225,
+        "linear_regression": 0.2107,
+        "random_forest": 0.1969,
+        "gradient_boosting": 0.1999,
+        "n": 220.0
+      },
+      "11": {
+        "persistence": 0.4759,
+        "diurnal_baseline": 0.3209,
+        "linear_regression": 0.2347,
+        "random_forest": 0.2179,
+        "gradient_boosting": 0.2235,
+        "n": 220.0
+      },
+      "12": {
+        "persistence": 0.445,
+        "diurnal_baseline": 0.2972,
+        "linear_regression": 0.2407,
+        "random_forest": 0.2217,
+        "gradient_boosting": 0.2172,
+        "n": 220.0
+      },
+      "13": {
+        "persistence": 0.355,
+        "diurnal_baseline": 0.3008,
+        "linear_regression": 0.2255,
+        "random_forest": 0.2267,
+        "gradient_boosting": 0.2245,
+        "n": 220.0
+      },
+      "14": {
+        "persistence": 0.2477,
+        "diurnal_baseline": 0.2567,
+        "linear_regression": 0.2308,
+        "random_forest": 0.2119,
+        "gradient_boosting": 0.2118,
+        "n": 220.0
+      },
+      "15": {
+        "persistence": 0.2541,
+        "diurnal_baseline": 0.2392,
+        "linear_regression": 0.2022,
+        "random_forest": 0.1951,
+        "gradient_boosting": 0.198,
+        "n": 220.0
+      },
+      "16": {
+        "persistence": 0.2636,
+        "diurnal_baseline": 0.2302,
+        "linear_regression": 0.1929,
+        "random_forest": 0.1801,
+        "gradient_boosting": 0.1782,
+        "n": 220.0
+      },
+      "17": {
+        "persistence": 0.3423,
+        "diurnal_baseline": 0.2599,
+        "linear_regression": 0.1994,
+        "random_forest": 0.2003,
+        "gradient_boosting": 0.1982,
+        "n": 220.0
+      },
+      "18": {
+        "persistence": 0.5145,
+        "diurnal_baseline": 0.4414,
+        "linear_regression": 0.3946,
+        "random_forest": 0.3787,
+        "gradient_boosting": 0.3749,
+        "n": 220.0
+      },
+      "19": {
+        "persistence": 0.4068,
+        "diurnal_baseline": 0.2573,
+        "linear_regression": 0.2654,
+        "random_forest": 0.2056,
+        "gradient_boosting": 0.2177,
+        "n": 220.0
+      },
+      "20": {
+        "persistence": 0.4164,
+        "diurnal_baseline": 0.2645,
+        "linear_regression": 0.1869,
+        "random_forest": 0.1672,
+        "gradient_boosting": 0.1736,
+        "n": 220.0
+      },
+      "21": {
+        "persistence": 0.4309,
+        "diurnal_baseline": 0.2826,
+        "linear_regression": 0.2087,
+        "random_forest": 0.1809,
+        "gradient_boosting": 0.1861,
+        "n": 220.0
+      },
+      "22": {
+        "persistence": 0.4105,
+        "diurnal_baseline": 0.2746,
+        "linear_regression": 0.1973,
+        "random_forest": 0.1749,
+        "gradient_boosting": 0.1766,
+        "n": 220.0
+      },
+      "23": {
+        "persistence": 0.3717,
+        "diurnal_baseline": 0.2677,
+        "linear_regression": 0.1957,
+        "random_forest": 0.1735,
+        "gradient_boosting": 0.1758,
+        "n": 219.0
+      }
+    },
+    "by_month": {
+      "5": {
+        "persistence": 0.5764,
+        "diurnal_baseline": 0.2705,
+        "linear_regression": 0.2732,
+        "random_forest": 0.2277,
+        "gradient_boosting": 0.2349,
+        "n": 144.0
+      },
+      "6": {
+        "persistence": 0.4771,
+        "diurnal_baseline": 0.269,
+        "linear_regression": 0.2248,
+        "random_forest": 0.2042,
+        "gradient_boosting": 0.2039,
+        "n": 720.0
+      },
+      "7": {
+        "persistence": 0.4144,
+        "diurnal_baseline": 0.2706,
+        "linear_regression": 0.2271,
+        "random_forest": 0.2104,
+        "gradient_boosting": 0.2093,
+        "n": 744.0
+      },
+      "8": {
+        "persistence": 0.4155,
+        "diurnal_baseline": 0.2941,
+        "linear_regression": 0.2301,
+        "random_forest": 0.2096,
+        "gradient_boosting": 0.2075,
+        "n": 744.0
+      },
+      "9": {
+        "persistence": 0.4551,
+        "diurnal_baseline": 0.3217,
+        "linear_regression": 0.24,
+        "random_forest": 0.2218,
+        "gradient_boosting": 0.2224,
+        "n": 720.0
+      },
+      "10": {
+        "persistence": 0.3118,
+        "diurnal_baseline": 0.281,
+        "linear_regression": 0.2066,
+        "random_forest": 0.1929,
+        "gradient_boosting": 0.1977,
+        "n": 744.0
+      },
+      "11": {
+        "persistence": 0.3353,
+        "diurnal_baseline": 0.3096,
+        "linear_regression": 0.2559,
+        "random_forest": 0.2401,
+        "gradient_boosting": 0.2442,
+        "n": 720.0
+      },
+      "12": {
+        "persistence": 0.2668,
+        "diurnal_baseline": 0.2804,
+        "linear_regression": 0.2436,
+        "random_forest": 0.2173,
+        "gradient_boosting": 0.2197,
+        "n": 743.0
+      }
+    },
+    "by_season": {
+      "monsoon": {
+        "persistence": 0.4401,
+        "diurnal_baseline": 0.2888,
+        "linear_regression": 0.2305,
+        "random_forest": 0.2115,
+        "gradient_boosting": 0.2107,
+        "n": 2928.0
+      },
+      "post-monsoon": {
+        "persistence": 0.3234,
+        "diurnal_baseline": 0.2951,
+        "linear_regression": 0.2308,
+        "random_forest": 0.2161,
+        "gradient_boosting": 0.2206,
+        "n": 1464.0
+      },
+      "pre-monsoon": {
+        "persistence": 0.5764,
+        "diurnal_baseline": 0.2705,
+        "linear_regression": 0.2732,
+        "random_forest": 0.2277,
+        "gradient_boosting": 0.2349,
+        "n": 144.0
+      },
+      "winter": {
+        "persistence": 0.2668,
+        "diurnal_baseline": 0.2804,
+        "linear_regression": 0.2436,
+        "random_forest": 0.2173,
+        "gradient_boosting": 0.2197,
+        "n": 743.0
+      }
+    }
+  },
+  "figures": [
+    "reports/figures/reykjavik-is_era5_seamless_2022-01-01_2025-12-31/test_predicted_vs_observed.png",
+    "reports/figures/reykjavik-is_era5_seamless_2022-01-01_2025-12-31/test_error_distribution.png",
+    "reports/figures/reykjavik-is_era5_seamless_2022-01-01_2025-12-31/test_mae_by_hour.png",
+    "reports/figures/reykjavik-is_era5_seamless_2022-01-01_2025-12-31/test_mae_by_month.png"
+  ],
+  "model_file": "cloudzy_core_reykjavik-is_era5_seamless_2022-01-01_2025-12-31_h1.joblib",
+  "provenance": {
+    "created_at_utc": "2026-10-19T15:05:01+00:00",
+    "python": "3.13.6",
+    "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "packages": {
+      "numpy": "2.5.4",
+      "pandas": "3.0.6",
+      "scikit-learn": "1.9.1",
+      "joblib": "1.6.0",
+      "requests": "2.34.2",
+      "matplotlib": "3.11.2"
+    },
+    "random_seed": 42,
+    "data": {
+      "source": "Open-Meteo Historical Weather API (reanalysis: model-based, not station observations)",
+      "model": "era5_seamless",
+      "location": "Reykjavik, Capital Region, Iceland",
+      "requested_lat_lon": [
+        64.13548,
+        -21.89541
+      ],
+      "local_timezone": "Atlantic/Reykjavik",
+      "period": [
+        "2022-01-01",
+        "2025-12-31"
+      ],
+      "processed_file": "reykjavik-is_hourly_era5_seamless_2022-01-01_2025-12-31.csv"
+    }
+  }
+}

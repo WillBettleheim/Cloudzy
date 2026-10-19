@@ -313,3 +313,46 @@ def history_line_chart(daily: pd.DataFrame, column: str, colors: dict, title: st
     fig = go.Figure(go.Scatter(x=daily.index, y=y, mode="lines", line={"color": colors["provider"], "width": 2},
                                hovertemplate=f"%{{y:.1f}} {unit}<extra></extra>"))
     return _layout(fig, colors, title, unit, height=260)
+
+
+
+# --- Model card and other locations (from committed evaluation reports) ------------------------
+
+def model_card(report: dict) -> dict:
+    """The facts a model card shows, read from an evaluation report (never typed in by hand)."""
+    sel = report["selected"]["family"]
+    sp = report["splits"]
+    tm = report["test_metrics"]
+    data = report.get("provenance", {}).get("data", {})
+    return {
+        "Model": f"{MODEL_NAMES.get(sel, sel)} · {report['selected']['params'] or 'default settings'}",
+        "Task": "Temperature 1 hour ahead (°C), from values at or before the prediction time",
+        "Data": f"{data.get('source', 'Open-Meteo archive')} · {data.get('model', '')} · {data.get('location', '')}",
+        "Period": f"{report.get('period', ['2023-01-01', '2025-12-31'])[0]} → {report.get('period', ['', '2025-12-31'])[1]}",
+        "Training examples": f"{sp['train']['rows'] + sp['validation']['rows']:,} (train {sp['train']['rows']:,} + "
+                             f"validation {sp['validation']['rows']:,}, refitted together after selection)",
+        "Test period": f"{sp['test']['first_issue_time_utc'][:10]} → {sp['test']['last_issue_time_utc'][:10]} "
+                       f"({sp['test']['rows']:,} hours, never used for choices)",
+        "Test MAE / RMSE": f"{tm[sel]['mae_c']:.3f} / {tm[sel]['rmse_c']:.3f} °C",
+        "Persistence MAE / RMSE": f"{tm['persistence']['mae_c']:.3f} / {tm['persistence']['rmse_c']:.3f} °C",
+    }
+
+
+def locations_table(reports: list[dict]) -> pd.DataFrame:
+    rows = []
+    for r in reports:
+        sel = r["selected"]["family"]
+        tm = r["test_metrics"]
+        loc = r.get("location", {}).get("name") or r.get("provenance", {}).get("data", {}).get("location", "?")
+        rows.append({
+            "Location": loc,
+            "Period": " → ".join(r.get("period", ["2023-01-01", "2025-12-31"])),
+            "Split": r.get("split_rule", "calendar years"),
+            "Test hours": r["splits"]["test"]["rows"],
+            "Selected (on validation)": MODEL_NAMES.get(sel, sel),
+            "Model MAE °C": tm[sel]["mae_c"], "Model RMSE °C": tm[sel]["rmse_c"],
+            "Persistence MAE °C": tm["persistence"]["mae_c"],
+            "Diurnal baseline MAE °C": tm["diurnal_baseline"]["mae_c"],
+            "Beats persistence (95% CI)": "yes" if r.get("beats_baseline") else "no",
+        })
+    return pd.DataFrame(rows)
