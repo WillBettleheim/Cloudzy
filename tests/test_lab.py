@@ -141,8 +141,9 @@ def test_lab_page_renders_from_committed_data():
     st.cache_data.clear()
     at = AppTest.from_file("../app_pages/lab.py", default_timeout=60).run()
     assert not at.exception, [e.value for e in at.exception]
-    assert [t.label for t in at.tabs] == ["Scoreboard", "Predictions vs observed", "Error trends",
-                                         "Live setting", "Multi-step", "Limitations"]
+    assert [t.label for t in at.tabs] == ["Scoreboard", "Predictions vs observed", "Error breakdown",
+                                         "Live setting", "Multi-step", "Explainability", "Live monitoring",
+                                         "History explorer", "Learn", "Limitations"]
     assert any("reproduce the experiment reports exactly" in c.value for c in at.caption)
     at.selectbox[0].set_value("persistence").run()
     assert not at.exception

@@ -48,6 +48,15 @@ class ReproductionError(RuntimeError):
     """Refitted models did not reproduce the reported test MAE."""
 
 
+def single_threaded(model):
+    """Make a fitted forest predict with one thread. Parallel predictions add the trees
+    in a varying order, which changes results by ~1e-14 and can flip a rounded digit."""
+    inner = getattr(model, "estimator_", model)
+    if hasattr(inner, "n_jobs"):
+        inner.n_jobs = 1
+    return model
+
+
 def estimator_for(family: str, params: dict):
     for p, est in candidates()[family]:
         if p == params:
@@ -62,14 +71,17 @@ def check(name: str, got: float, expected: float) -> dict:
     return {"name": name, "mae_c": round(got, 4), "report_mae_c": expected}
 
 
-def phase_a(ref: pd.DataFrame, report: dict) -> tuple[pd.DataFrame, list[dict]]:
+def phase_a(ref: pd.DataFrame, report: dict, importance: bool = True) -> tuple[pd.DataFrame, list[dict], pd.DataFrame | None]:
     cols = feature_columns()
     table, _ = build_features(ref)
     s = chronological_split(table, DEFAULT_SPLITS)
     trval = pd.concat([s["train"], s["validation"]])
     test = s["test"]
     out = pd.DataFrame({"observed": test[TARGET]}, index=test.index)
-    checks = []
+    # Conditions *at issue time* (known when predicting), for error breakdowns.
+    out["precip_at_issue_mm"] = test["precipitation"].to_numpy()
+    out["temp_at_issue_c"] = test[TEMP].to_numpy()
+    checks, fitted = [], {}
     for family, best in report["best_per_family"].items():
         if family == "persistence":
             model = PersistenceModel()
@@ -77,11 +89,40 @@ def phase_a(ref: pd.DataFrame, report: dict) -> tuple[pd.DataFrame, list[dict]]:
             model = DiurnalChangeBaseline()
         else:
             model = estimator_for(family, best["params"])
-        model.fit(trval[cols], trval[TARGET])
+        single_threaded(model.fit(trval[cols], trval[TARGET]))
+        fitted[family] = model
         out[family] = model.predict(test[cols])
         checks.append(check(f"phase_a/{family}", mae(out["observed"], out[family]),
                             report["test_metrics"][family]["mae_c"]))
-    return out, checks
+    imp = None
+    if importance:
+        rf = fitted[SELECTED]
+        full = permutation_importance_table(rf, test[cols], test[TARGET]).assign(view="full prediction")
+        # The residual model predicts "current temperature + learned change". Scoring the
+        # inner model on the change itself shows what the machine-learning part learned.
+        change = permutation_importance_table(rf.estimator_, test[cols], test[TARGET] - test[TEMP]).assign(
+            view="learned change")
+        imp = pd.concat([full, change], ignore_index=True)
+    return out, checks, imp
+
+
+SELECTED = "random_forest"  # Phase A's selected model
+
+
+def permutation_importance_table(model, X: pd.DataFrame, y: pd.Series, repeats: int = 5) -> pd.DataFrame:
+    """How much the 2025 test MAE rises when one feature's values are shuffled.
+
+    Measured on held-out data, in °C. Correlated features (the lags, rolling
+    means and current temperature all carry similar information) share
+    credit: shuffling one leaves the others to fill in. So a low score means
+    "replaceable here", not "irrelevant to the weather".
+    """
+    from sklearn.inspection import permutation_importance
+    r = permutation_importance(model, X, y, scoring="neg_mean_absolute_error", n_repeats=repeats,
+                               random_state=42, n_jobs=1)
+    return (pd.DataFrame({"feature": X.columns, "mae_increase_c": r.importances_mean,
+                          "std_c": r.importances_std})
+            .sort_values("mae_increase_c", ascending=False).round(4).reset_index(drop=True))
 
 
 def serving(ref: pd.DataFrame, live: pd.DataFrame, report: dict) -> tuple[pd.DataFrame, list[dict]]:
@@ -95,7 +136,7 @@ def serving(ref: pd.DataFrame, live: pd.DataFrame, report: dict) -> tuple[pd.Dat
         table[TARGET] = target_for(table.index, ref[TEMP], h)
         table = table.dropna(subset=[TARGET])
         fit = chronological_split(table, (SplitSpec("fit", "2023-01-01", "2025-01-01"),), horizon_hours=h)["fit"]
-        model = estimator_for("random_forest", part2[str(h)]["direct_params"]).fit(fit[cols], fit[TARGET])
+        model = single_threaded(estimator_for("random_forest", part2[str(h)]["direct_params"]).fit(fit[cols], fit[TARGET]))
         X = table.loc[origins, cols]
         f = pd.DataFrame({
             "horizon_h": h,
@@ -128,7 +169,7 @@ def write_predictions(df: pd.DataFrame, path) -> None:
     out[num] = out[num].round(DECIMALS)
     out.index = out.index.strftime("%Y-%m-%dT%H:%M:%SZ")
     out.index.name = "issue_time_utc"
-    out.to_csv(path, compression="gzip")
+    out.to_csv(path, compression={"method": "gzip", "mtime": 0})  # byte-identical on rebuild
 
 
 def load_predictions(path) -> pd.DataFrame:
@@ -143,7 +184,7 @@ def run() -> dict:
     ref = load_processed(processed_path(source=config.REANALYSIS))
     live = load_processed(processed_path(source=config.LIVE_ARCHIVE))
 
-    a, checks_a = phase_a(ref, eval_report)
+    a, checks_a, importance = phase_a(ref, eval_report)
     b, checks_b = serving(ref, live, ms_report)
     bias = shift_bias(ref, live)
 
@@ -151,6 +192,7 @@ def run() -> dict:
     write_predictions(a, LAB_DIR / "phase_a_test_2025.csv.gz")
     write_predictions(b, LAB_DIR / "serving_test_2025.csv.gz")
     bias.to_csv(LAB_DIR / "shift_bias_by_hour.csv", index=False)
+    importance.to_csv(LAB_DIR / "feature_importance.csv", index=False)
     manifest = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "location": config.DELHI.name,
@@ -160,6 +202,8 @@ def run() -> dict:
         "rounding_decimals": DECIMALS,
         "reproduction_checks": checks_a + checks_b,
         "rows": {"phase_a": len(a), "serving": len(b)},
+        "feature_importance": {"model": f"Phase A {SELECTED}", "method": "permutation importance on the 2025 test "
+                               "set (scoring: MAE, 5 repeats, seed 42)"},
     }
     (LAB_DIR / "manifest.json").write_text(json.dumps(manifest, indent=2))
     logger.info("Lab data written to %s (%d checks passed)", LAB_DIR, len(checks_a) + len(checks_b))

@@ -60,7 +60,9 @@ def cloudzy_block(place: Place, session: requests.Session | None = None, snapsho
         return {"available": False, "reason": f"No trained serving model: {exc}"}
     except Exception as exc:  # validation or network failure: report it, keep the provider forecast
         logger.warning("Cloudzy prediction unavailable: %s", exc)
+        _monitor("failure", f"{type(exc).__name__}: {exc}")
         return {"available": False, "reason": f"Live inputs could not be used: {exc}"}
+    _monitor("prediction", result)
     return {
         "available": True,
         "prediction_point": f"{config.DELHI.name} training grid cell "
@@ -68,6 +70,17 @@ def cloudzy_block(place: Place, session: requests.Session | None = None, snapsho
         "distance_km_from_place": round(d, 1),
         **result,
     }
+
+
+def _monitor(kind: str, payload) -> None:
+    """Record live predictions and refusals for src.monitoring. Never breaks a forecast."""
+    from src import monitoring
+    if not monitoring.enabled():
+        return
+    try:
+        monitoring.log_prediction(payload) if kind == "prediction" else monitoring.log_failure(payload)
+    except Exception as exc:  # disk full, read-only filesystem, …
+        logger.warning("Could not write monitoring log: %s", exc)
 
 
 def build_briefing(place: Place, hours: int = 24, session: requests.Session | None = None,

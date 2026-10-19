@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-10-19T07:01:35+00:00",
+  "generated_at_utc": "2026-10-19T08:16:41+00:00",
   "location": "New Delhi, India",
   "reference_source": "era5_seamless",
   "live_source": "ecmwf_ifs",
@@ -95,5 +95,9 @@
   "rows": {
     "phase_a": 8759,
     "serving": 52416
+  },
+  "feature_importance": {
+    "model": "Phase A random_forest",
+    "method": "permutation importance on the 2025 test set (scoring: MAE, 5 repeats, seed 42)"
   }
 }
