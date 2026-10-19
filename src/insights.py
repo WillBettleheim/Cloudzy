@@ -55,11 +55,14 @@ class Alert:
     period: str
     uncertainty: str
     label: str = OFFICIAL_NOTE
+    ends_on: str = ""  # local ISO date of the last flagged hour; fixed while the window is under way
 
     @property
     def key(self) -> str:
-        """Stable identity for duplicate suppression and dismissal: same kind and time window = same alert."""
-        return f"{self.kind}|{self.period}"
+        """Stable identity for duplicate suppression and dismissal: same kind, same event = same alert.
+        Built from the date the flagged run ends, not from `period`, whose start moves forward every
+        hour while the window is in progress (and would re-show dismissed alerts and re-notify)."""
+        return f"{self.kind}|{self.ends_on}"
 
 
 @dataclass
@@ -112,6 +115,10 @@ def _span(times: pd.DatetimeIndex) -> str:
     a, b = (f"{start:%H:%M}", f"{end_txt} {start:%a}") if same_day else (f"{start:%a %H:%M}", f"{end:%a %H:%M}")
     continuous = len(times) == int((end - start) / pd.Timedelta(hours=1))
     return f"{a}–{b}" if continuous else f"between {a} and {b} ({len(times)} hours)"
+
+
+def _ends_on(times: pd.DatetimeIndex) -> str:
+    return f"{times.max():%Y-%m-%d}"
 
 
 def group_of(code) -> str | None:
@@ -316,31 +323,36 @@ def _alerts(forecast: ProviderForecast, now: pd.Timestamp, thresholds: AlertThre
         out.append(Alert("rain", "Rain likely",
                          f"Chance of rain reaches {thresholds.rain_probability_pct:.0f}% or more in {len(rain)} hour(s).",
                          f"up to {rain.max():.0f}%", _span(rain.index),
-                         "A probability, not a certainty: it may stay dry at your exact spot, or rain at other times."))
+                         "A probability, not a certainty: it may stay dry at your exact spot, or rain at other times.",
+                         ends_on=_ends_on(rain.index)))
     heat = flagged("apparent_temperature", lambda s: s >= thresholds.heat_feels_like_c)
     if len(heat):
         out.append(Alert("heat", "Very hot",
                          f"Feels-like temperature reaches {_t(thresholds.heat_feels_like_c, units)} or more.",
                          f"up to {_t(heat.max(), units)}", _span(heat.index),
-                         "Feels-like values are model estimates. Shade, sun and wind change what you experience."))
+                         "Feels-like values are model estimates. Shade, sun and wind change what you experience.",
+                         ends_on=_ends_on(heat.index)))
     cold = flagged("apparent_temperature", lambda s: s <= thresholds.cold_feels_like_c)
     if len(cold):
         out.append(Alert("cold", "Cold",
                          f"Feels-like temperature drops to {_t(thresholds.cold_feels_like_c, units)} or below.",
                          f"down to {_t(cold.min(), units)}", _span(cold.index),
-                         "Feels-like values are model estimates and vary with exposure to wind."))
+                         "Feels-like values are model estimates and vary with exposure to wind.",
+                         ends_on=_ends_on(cold.index)))
     uv = flagged("uv_index", lambda s: s >= thresholds.uv_index)
     if len(uv):
         out.append(Alert("uv", "High UV",
                          f"UV index reaches {thresholds.uv_index:.0f} or more.",
                          f"peak {uv.max():.0f}", _span(uv.index),
-                         "UV forecasts assume the forecast cloud cover; clear spells can be stronger."))
+                         "UV forecasts assume the forecast cloud cover; clear spells can be stronger.",
+                         ends_on=_ends_on(uv.index)))
     wind = flagged("wind_gusts_10m", lambda s: s >= thresholds.wind_gust_kmh)
     if len(wind):
         out.append(Alert("wind", "Strong gusts",
                          f"Wind gusts reach {_wind(thresholds.wind_gust_kmh, units)} or more.",
                          f"up to {_wind(wind.max(), units)}", _span(wind.index),
-                         "Gusts are local and short-lived; exposed places can see stronger ones."))
+                         "Gusts are local and short-lived; exposed places can see stronger ones.",
+                         ends_on=_ends_on(wind.index)))
     today_date = now.tz_convert(forecast.hourly.index.tz).date()
     d = forecast.daily
     if today_date in d.index:
@@ -352,7 +364,8 @@ def _alerts(forecast: ProviderForecast, now: pd.Timestamp, thresholds: AlertThre
                 out.append(Alert("change", f"Much {word} tomorrow",
                                  f"Tomorrow's high differs from today's by {_dt(thresholds.day_to_day_change_c, units)} or more.",
                                  f"{_t(t0, units)} → {_t(t1, units)}", f"{d.index[i]:%a} → {d.index[i + 1]:%a}",
-                                 "Daily highs a day ahead typically carry an uncertainty of a degree or two."))
+                                 "Daily highs a day ahead typically carry an uncertainty of a degree or two.",
+                                 ends_on=f"{d.index[i + 1]:%Y-%m-%d}"))
     return out
 
 

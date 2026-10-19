@@ -251,8 +251,20 @@ def test_alert_keys_are_stable_and_unique():
     f = forecast(m)
     first = I.alerts(f, NOW)
     again = I.alerts(f, NOW + pd.Timedelta(minutes=10))   # a re-render a few minutes later
-    assert [a.key for a in first] == [a.key for a in again] == ["rain|15:00–18:00 Mon"]
+    assert [a.key for a in first] == [a.key for a in again] == ["rain|2026-10-19"]
     assert len({a.key for a in first}) == len(first)
+
+
+def test_alert_key_survives_hours_passing_inside_the_window():
+    # Rain 08:00–18:00 IST is already under way at NOW (09:00 IST); `period` moves on each hour, the key must not.
+    def m(p):
+        hourly_set(p, "precipitation_probability", lambda h, i: 90 if i < 24 and 8 <= h < 18 else 0)
+    f = forecast(m)
+    runs = [I.alerts(f, NOW + pd.Timedelta(hours=h)) for h in (0, 1, 3)]
+    periods = [[a.period for a in r if a.kind == "rain"] for r in runs]
+    keys = [[a.key for a in r if a.kind == "rain"] for r in runs]
+    assert len({p[0] for p in periods}) == 3            # the display text does change
+    assert keys == [["rain|2026-10-19"]] * 3
 
 
 def test_notification_payload_is_plain_and_keyed():
@@ -260,4 +272,4 @@ def test_notification_payload_is_plain_and_keyed():
     def m(p):
         hourly_set(p, "precipitation_probability", lambda h, i: 90 if 15 <= h < 18 else 0)
     [n] = alert_payload(I.alerts(forecast(m), NOW))
-    assert n["key"] == "rain|15:00–18:00 Mon" and "Not an official warning" in n["body"]
+    assert n["key"] == "rain|2026-10-19" and "Not an official warning" in n["body"]
