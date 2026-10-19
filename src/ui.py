@@ -173,3 +173,19 @@ def cloudzy_table(predictions: list[dict], provider: list[dict], unit: str = "°
         f"ECMWF IFS {unit}": [prov.get(p["horizon_h"]) for p in predictions],
         f"Cloudzy avg error in 2025 test {unit}": [round(p["typical_error_c"], 2) for p in predictions],
     })
+
+
+def figure_table(fig, max_rows: int = 2000):
+    """The values a Plotly figure draws, as a long table (one row per point), for a text alternative."""
+    import pandas as pd
+    parts = []
+    for tr in fig.data:
+        x, y = getattr(tr, "x", None), getattr(tr, "y", None)
+        if x is None or y is None or getattr(tr, "hoverinfo", None) == "skip":
+            continue                          # reference lines and histograms of raw values are skipped
+        parts.append(pd.DataFrame({"series": tr.name or "", "x": list(x), "value": list(y)}))
+    if not parts:
+        return None
+    df = pd.concat(parts, ignore_index=True)
+    return df.head(max_rows), len(df) > max_rows
+

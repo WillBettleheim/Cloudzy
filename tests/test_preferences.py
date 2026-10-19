@@ -145,3 +145,40 @@ def test_connection_error_message(sleeps):
 def test_server_error_then_recovery(sleeps):
     s = Session([Resp(503, {"reason": "busy"}), Resp(200, {"ok": 2})])
     assert dc.fetch_json("u", {}, session=s, **dc.INTERACTIVE) == {"ok": 2}
+
+
+def test_new_settings_round_trip(tmp_path):
+    import dataclasses
+    path = tmp_path / "prefs.json"
+    p = P.load(path)
+    assert p.enabled_alert_kinds() == set(P.ALERT_KINDS) and p.summary_style == "detailed" and not p.notifications
+    p.alert_categories["uv"] = False
+    p.summary_style = "brief"
+    p.notifications = True
+    p.home = dataclasses.asdict(PARIS_FR)
+    p.dismiss("rain|15:00–18:00 Mon", "2026-10-20T00:00:00+00:00")
+    P.save(p, path)
+    q = P.load(path)
+    assert "uv" not in q.enabled_alert_kinds() and q.summary_style == "brief" and q.notifications
+    assert q.home_place() == PARIS_FR
+    assert q.dismissed_alerts == {"rain|15:00–18:00 Mon": "2026-10-20T00:00:00+00:00"}
+    assert "latitude" not in json.dumps({k: v for k, v in json.loads(path.read_text()).items() if k != "home"
+                                         and k != "favourites"})  # no coordinates outside saved cities
+
+
+def test_dismissals_expire(tmp_path):
+    import pandas as pd
+    p = P.load(tmp_path / "x.json")
+    p.dismiss("a", "2026-10-19T12:00:00+00:00")
+    p.dismiss("b", "not a time")
+    assert p.active_dismissals(pd.Timestamp("2026-10-19T11:00Z")) == {"a"}
+    assert p.active_dismissals(pd.Timestamp("2026-10-19T13:00Z")) == set() and p.dismissed_alerts == {}
+
+
+def test_bad_new_settings_fall_back(tmp_path):
+    path = tmp_path / "prefs.json"
+    path.write_text(json.dumps({"summary_style": "poetic", "alert_categories": {"rain": False, "evil": True},
+                                "home": {"name": "x"}, "notifications": "yes"}))
+    p = P.load(path)
+    assert p.summary_style == "detailed" and p.enabled_alert_kinds() == set(P.ALERT_KINDS) - {"rain"}
+    assert p.home is None and p.notifications is False

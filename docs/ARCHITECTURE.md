@@ -31,11 +31,13 @@ request.
    src/briefing.cloudzy_block ──► src/service.py ── live IFS inputs ───┘
           │                        (validates 25 h, refuses if incomplete)
           ▼
-   src/monitoring.py ── logs every prediction/refusal ─► later scored against the archive
-                                                         (python -m src.monitoring)
+   src/monitoring.py ── records each prediction once (SQLite) ─► evaluated against the archive
+                        at the exact target hour (Predictions page button, or python -m src.monitoring)
 
-   app_pages/lab.py ◄── reads committed reports/lab/ + reports/*.json, local monitoring summary,
-                        src/history.py (Archive API on demand)
+   app_pages/lab.py ◄── reads committed reports/lab/ + reports/*.json, model sidecar, tracking aggregates
+   app_pages/predictions.py ◄── src/monitoring.py (query, aggregate, evaluate)
+   app_pages/history.py ◄── src/history.py (Archive API on demand: hourly, and daily for comparisons)
+   app_pages/settings.py ◄── src/preferences.py
 ```
 
 ## Layers
@@ -46,7 +48,7 @@ request.
 | Data services | `provider`, `history`, `service`, `data_validation`, `geolocation` | Validate units, time zones, array lengths and physical bounds. Missing values stay missing; optional variables a model lacks are reported as unavailable; wrong units are fatal. |
 | Domain logic | `insights`, `units`, `preferences`, `monitoring` | Pure functions, testable without Streamlit or the network. |
 | Presentation | `weather_view`, `ui`, `lab_ui` | Build HTML and Plotly figures from data and units. They never fetch anything. |
-| Pages | `app_pages/weather.py`, `app_pages/lab.py`, `streamlit_app.py` | Lay out the page, cache results, and handle loading, empty and error states. |
+| Pages | `app_pages/{weather,history,predictions,lab,settings}.py`, `streamlit_app.py` | Lay out the page, cache results, and handle loading, empty and error states. |
 | ML (offline) | `features`, `splits`, `models`, `train`, `multistep`, `shift`, `compact`, `refit`, `lab_data` | Chronological experiments, the deployed bundle and reproducible Lab data. |
 
 ## Data types are never mixed
@@ -55,15 +57,15 @@ request.
 |---|---|---|
 | Provider forecast | Forecast API (`best_match`) | The main weather app: hero, hourly, 7-day, details |
 | Cloudzy Core prediction | `service.py` + compact bundle, Delhi only | A separate "🧪 Cloudzy Core · experimental" section |
-| Historical reanalysis | Archive API | Lab → History explorer, labelled "historical reanalysis" |
+| Historical reanalysis | Archive API | History page, labelled "historical reanalysis"; also the reference for tracked predictions |
 | Evaluation results | `reports/`, `reports/lab/` (committed) | Lab scoreboard, breakdowns, explainability |
-| Live monitoring | `data/monitoring/` (local only) | Lab → Live monitoring |
+| Tracked predictions | `data/monitoring/cloudzy_predictions.sqlite` (local only) | Predictions page; summary in Lab → Live tracking |
 
 ## Caching and request budget
 
 - **Cache:** search, forecasts, Cloudzy results and history are cached by
   `st.cache_data`. Forecasts and Cloudzy results live for 10 minutes, history
-  for 1 hour.
+  and comparison years for 6 hours.
 - **Freshness:** the page shows when its data was retrieved, so a cached
   forecast is never presented as freshly fetched.
 - **Request budget:** one place costs at most three requests (geocoding,
@@ -74,8 +76,8 @@ request.
 
 | Path | Contents | Override |
 |---|---|---|
-| `data/user/preferences.json` | Unit override, favourites (coordinates), alert thresholds | `CLOUDZY_PREFS_PATH` |
-| `data/monitoring/` | Prediction and refusal logs, latest monitoring summary | `CLOUDZY_MONITORING_DIR`, `CLOUDZY_MONITORING=0` |
+| `data/user/preferences.json` | Unit override, favourites and home city (city coordinates), alert thresholds, categories and dismissals, summary style, auto-locate and notification choices (yes/no). Never device coordinates | `CLOUDZY_PREFS_PATH` |
+| `data/monitoring/` | `cloudzy_predictions.sqlite` (predictions, refusals); the old `predictions.jsonl` is imported once and kept | `CLOUDZY_MONITORING_DIR`, `CLOUDZY_MONITORING=0` |
 | `data/live_snapshots/` | Raw live-input responses | `CLOUDZY_SNAPSHOTS=0` |
 
 ## Tests
@@ -104,3 +106,31 @@ wires `data_collection` → `data_validation` → `features` → `splits` → `t
 any location and period. Every model file has a `.json` sidecar describing it (version, SHA-256,
 features with units, target, provenance, splits, metrics). `artifacts.load_trusted` verifies the
 structure, feature schema and checksum before the app or the evaluator uses a model.
+
+## Prediction tracking
+
+- **Record:** `monitoring.record_prediction` stores one row per (model version,
+  location, issue time, horizon, variable). The row ID is a SHA-256 of those
+  fields, so re-renders and retries can't duplicate a record (`INSERT OR IGNORE`).
+  Non-finite values, or target times that aren't issue + horizon, are rejected.
+- **Evaluate:** `monitoring.evaluate` only touches pending records whose target
+  hour is older than the reanalysis lag. It matches the exact UTC hour and checks
+  the reference is in UTC and °C. A failed request changes nothing; after 30 days
+  without reference data a record becomes `unavailable`. Provider forecasts are
+  never used as observations.
+- **Aggregate:** only `evaluated` rows count. Results carry sample counts, issue
+  times and the date range, and are flagged as not conclusive below 30 issue times.
+
+## Alerts and notifications
+
+- **What they are:** threshold rules in `insights.alerts`, documented on the
+  Weather page and in the Settings page. They are never official warnings.
+- **Identity:** each alert's key is its kind plus its time window, which gives
+  one alert per kind and window. Dismissing stores that key for 24 hours, so a
+  new or changed window shows again.
+- **Browser notifications** (`src/notify.py`): optional, off by default.
+  - Permission is requested only from a click on the component's own button.
+  - Each key notifies once (tracked in the browser's localStorage).
+  - Notifications appear only while a tab is open: there's no service worker or
+    push.
+  - If notifications are blocked or unsupported, alerts stay on the page.

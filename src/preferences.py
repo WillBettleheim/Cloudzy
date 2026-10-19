@@ -22,6 +22,9 @@ from src import config
 from src import units as U
 from src.provider import Place
 
+ALERT_KINDS = ("rain", "heat", "cold", "uv", "wind", "change")
+SUMMARY_STYLES = ("detailed", "brief")
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_PATH = config.DATA_DIR / "user" / "preferences.json"
@@ -50,6 +53,35 @@ class Preferences:
     favourites: list[dict] = field(default_factory=list)
     alerts: AlertThresholds = field(default_factory=AlertThresholds)
     auto_locate: bool = False            # opt-in; only this on/off choice is stored, never coordinates
+    alert_categories: dict = field(default_factory=lambda: {k: True for k in ALERT_KINDS})
+    dismissed_alerts: dict = field(default_factory=dict)   # alert key -> UTC time after which it may show again
+    summary_style: str = "detailed"      # "detailed" or "brief"
+    home: dict | None = None             # a saved favourite (city coordinates), shown when Cloudzy opens
+    notifications: bool = False          # show the browser-notification control (permission asked on click)
+
+    def enabled_alert_kinds(self) -> set[str]:
+        return {k for k, on in self.alert_categories.items() if on and k in ALERT_KINDS}
+
+    def dismiss(self, key: str, until_utc: str) -> None:
+        self.dismissed_alerts[key] = until_utc
+
+    def active_dismissals(self, now_utc) -> set[str]:
+        import pandas as pd
+        keep = {}
+        for k, until in self.dismissed_alerts.items():
+            try:
+                if pd.Timestamp(until) > now_utc:
+                    keep[k] = until
+            except (ValueError, TypeError):
+                continue
+        self.dismissed_alerts = keep          # expired dismissals are dropped
+        return set(keep)
+
+    def home_place(self) -> Place | None:
+        try:
+            return Place(**self.home) if self.home else None
+        except TypeError:
+            return None
 
     def unit_override(self) -> U.Units | None:
         if not self.units:
@@ -116,6 +148,15 @@ def load(path: Path | None = None) -> Preferences:
                 setattr(defaults, key, float(value))
         prefs.alerts = defaults
     prefs.auto_locate = raw.get("auto_locate") is True
+    if isinstance(raw.get("alert_categories"), dict):
+        prefs.alert_categories = {k: raw["alert_categories"].get(k, True) is not False for k in ALERT_KINDS}
+    if isinstance(raw.get("dismissed_alerts"), dict):
+        prefs.dismissed_alerts = {str(k): str(v) for k, v in list(raw["dismissed_alerts"].items())[:200]}
+    prefs.notifications = raw.get("notifications") is True
+    if raw.get("summary_style") in SUMMARY_STYLES:
+        prefs.summary_style = raw["summary_style"]
+    if isinstance(raw.get("home"), dict) and Preferences(home=raw["home"]).home_place() is not None:
+        prefs.home = raw["home"]
     return prefs
 
 
@@ -124,7 +165,11 @@ def save(prefs: Preferences, path: Path | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {"units": prefs.units, "favourites": prefs.favourites,
             "alerts": {k: getattr(prefs.alerts, k) for k in AlertThresholds.LIMITS},
-            "auto_locate": bool(prefs.auto_locate)}
+            "auto_locate": bool(prefs.auto_locate),
+            "alert_categories": {k: bool(prefs.alert_categories.get(k, True)) for k in ALERT_KINDS},
+            "dismissed_alerts": prefs.dismissed_alerts,
+            "summary_style": prefs.summary_style if prefs.summary_style in SUMMARY_STYLES else "detailed",
+            "home": prefs.home, "notifications": bool(prefs.notifications)}
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
     tmp.replace(path)

@@ -39,7 +39,7 @@ def test_summary_rain_timing_compares_periods():
         hourly_set(p, "precipitation_probability", lambda h, i: 80 if 18 <= h < 24 else 5)
     s = I.summary(forecast(m), NOW)
     rain = next(x for x in s if x.startswith("Rain"))
-    assert "more likely in the evening (up to 80%)" in rain
+    assert "more likely this evening (up to 80%)" in rain
 
 
 def test_summary_cloud_trend_and_units():
@@ -159,3 +159,105 @@ def test_briefing_changes_exclude_static_lines():
     b = I.briefing(forecast(), NOW)  # calm, clear day: only the warming trend is a change
     assert all("Expect" not in c and "unlikely" not in c for c in b.changes)
     assert any("warming" in c or "cooling" in c for c in b.changes)
+
+
+# --- New rules: stale data, earlier today, wind trend, style, dedupe ------------------------------
+
+def test_stale_forecast_produces_no_summary_alerts_or_suggestions():
+    f = forecast(lambda p: hourly_set(p, "precipitation_probability", lambda h, i: 90))
+    late = NOW + pd.Timedelta(days=9)           # far beyond the data: current hour not covered
+    assert I.summary(f, late) == [I.STALE_MESSAGE]
+    assert I.alerts(f, late) == [] and I.recommendations(f, late) == []
+
+
+def test_old_retrieval_time_is_stale():
+    f = forecast()
+    f.retrieved_at_utc = (NOW - pd.Timedelta(hours=4)).isoformat()
+    assert I.is_stale(f, NOW)
+    f.retrieved_at_utc = (NOW - pd.Timedelta(hours=1)).isoformat()
+    assert not I.is_stale(f, NOW)
+
+
+def test_earlier_today_comparison_needs_real_past_hours():
+    def m(p):  # 06:00-08:00 were 35 °C; current temperature 28.1
+        hourly_set(p, "temperature_2m", lambda h, i: 35.0 if i < 9 else 20.0 + h / 2)
+    s = I.summary(forecast(m), NOW)
+    assert any(x.startswith("It's cooler now than earlier today (35° at 00:00") for x in s)
+    early = pd.Timestamp("2026-10-18T19:00Z")   # 00:30 IST: no earlier hours today → no comparison
+    assert not any("earlier today" in x for x in I.summary(forecast(m), early))
+
+
+def test_wind_pickup_sentence_requires_a_real_change():
+    def m(p):
+        hourly_set(p, "wind_speed_10m", lambda h, i: 5.0 if 9 <= h < 15 else 25.0)
+    s = I.summary(forecast(m), NOW)
+    assert any(x.startswith("Wind is forecast to pick up this evening (from about 5 km/h to 25 km/h)") for x in s)
+    calm = I.summary(forecast(), NOW)
+    assert not any("Wind is forecast" in x for x in calm)
+
+
+def test_missing_wind_data_gives_no_wind_sentence():
+    def m(p):
+        p["hourly"]["wind_speed_10m"] = [None] * len(p["hourly"]["time"])
+        p["hourly"]["wind_gusts_10m"] = [None] * len(p["hourly"]["time"])
+    assert not any("Wind" in x or "gusty" in x for x in I.summary(forecast(m), NOW))
+
+
+def test_brief_style_keeps_two_sentences():
+    s = I.summary(forecast(), NOW, style="brief")
+    assert len(s) == 2 and s[0].startswith("It's") and s[1].startswith("Rain")
+
+
+def test_dedupe_keeps_order():
+    assert I._dedupe(["a", "b", "a", "c", "b"]) == ["a", "b", "c"]
+
+
+def test_rain_timing_names_tomorrow():
+    def m(p):
+        hourly_set(p, "precipitation_probability", lambda h, i: 70 if (i >= 24 and 6 <= h < 12) else 0)
+    evening = pd.Timestamp("2026-10-19T14:30Z")  # 20:00 IST
+    rain = next(x for x in I.summary(forecast(m), evening) if x.startswith("Rain"))
+    assert "tomorrow morning (up to 70%)" in rain
+
+
+# --- Alert boundaries, categories and duplicate suppression ----------------------------
+
+@pytest.mark.parametrize("pct,expected", [(59, False), (60, True)])
+def test_rain_alert_threshold_is_inclusive(pct, expected):
+    def m(p):
+        hourly_set(p, "precipitation_probability", lambda h, i: pct if 15 <= h < 18 else 0)
+    assert any(a.kind == "rain" for a in I.alerts(forecast(m), NOW)) is expected
+
+
+def test_missing_rain_probability_gives_no_rain_alert():
+    def m(p):
+        p["hourly"]["precipitation_probability"] = [None] * len(p["hourly"]["time"])
+    assert not [a for a in I.alerts(forecast(m), NOW) if a.kind == "rain"]
+
+
+def test_disabled_categories_are_not_shown():
+    def m(p):
+        hourly_set(p, "precipitation_probability", lambda h, i: 90 if 15 <= h < 18 else 0)
+        hourly_set(p, "uv_index", lambda h, i: 9 if 11 <= h < 14 else 2)
+    f = forecast(m)
+    assert {a.kind for a in I.alerts(f, NOW)} == {"rain", "uv"}
+    assert {a.kind for a in I.alerts(f, NOW, enabled={"uv"})} == {"uv"}
+    assert I.alerts(f, NOW, enabled=set()) == []
+
+
+def test_alert_keys_are_stable_and_unique():
+    def m(p):
+        hourly_set(p, "precipitation_probability", lambda h, i: 90 if 15 <= h < 18 else 0)
+    f = forecast(m)
+    first = I.alerts(f, NOW)
+    again = I.alerts(f, NOW + pd.Timedelta(minutes=10))   # a re-render a few minutes later
+    assert [a.key for a in first] == [a.key for a in again] == ["rain|15:00–18:00 Mon"]
+    assert len({a.key for a in first}) == len(first)
+
+
+def test_notification_payload_is_plain_and_keyed():
+    from src.notify import alert_payload
+    def m(p):
+        hourly_set(p, "precipitation_probability", lambda h, i: 90 if 15 <= h < 18 else 0)
+    [n] = alert_payload(I.alerts(forecast(m), NOW))
+    assert n["key"] == "rain|15:00–18:00 Mon" and "Not an official warning" in n["body"]

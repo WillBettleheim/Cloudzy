@@ -105,6 +105,9 @@ class CloudzyForecaster:
         # Verified, then cached until the file changes: no re-reading on every request.
         self.bundle = load_trusted(Path(bundle_path), {"horizons", "feature_columns", "feature_config",
                                                        "test_2025_mae_c"})
+        from src.artifacts import file_sha256, read_metadata
+        meta = read_metadata(Path(bundle_path))
+        self.version = (meta or {}).get("artifact_version") or f"{Path(bundle_path).stem}@{file_sha256(Path(bundle_path))[:12]}"
         cfg = self.bundle["feature_config"]
         self.cfg = FeatureConfig(**{k: tuple(v) if isinstance(v, list) else v for k, v in cfg.items()})
 
@@ -158,7 +161,11 @@ def build_forecast(frame: pd.DataFrame, forecaster: CloudzyForecaster, now: pd.T
         "inputs": {
             "source": PROVIDER_LABEL, "kind": "numerical weather model output (not observations)",
             "temperature_2m_at_issue_c": float(frame.loc[issue, TEMP]),
+            # Snapshot of the model inputs at issue time (the Delhi grid cell; no user data).
+            "values": {v: (None if pd.isna(frame.loc[issue, v]) else float(frame.loc[issue, v]))
+                       for v in config.HOURLY_VARIABLES},
         },
+        "model_version": forecaster.version,
         "cloudzy": {"label": CLOUDZY_LABEL, "predictions": cloudzy},
         "provider": {"label": PROVIDER_LABEL, "forecasts": provider},
         "limitations": LIMITATIONS,

@@ -180,7 +180,12 @@ else:
                  help="Saved on this computer only.")
     if "search" not in st.session_state:
         # Streamlit drops a widget's value while it's hidden (device mode), so restore the last manual city.
-        st.session_state["search"] = params.get("q") or st.session_state.get("_last_query", DEFAULT_QUERY)
+        home = prefs.home_place()
+        if params.get("q") or st.session_state.get("_last_query") or home is None:
+            st.session_state["search"] = params.get("q") or st.session_state.get("_last_query", DEFAULT_QUERY)
+        else:  # first visit with a saved home city (set in Settings)
+            st.session_state["search"] = home.name
+            st.session_state["_fav_target"] = (home.latitude, home.longitude)
     query = st.text_input("Search for a city or town", key="search", placeholder="e.g. Mumbai, Reykjavik, Lagos",
                           max_chars=80, help="Press Enter to search. Results use Open-Meteo's geocoding service.").strip()
     if len(query) < 2:
@@ -281,13 +286,25 @@ st.caption(f"{forecast.source_label} · {V.updated_label(forecast.retrieved_at_u
 
 # --- Cloudzy says (summary) and alerts --------------------------------------------------
 
-st.html(V.summary_html(I.summary(forecast, now, units)))
+st.html(V.summary_html(I.summary(forecast, now, units, style=prefs.summary_style)))
 
-found = I.alerts(forecast, now, prefs.alerts, units)
-if found:
-    st.html(V.alerts_html(found))
-else:
-    st.caption("No Cloudzy alerts for the next 24 hours with your thresholds.")
+found = I.alerts(forecast, now, prefs.alerts, units, enabled=prefs.enabled_alert_kinds())
+dismissed = prefs.active_dismissals(now)
+shown = [a for a in found if a.key not in dismissed]
+for i, a in enumerate(shown):
+    st.html(V.alerts_html([a]))
+    if st.button("Dismiss for 24 hours", key=f"dismiss_{i}_{a.kind}", icon="✖️",
+                 help="Hide this alert for this time window. A new or changed alert still shows."):
+        prefs.dismiss(a.key, (now + pd.Timedelta(hours=24)).isoformat())
+        P.save(prefs)
+        st.rerun()
+if not found:
+    st.caption("No Cloudzy alerts for the next 24 hours with your thresholds and alert categories.")
+elif not shown:
+    st.caption(f"{len(found)} alert(s) dismissed for now.")
+if shown and prefs.notifications:
+    from src.notify import browser_notifications
+    browser_notifications(shown)
 with st.expander("Alert thresholds"):
     st.caption("Cloudzy's alerts are simple threshold checks on the forecast. They are not official warnings; "
                "follow your national weather service for those.")

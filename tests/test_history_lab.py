@@ -168,14 +168,19 @@ def run_lab():
 def test_lab_has_all_tabs_and_explainability(lab_fakes):
     at = run_lab()
     assert [t.label for t in at.tabs] == ["Scoreboard", "Predictions vs observed", "Error breakdown", "Live setting",
-                                         "Multi-step", "Explainability", "Live monitoring", "History explorer",
-                                         "Learn", "Limitations"]
+                                         "Multi-step", "Explainability", "Live tracking", "Learn", "Limitations"]
     text = " ".join(m.value for m in at.markdown)
     assert "Association, not causation" in text and "What do MAE and RMSE mean?" in text
 
 
-def test_history_tab_with_real_shaped_data(lab_fakes):
-    at = run_lab()
+def run_history():
+    at = AppTest.from_file("../app_pages/history.py", default_timeout=60).run()
+    assert not at.exception, [e.value for e in at.exception]
+    return at
+
+
+def test_history_page_with_real_shaped_data(lab_fakes):
+    at = run_history()
     at.text_input(key="hist_query").set_value("Paris").run()
     assert not at.exception
     labels = [m.label for m in at.metric]
@@ -183,27 +188,76 @@ def test_history_tab_with_real_shaped_data(lab_fakes):
     assert at.metric[3].value == "6.0 mm"  # 12 local days x 0.5 mm (the stray evening hour is trimmed)
 
 
-def test_history_tab_no_match_and_invalid_range(lab_fakes):
-    at = run_lab()
+def test_history_page_no_match(lab_fakes):
+    at = run_history()
     at.text_input(key="hist_query").set_value("Atlantis").run()
     assert any("No places match" in w.value for w in at.warning)
     assert not [m for m in at.metric if m.label == "Mean temperature"]
 
 
-def test_history_tab_service_failure(lab_fakes, monkeypatch):
+def test_history_page_service_failure(lab_fakes, monkeypatch):
     def down(*a, **k):
         raise ProviderError("Couldn't load historical data: timed out")
     monkeypatch.setattr(H, "fetch_history", down)
-    at = run_lab()
+    at = run_history()
     at.text_input(key="hist_query").set_value("Paris").run()
     assert any("Couldn't load historical data" in e.value for e in at.error)
     assert not [m for m in at.metric if m.label == "Mean temperature"]  # no numbers on failure
 
 
-def test_monitoring_tab_reads_logged_predictions(lab_fakes, tmp_path, monkeypatch):
+def test_live_tracking_tab_reads_recorded_predictions(lab_fakes, tmp_path, monkeypatch):
     monkeypatch.setenv("CLOUDZY_MONITORING_DIR", str(tmp_path))
     from tests.test_monitoring import result
-    monitoring.log_prediction(result(), tmp_path)
+    monitoring.record_prediction(result(), tmp_path)
     at = run_lab()
-    assert any(m.label == "Predictions logged" and m.value == "2" for m in at.metric)
-    assert any("python -m src.monitoring" in i.value for i in at.info)
+    assert any("No live predictions have been evaluated yet" in i.value for i in at.info)
+
+
+# --- Monthly view and reference comparison --------------------------------------------------------
+
+def daily_payload(start="2014-01-01", end="2024-01-31", temp=lambda d: 10.0, rain=lambda d: 1.0, missing=()):
+    days = pd.date_range(start, end, freq="D")
+    t = [None if d.date() in missing else temp(d) for d in days]
+    return {"daily_units": {"time": "iso8601", **H.DAILY_VARIABLES},
+            "daily": {"time": days.strftime("%Y-%m-%d").tolist(), "temperature_2m_mean": t,
+                      "temperature_2m_max": t, "temperature_2m_min": t, "precipitation_sum": [rain(d) for d in days]}}
+
+
+def test_monthly_summary_marks_partial_months():
+    daily = H.daily_summary(H.within_local_dates(H.parse_history(archive()), date(2024, 3, 25), date(2024, 4, 5)))
+    m = H.monthly_summary(daily)
+    assert [str(p) for p in m.index] == ["2024-03", "2024-04"]
+    assert list(m["days"]) == [7, 5] and list(m["days_in_month"]) == [31, 30]
+
+
+def test_reference_windows_handle_leap_days_and_archive_start():
+    w = H.reference_windows(date(2024, 2, 29), date(2024, 3, 2), 2)
+    assert w == [(2023, date(2023, 2, 28), date(2023, 3, 2)), (2022, date(2022, 2, 28), date(2022, 3, 2))]
+    assert H.reference_windows(date(1942, 1, 1), date(1942, 1, 5), 10)[-1][0] == 1940   # nothing before 1940
+
+
+def test_reference_comparison_is_computed_from_complete_years_only():
+    temp = lambda d: 15.0 if d.year == 2024 else 10.0 + (d.year - 2014) * 0.1  # noqa: E731
+    df = H.parse_daily(daily_payload(temp=temp, missing={date(2015, 1, 10)}))
+    cmp = H.reference_comparison(df, date(2024, 1, 1), date(2024, 1, 31), 10)
+    assert cmp["valid"] and 2015 not in cmp["years"] and cmp["n_years"] == 9
+    assert cmp["mean_c"] == 15.0 and cmp["warmer_than"] == 9
+    years = [2014] + list(range(2016, 2024))
+    assert cmp["ref_mean_c"] == pytest.approx(sum(10.0 + (y - 2014) * 0.1 for y in years) / 9)
+    assert cmp["ref_low_c"] == 10.0 and cmp["ref_high_c"] == pytest.approx(10.9)
+    assert cmp["rain_mm"] == 31.0 and cmp["ref_rain_mean_mm"] == 31.0
+
+
+def test_reference_comparison_refuses_incomplete_selection_or_too_few_years():
+    df = H.parse_daily(daily_payload(missing={date(2024, 1, 31)}))
+    assert not H.reference_comparison(df, date(2024, 1, 1), date(2024, 1, 31), 10)["valid"]
+    df = H.parse_daily(daily_payload(start="2022-01-01"))   # only 2 earlier years exist in the data
+    out = H.reference_comparison(df, date(2024, 1, 1), date(2024, 1, 31), 10)
+    assert not out["valid"] and "at least 3" in out["reason"]
+
+
+def test_daily_archive_unit_is_checked():
+    p = daily_payload()
+    p["daily_units"]["temperature_2m_mean"] = "°F"
+    with pytest.raises(ProviderError, match="expected unit"):
+        H.parse_daily(p)

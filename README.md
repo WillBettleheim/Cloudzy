@@ -30,10 +30,12 @@ the UI comes only after the ML pipeline works and has been measured.
 |---|---|
 | **Your location** | "Use my location": a one-time browser location lookup with permission. The weather is fetched for the exact coordinates, and the place name comes from OpenStreetMap. Clear messages for every failure; manual search is always available |
 | **Weather app** | City search with a match picker (same-name places kept apart by coordinates); current conditions; next 24 hours (cards and graph); 7-day forecast; detail cards (UV, humidity and dew point, wind, feels-like, rain, clouds, pressure, visibility, sun) |
-| **Preferences** | °C/°F, km/h, m/s, mph or knots, mm/in; defaults follow the place's region; favourite places; adjustable alert thresholds; all saved locally |
-| **Weather intelligence** | "Cloudzy says" summary, unofficial alerts (reason, value, period, uncertainty), daily briefing, suggestions with reasons (umbrella, clothing, outdoor comfort, UV). Rule-based, built from the forecast numbers, with no language model |
-| **Cloudzy Core** | Experimental 1–24 h temperature model for Delhi, kept separate from the provider forecast; refuses to predict on incomplete inputs; live predictions logged and later scored |
-| **Cloudzy Lab** (`/lab`) | Scoreboard against baselines, predictions vs. observed, error breakdowns, live setting, multi-step, explainability, live monitoring, a historical explorer (1940 onward), plain-language explainers, limitations |
+| **Settings** (`/settings`) | °C/°F, km/h, m/s, mph or knots, mm/in (regional by default); home city; favourite places; brief or detailed summary; alert categories and thresholds; optional browser notifications; theme guidance; reset. Saved on this device only, never synced, never precise device coordinates |
+| **Weather intelligence** | "Cloudzy says" summary (temperature trend, earlier today, rain timing, wind, clouds, tomorrow; nothing when data is missing or more than 3 h old), unofficial alerts (reason, value, period, uncertainty; dismissable; one per kind and time window), daily briefing, suggestions with reasons. Rule-based, built from the forecast numbers, with no language model |
+| **Cloudzy Core** | Experimental 1–24 h temperature model for Delhi, kept separate from the provider forecast; refuses to predict on incomplete inputs |
+| **Predictions** (`/predictions`) | Every live Cloudzy Core prediction, recorded once (SQLite, local) with its model version, then evaluated against the reanalysis at the exact target hour once it's published; filters, tracked MAE/RMSE/bias by horizon with sample counts, CSV export |
+| **History** (`/history`) | Past weather anywhere since 1940 (reanalysis): daily charts and tables, monthly summaries, and a comparison with the same dates in the previous 5–30 years |
+| **Cloudzy Lab** (`/lab`) | Deployed model version, scoreboard against baselines, predictions vs. observed, error breakdowns, live setting, multi-step, explainability, live tracking summary, plain-language explainers, limitations. Every chart has its numbers in a table |
 
 Data comes from Open-Meteo (free, non-commercial, CC BY 4.0). No API keys or
 accounts are needed.
@@ -73,7 +75,7 @@ python -m src.lab_data               # rebuild the Lab's data after re-running t
 python -m src.compact                # size-constrained serving models → the deployed 2 MB bundle (~1 min)
 
 # Cloudzy 2.0
-python -m src.monitoring             # score logged live predictions once the reanalysis is out (~6 days later)
+python -m src.monitoring             # evaluate tracked live predictions once the reanalysis is out (~6 days later)
 ```
 
 Only the first block is needed to run the app: the deployed model and the Lab
@@ -1029,16 +1031,20 @@ src/ui.py                chart, icon and table helpers for the app (no Streamlit
 src/weather_view.py      HTML for the hero, hourly cards, 7-day list and detail cards (tested)
 src/units.py             display-unit conversions (°C/°F, km/h/m/s/mph/kn, mm/in, km/mi), regional defaults
 src/insights.py          summary, unofficial alerts, recommendations, daily briefing (rule-based)
-src/preferences.py       local preferences: unit override, favourites, alert thresholds
-src/monitoring.py        live prediction log and delayed scoring against the reanalysis
-src/history.py           historical weather explorer (archive API)
+src/preferences.py       local settings: units, favourites, home city, alert thresholds/categories/dismissals, summary style
+src/monitoring.py        prediction tracking (SQLite): idempotent records, exact-hour evaluation, aggregates
+src/history.py           historical weather (archive API): daily, monthly, same dates in earlier years
+src/notify.py            optional browser notifications for alerts (permission only on click)
 src/geolocation.py       one-time browser location, request handling, reverse geocoding (Nominatim)
 src/pipeline.py          one command for Cloudzy Core: fetch → train → evaluate, any location and period
 src/artifacts.py         verified model loading, schema/checksum checks, metadata sidecars
 docs/ARCHITECTURE.md     architecture diagram, layers, data types, local state
-streamlit_app.py         entry point: navigation between the two pages
-app_pages/weather.py     the weather app (Phase D)
-app_pages/lab.py         Cloudzy Lab (Phase E)
+streamlit_app.py         entry point: navigation (Weather, History, Predictions, Cloudzy Lab, Settings)
+app_pages/weather.py     the weather app
+app_pages/history.py     weather history
+app_pages/predictions.py prediction tracking
+app_pages/lab.py         Cloudzy Lab
+app_pages/settings.py    settings
 src/lab_data.py          refits selected models, exports 2025 test predictions, checks they reproduce
 src/lab_ui.py            Lab metrics and charts (no Streamlit calls; tested)
 src/compact.py           size-constrained serving models (the deployed bundle)
@@ -1048,7 +1054,7 @@ DEPLOYMENT.md            deployment and maintenance guide
 .github/workflows/       CI: offline tests on push, live API checks weekly
 reports/lab/             the Lab's committed data (~600 KB)
 .streamlit/config.toml   brand theme: light and dark palettes
-tests/                   385 offline tests + 5 live integration tests
+tests/                   423 offline tests + 5 live integration tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
 ```

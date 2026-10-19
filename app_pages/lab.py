@@ -13,13 +13,9 @@ import json
 import pandas as pd
 import streamlit as st
 
-from src import config, history, lab_ui, monitoring
-from src import preferences as P
-from src import units as U
-from src.data_collection import DataCollectionError
+from src import artifacts, config, lab_ui, monitoring
 from src.lab_data import LAB_DIR, MULTISTEP_REPORT, load_predictions
-from src.provider import ProviderError, search_locations
-from src.ui import CHART_CONFIG
+from src.ui import CHART_CONFIG, figure_table
 
 TZ = config.DELHI.local_timezone
 COMPACT_REPORT = config.REPORTS_DIR / f"compact_{config.DELHI.slug}.json"
@@ -43,18 +39,19 @@ def load_lab():
     }
 
 
-@st.cache_data(ttl=600, show_spinner=False)
-def cached_places(query: str):
-    return search_locations(query, count=8)
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def cached_history(place, start, end):
-    return history.fetch_history(place, start, end)
-
-
 def chart(fig) -> None:
+    """Draw a chart and offer the same numbers as a table (screen readers, colour-vision differences, copying)."""
     st.plotly_chart(fig, width="stretch", theme="streamlit", config=CHART_CONFIG)
+    out = figure_table(fig)
+    if out is None:
+        return
+    df, cut = out
+    title = fig.layout.title.text if fig.layout.title and fig.layout.title.text else ""
+    with st.expander(f"Chart data as a table{': ' + title if title else ''}"):
+        st.dataframe(df, hide_index=True, width="stretch",
+                     column_config={"value": st.column_config.NumberColumn(format="%.3f")})
+        if cut:
+            st.caption(f"Showing the first {len(df):,} rows only.")
 
 
 st.markdown("## 🧪 Cloudzy Lab")
@@ -88,10 +85,20 @@ compare = st.selectbox(
     help="The comparison model is drawn in blue on every chart.")
 
 tabs = st.tabs(["Scoreboard", "Predictions vs observed", "Error breakdown", "Live setting", "Multi-step",
-                "Explainability", "Live monitoring", "History explorer", "Learn", "Limitations"])
+                "Explainability", "Live tracking", "Learn", "Limitations"])
 
 # --- Scoreboard --------------------------------------------------------------------
 with tabs[0]:
+    serving_meta = artifacts.read_metadata(config.MODELS_DIR / "cloudzy_core_delhi_serving_compact.joblib")
+    if serving_meta:
+        trained = serving_meta["models"]["1"]["trained_on"]
+        st.info(f"**Model in the live app:** `{serving_meta['artifact_version']}` · horizons "
+                f"{', '.join(f'+{h} h' for h in serving_meta['horizons_h'])} · trained on {trained[2]:,} hours "
+                f"({trained[0][:10]} → {trained[1][:10]}) · target: {serving_meta['target']}. Its live record is on "
+                "the **Predictions** page.", icon="🚀")
+    else:
+        st.warning("The live model's metadata file (`models/cloudzy_core_delhi_serving_compact.json`) is missing, "
+                   "so its version can't be shown. The app won't serve a model it can't verify.", icon="🧪")
     main_report = lab["evaluations"].get(f"evaluation_{config.RUN_TAG}_h1.json")
     if main_report:
         with st.container(border=True):
@@ -275,102 +282,23 @@ with tabs[5]:
             column_config={"mae_increase_c": st.column_config.NumberColumn("MAE increase °C", format="%.4f"),
                            "std_c": st.column_config.NumberColumn("± std °C", format="%.4f")})
 
-# --- Live monitoring ---------------------------------------------------------------------
+# --- Live tracking ------------------------------------------------------------------------
 with tabs[6]:
-    st.markdown("Every live Cloudzy prediction the app makes is logged **on this computer**. About "
-                f"{config.REANALYSIS.lag_days} days later, when the reanalysis for those hours has been published, "
-                "`python -m src.monitoring` scores the predictions against it. This tab only reads that saved result.")
-    summ = monitoring.load_summary()
-    logged = monitoring.load_predictions()
-    if summ is None and logged.empty:
-        st.info("No live predictions logged yet. Open the weather page for New Delhi to make one.", icon="📭")
+    st.markdown("Live predictions are recorded and later checked against the reanalysis on the **Predictions** "
+                "page. This tab shows only the overall result, which is kept separate from the historical test "
+                "evaluation above.")
+    tracked = monitoring.aggregate(monitoring.query())
+    if tracked["n"] == 0:
+        st.info("No live predictions have been evaluated yet. The reference data arrives about "
+                f"{config.REANALYSIS.lag_days} days after each prediction's target hour.", icon="⏳")
     else:
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Predictions logged", len(logged))
-        c2.metric("Issue times", logged["issue_time_utc"].nunique() if len(logged) else 0)
-        c3.metric("Refusals (incomplete inputs)", summ["refusals"] if summ else "—")
-        if not summ:
-            st.info("Run `python -m src.monitoring` to score the predictions whose reanalysis is available.", icon="⏳")
-        elif summ["scores"]["n"] == 0:
-            st.info(f"Nothing to score yet: {summ['matured_predictions']} predictions are old enough. The reanalysis "
-                    f"is published about {summ['reanalysis_lag_days']} days late. Last checked "
-                    f"{summ['evaluated_at_utc'][:16].replace('T', ' ')} UTC.", icon="⏳")
-        else:
-            sc = summ["scores"]
-            st.markdown(f"**{sc['n']} matured predictions**, valid {sc['valid_from_utc'][:10]} → {sc['valid_to_utc'][:10]} "
-                        "(UTC). Compare the live MAE with the 2025 test MAE the app shows as \"average error\":")
-            st.dataframe(pd.DataFrame(sc["by_horizon"]), hide_index=True, width="stretch")
-            st.dataframe(pd.DataFrame(sc["by_temperature_range"]), hide_index=True, width="stretch")
-            st.caption("A few days of predictions is a small sample. Expect live errors to be larger than the 2025 "
-                       "replay, because real-time inputs come from older forecast runs.")
-
-# --- History explorer -------------------------------------------------------------------
-with tabs[7]:
-    st.markdown(f"Explore past weather anywhere since 1940. **Data type:** {history.LABEL}.")
-    h_query = st.text_input("Place", value="New Delhi", key="hist_query").strip()
-    today = dt.date.today()
-    if len(h_query) < 2:
-        st.info("Type at least two letters to search for a place.", icon="🔎")
-    else:
-        try:
-            h_places = cached_places(h_query)
-        except (ProviderError, DataCollectionError) as exc:
-            h_places = None
-            st.error(f"Location search is unavailable right now. {exc}", icon="⚠️")
-        if h_places is not None and not h_places:
-            st.warning(f"No places match “{h_query}”.", icon="🗺️")
-        elif h_places:
-            h_place = st.selectbox("Choose the right match", h_places, format_func=lambda p: p.label, key="hist_place")
-            picked = st.date_input("Dates (local)", value=(today - dt.timedelta(days=37), today - dt.timedelta(days=7)),
-                                   min_value=history.MIN_DATE, max_value=today, key="hist_dates", format="YYYY-MM-DD")
-            if not isinstance(picked, tuple) or len(picked) != 2:
-                st.info("Pick an end date.", icon="📅")
-            else:
-                start, end = picked
-                try:
-                    history.validate_range(start, end, today)
-                    with st.spinner(f"Loading {(end - start).days + 1} days for {h_place.name}…"):
-                        hist = cached_history(h_place, start, end)
-                except ValueError as exc:
-                    st.warning(str(exc), icon="📅")
-                    hist = None
-                except ProviderError as exc:
-                    st.error(str(exc), icon="⚠️")
-                    hist = None
-                if hist is not None:
-                    hunits = P.load().unit_override() or U.default_for_country(h_place.country_code)
-                    tconv = lambda c: U.temperature(c, hunits.temperature)  # noqa: E731
-                    daily = history.daily_summary(hist)
-                    ov = history.overview(daily)
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Mean temperature", f"{tconv(ov['mean_c']):.1f} {hunits.temperature}")
-                    c2.metric("Hottest day", f"{tconv(ov['hottest'][1]):.0f}{hunits.temperature[0]}",
-                              help=f"{ov['hottest'][0]:%d %b %Y}")
-                    c3.metric("Coldest night", f"{tconv(ov['coldest'][1]):.0f}{hunits.temperature[0]}",
-                              help=f"{ov['coldest'][0]:%d %b %Y}")
-                    tp = U.precipitation(ov["total_precip_mm"], hunits.precipitation)
-                    c4.metric("Total rain", "—" if tp is None else
-                              f"{tp:.{U.precipitation_digits(hunits.precipitation)}f} {hunits.precipitation}",
-                              help=f"{ov['wet_days']} days with at least 1 mm")
-                    chart(lab_ui.history_temperature_chart(daily, colors, hunits.temperature, tconv))
-                    var = st.segmented_control("Also show", ["Rain", "Wind", "Humidity"], default="Rain", key="hist_var")
-                    if var == "Rain":
-                        chart(lab_ui.history_bar_chart(daily, "precipitation_mm", colors, "Daily rain", hunits.precipitation,
-                                                       lambda v: U.precipitation(v, hunits.precipitation)))
-                    elif var == "Wind":
-                        chart(lab_ui.history_line_chart(daily, "gust_max_kmh", colors, "Strongest gust each day", hunits.wind,
-                                                        lambda v: U.wind(v, hunits.wind)))
-                    elif var == "Humidity":
-                        chart(lab_ui.history_line_chart(daily, "humidity_mean_pct", colors, "Average humidity each day", "%"))
-                    if (today - end).days < history.RECENT_DAYS_NOTE:
-                        st.caption("The most recent days may come from operational weather-model analyses, before the "
-                                   "ERA5 reanalysis is published, and can change slightly later.")
-                    partial = daily[daily["hours"] < 23]
-                    if len(partial):
-                        st.caption(f"{len(partial)} day(s) have incomplete hours and are summarised from what's available.")
+        st.markdown(f"**{tracked['n']} evaluated predictions** from {tracked['issue_times']} issue times "
+                    f"({tracked['target_from_utc'][:10]} → {tracked['target_to_utc'][:10]}, UTC)."
+                    + ("" if tracked["conclusive"] else " Far too few to be conclusive."))
+        st.dataframe(pd.DataFrame(tracked["by_horizon"]), hide_index=True, width="stretch")
 
 # --- Learn ------------------------------------------------------------------------------
-with tabs[8]:
+with tabs[7]:
     st.markdown("""
 #### How does Cloudzy Core make a prediction?
 It takes the last 25 hours of weather at its Delhi grid cell (temperature, humidity, pressure, wind and rain), plus
@@ -407,7 +335,7 @@ refitted monthly and monitored live, and why the app labels its errors as **hist
 """)
 
 # --- Limitations ------------------------------------------------------------------------
-with tabs[9]:
+with tabs[8]:
     st.markdown(
         "- **Reanalysis targets, not thermometers.** Errors against a real station would be larger, and "
         "one ~9 km grid cell smooths out city effects such as the urban heat island.\n"

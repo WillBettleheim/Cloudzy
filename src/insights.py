@@ -42,6 +42,10 @@ GROUP_PHRASES = {
 }
 
 
+ALERT_KINDS = {"rain": "Rain", "heat": "Heat", "cold": "Cold", "uv": "High UV", "wind": "Strong gusts",
+               "change": "Big day-to-day temperature change"}
+
+
 @dataclass
 class Alert:
     kind: str
@@ -51,6 +55,11 @@ class Alert:
     period: str
     uncertainty: str
     label: str = OFFICIAL_NOTE
+
+    @property
+    def key(self) -> str:
+        """Stable identity for duplicate suppression and dismissal: same kind and time window = same alert."""
+        return f"{self.kind}|{self.period}"
 
 
 @dataclass
@@ -127,8 +136,44 @@ def window(forecast: ProviderForecast, now: pd.Timestamp, hours: int = 24) -> pd
 
 # --- Summary -------------------------------------------------------------------------
 
-def summary(forecast: ProviderForecast, now: pd.Timestamp, units: U.Units = U.METRIC) -> list[str]:
-    """3-5 data-grounded sentences about the next 24 hours and tomorrow."""
+MAX_FORECAST_AGE_H = 3
+STALE_MESSAGE = "This forecast is out of date, so Cloudzy isn't summarising it. Refresh to load the latest."
+
+
+def is_stale(forecast: ProviderForecast, now: pd.Timestamp, max_age_h: float = MAX_FORECAST_AGE_H) -> bool:
+    """True if the forecast was fetched too long ago, or its hourly data doesn't cover the current hour.
+
+    If the retrieval time can't be read, the coverage check alone decides.
+    """
+    try:
+        got = pd.Timestamp(forecast.retrieved_at_utc)
+        got = got.tz_localize("UTC") if got.tzinfo is None else got
+        if now - got > pd.Timedelta(hours=max_age_h):
+            return True
+    except (ValueError, TypeError):
+        pass
+    idx = forecast.hourly.index
+    current_hour = now.tz_convert(idx.tz).floor("h")
+    return len(idx) == 0 or current_hour < idx.min() or current_hour > idx.max()
+
+
+def _dedupe(sentences: list[str]) -> list[str]:
+    seen, out = set(), []
+    for s in sentences:
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+def summary(forecast: ProviderForecast, now: pd.Timestamp, units: U.Units = U.METRIC,
+            style: str = "detailed") -> list[str]:
+    """Data-grounded sentences about now, the next 24 hours and tomorrow.
+
+    style="brief" keeps the first sentence (now and the trend) plus the rain outlook.
+    """
+    if is_stale(forecast, now):
+        return [STALE_MESSAGE]
     w = window(forecast, now, 24)
     if w.empty or w["temperature_2m"].notna().sum() < 6:
         return ["There isn't enough forecast data for this place to write a summary."]
@@ -151,6 +196,20 @@ def summary(forecast: ProviderForecast, now: pd.Timestamp, units: U.Units = U.ME
         cond = f" ({desc})" if desc and not desc.startswith("unknown") else ""
         out.append(f"It's {_t(now_t, units)} now{cond}, {trend}.")
 
+    # 1b. Compared with earlier today (the provider's model values for past hours).
+    tz = forecast.hourly.index.tz
+    local_now = now.tz_convert(tz)
+    earlier = forecast.hourly[(forecast.hourly.index.date == local_now.date())
+                              & (forecast.hourly.index < local_now.floor("h"))]["temperature_2m"].dropna()
+    if now_t is not None and len(earlier) >= 3:
+        peak_t, low_t = earlier.idxmax(), earlier.idxmin()
+        if earlier.max() - now_t >= 3:
+            out.append(f"It's cooler now than earlier today ({_t(earlier.max(), units)} at {peak_t:%H:%M}; "
+                       "model estimates).")
+        elif now_t - earlier.min() >= 3:
+            out.append(f"It's warmer now than earlier today ({_t(earlier.min(), units)} at {low_t:%H:%M}; "
+                       "model estimates).")
+
     # 2. Dominant sky condition and cloud trend.
     groups = [g for g in (group_of(c) for c in w["weather_code"]) if g]
     if groups:
@@ -168,22 +227,39 @@ def summary(forecast: ProviderForecast, now: pd.Timestamp, units: U.Units = U.ME
     # 3. Rain timing by part of the day.
     pp = w["precipitation_probability"].dropna()
     if len(pp):
-        by_period = pp.groupby([period_of(t) for t in pp.index]).max()
+        today = now.tz_convert(pp.index.tz).date()
+
+        def day_part(t):  # "this afternoon", "tomorrow morning", "tonight", "overnight"
+            part = period_of(t)
+            if part == "night":
+                return "tonight" if t.date() == today or t.hour < 6 else "overnight"
+            return f"this {part}" if t.date() == today else f"tomorrow {part}"
+        by_period = pp.groupby([day_part(t) for t in pp.index]).max()
         top_period, top = by_period.idxmax(), by_period.max()
         if top < 20:
             out.append(f"Rain is unlikely in the next 24 hours (no hour above {top:.0f}%).")
         else:
             low_period, low = by_period.idxmin(), by_period.min()
             if len(by_period) > 1 and top - low >= 20:
-                out.append(f"Rain is more likely in the {top_period} (up to {top:.0f}%) "
-                           f"than in the {low_period} (up to {low:.0f}%).")
+                out.append(f"Rain is more likely {top_period} (up to {top:.0f}%) "
+                           f"than {low_period} (up to {low:.0f}%).")
             else:
-                out.append(f"Rain is possible through the period, up to {top:.0f}% in the {top_period}.")
+                out.append(f"Rain is possible through the next 24 hours, up to {top:.0f}% {top_period}.")
 
-    # 4. Wind.
+    # 4. Wind: gusts, and a clear change in typical speed between the next 6 hours and the 6 after.
     gusts = w["wind_gusts_10m"].dropna() if "wind_gusts_10m" in w else pd.Series(dtype=float)
     if len(gusts) and gusts.max() >= 40:
         out.append(f"It will be gusty at times, up to {_wind(gusts.max(), units)} around {gusts.idxmax():%H:%M}.")
+    ws = w["wind_speed_10m"]
+    first, later = ws.iloc[:6].dropna(), ws.iloc[6:12].dropna()
+    if len(first) >= 4 and len(later) >= 4:
+        a, b = first.mean(), later.mean()
+        when = period_of(later.index[len(later) // 2])
+        when = "tonight" if when == "night" else f"this {when}" if later.index[0].date() == local_now.date() else f"in the {when}"
+        if b - a >= 8 and b >= 15:
+            out.append(f"Wind is forecast to pick up {when} (from about {_wind(a, units)} to {_wind(b, units)}).")
+        elif a - b >= 8 and a >= 15:
+            out.append(f"Wind is forecast to ease {when} (from about {_wind(a, units)} to {_wind(b, units)}).")
 
     # 5. Tomorrow versus today (daily maxima).
     today_date = now.tz_convert(forecast.hourly.index.tz).date()
@@ -200,13 +276,32 @@ def summary(forecast: ProviderForecast, now: pd.Timestamp, units: U.Units = U.ME
                     out.append(f"Tomorrow is forecast to be cooler than today (high {_t(t1, units)} vs {_t(t0, units)}).")
                 else:
                     out.append(f"Tomorrow looks similar to today (high {_t(t1, units)} vs {_t(t0, units)}).")
+    out = _dedupe(out)
+    if style == "brief":
+        keep = [out[0]] if out else []
+        keep += [x for x in out if x.startswith("Rain") and x not in keep]
+        return keep[:2]
     return out
 
 
 # --- Alerts --------------------------------------------------------------------------
 
 def alerts(forecast: ProviderForecast, now: pd.Timestamp, thresholds: AlertThresholds = AlertThresholds(),
-           units: U.Units = U.METRIC) -> list[Alert]:
+           units: U.Units = U.METRIC, enabled: set[str] | None = None) -> list[Alert]:
+    """Unofficial threshold alerts, one per kind, for enabled categories only (default: all)."""
+    found = _alerts(forecast, now, thresholds, units)
+    out, seen = [], set()
+    for a in found:
+        if (enabled is None or a.kind in enabled) and a.key not in seen:
+            seen.add(a.key)
+            out.append(a)
+    return out
+
+
+def _alerts(forecast: ProviderForecast, now: pd.Timestamp, thresholds: AlertThresholds,
+            units: U.Units) -> list[Alert]:
+    if is_stale(forecast, now):
+        return []
     w = window(forecast, now, 24)
     out: list[Alert] = []
     if w.empty:
@@ -264,6 +359,8 @@ def alerts(forecast: ProviderForecast, now: pd.Timestamp, thresholds: AlertThres
 # --- Recommendations --------------------------------------------------------------------
 
 def recommendations(forecast: ProviderForecast, now: pd.Timestamp, units: U.Units = U.METRIC) -> list[Recommendation]:
+    if is_stale(forecast, now):
+        return []
     w = window(forecast, now, 12)
     out: list[Recommendation] = []
     if w.empty:

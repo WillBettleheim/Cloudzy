@@ -1,5 +1,6 @@
-"""Tests for live model monitoring (offline: the reanalysis API is faked)."""
+"""Tests for prediction tracking (SQLite). The reference API is faked; tests use a temporary folder."""
 
+import json
 from datetime import date
 
 import pandas as pd
@@ -12,10 +13,13 @@ from src.provider import Place
 DELHI = Place("New Delhi", 28.6358, 77.2244, "Asia/Kolkata", "India", None, None, "IN")
 
 
-def result(issue="2026-10-01T06:00:00+00:00", values=(30.0, 31.0), ifs=(29.0, 33.0), horizons=(1, 24)):
+def result(issue="2026-10-01T06:00:00+00:00", values=(30.0, 31.0), ifs=(29.0, 33.0), horizons=(1, 24),
+           version="cloudzy_core_delhi_serving_compact@abc123def456"):
     t0 = pd.Timestamp(issue)
     return {
-        "issue_time_utc": issue,
+        "issue_time_utc": issue, "model_version": version,
+        "inputs": {"values": {"temperature_2m": 29.5, "relative_humidity_2m": 40.0, "surface_pressure": 980.0,
+                              "wind_speed_10m": 8.0, "precipitation": 0.0}},
         "cloudzy": {"predictions": [
             {"horizon_h": h, "valid_time_utc": (t0 + pd.Timedelta(hours=h)).isoformat(), "temperature_2m_c": v,
              "typical_error_c": 1.1 if h == 1 else 1.34} for h, v in zip(horizons, values)]},
@@ -30,11 +34,14 @@ def archive_payload(start="2026-10-01", hours=48, temp=lambda i: 30.5):
 
 
 class Session:
-    def __init__(self, payload):
-        self.payload, self.calls = payload, 0
+    def __init__(self, payload=None, fail=False):
+        self.payload, self.fail, self.calls, self.headers = payload, fail, 0, {}
 
     def get(self, url, params=None, timeout=None):
         self.calls += 1
+        if self.fail:
+            import requests
+            raise requests.ConnectionError("offline")
         body = self.payload
 
         class R:
@@ -45,87 +52,156 @@ class Session:
         return R()
 
 
-def test_log_and_dedupe(tmp_path):
-    M.log_prediction(result(), tmp_path)
-    M.log_prediction(result(values=(99.0, 99.0)), tmp_path)  # same issue time logged again (cache refresh)
-    df = M.load_predictions(tmp_path)
-    assert len(df) == 2 and list(df["cloudzy_c"]) == [30.0, 31.0]  # first log kept
-    assert str(df["valid_time_utc"].dt.tz) == "UTC"
+# --- Recording -----------------------------------------------------------------------------
+
+def test_record_creates_pending_records_with_full_fields(tmp_path):
+    counts = M.record_prediction(result(), tmp_path)
+    assert counts == {"inserted": 2, "duplicates": 0, "rejected": 0}
+    df = M.query(tmp_path)
+    r = df[df["horizon_h"] == 24].iloc[0]
+    assert r["status"] == "pending" and r["unit"] == "°C" and r["variable"] == "temperature_2m"
+    assert r["target_time_utc"] == pd.Timestamp("2026-10-02T06:00Z")       # issue + 24 h
+    assert r["location_id"] == "delhi-grid" and r["model_version"].endswith("abc123def456")
+    assert r["provider_value"] == 33.0 and "provider forecast" in r["provider_source"]
+    h1 = df[df["horizon_h"] == 1].iloc[0]
+    assert json.loads(h1["inputs_json"])["temperature_2m"] == 29.5        # snapshot once per issue time
 
 
-def test_matured_respects_reanalysis_lag(tmp_path):
-    M.log_prediction(result(issue="2026-10-01T06:00:00+00:00"), tmp_path)
-    M.log_prediction(result(issue="2026-10-15T06:00:00+00:00"), tmp_path)
-    df = M.load_predictions(tmp_path)
-    ready = M.matured(df, date(2026, 10, 19), lag_days=6)  # cutoff 2026-10-13 00:00 UTC
-    assert set(ready["issue_time_utc"].dt.day) == {1}
+def test_recording_is_idempotent(tmp_path):
+    M.record_prediction(result(), tmp_path)
+    again = M.record_prediction(result(values=(99.0, 99.0)), tmp_path)    # re-render / refresh / retry
+    assert again == {"inserted": 0, "duplicates": 2, "rejected": 0}
+    assert list(M.query(tmp_path).sort_values("horizon_h")["predicted"]) == [30.0, 31.0]
 
 
-def test_score_against_exact_valid_times(tmp_path):
-    M.log_prediction(result(), tmp_path)
-    df = M.load_predictions(tmp_path)
-    truth = pd.Series([30.5, 32.0], index=pd.to_datetime(["2026-10-01T07:00Z", "2026-10-02T06:00Z"]))
-    s = M.score(df, truth)
-    by_h = {r["horizon_h"]: r for r in s["by_horizon"]}
-    assert s["n"] == 2
-    assert by_h[1]["cloudzy_mae_c"] == 0.5 and by_h[1]["ifs_mae_c"] == 1.5 and by_h[1]["expected_mae_c"] == 1.1
-    assert by_h[24]["cloudzy_mae_c"] == 1.0 and by_h[24]["cloudzy_bias_c"] == -1.0
-    assert {r["range"] for r in s["by_temperature_range"]} == {"30 °C and above"}
+def test_new_model_version_is_a_separate_record(tmp_path):
+    M.record_prediction(result(), tmp_path)
+    M.record_prediction(result(version="cloudzy_core_delhi_serving_compact@999999999999"), tmp_path)
+    assert len(M.query(tmp_path)) == 4 and len(M.distinct("model_version", tmp_path)) == 2
 
 
-def test_score_skips_times_without_truth(tmp_path):
-    M.log_prediction(result(), tmp_path)
-    s = M.score(M.load_predictions(tmp_path), pd.Series(dtype=float))
-    assert s == {"n": 0}
+@pytest.mark.parametrize("mutate", [
+    lambda r: r["cloudzy"]["predictions"][0].update(temperature_2m_c=float("nan")),
+    lambda r: r["cloudzy"]["predictions"][0].update(temperature_2m_c=None),
+    lambda r: r["cloudzy"]["predictions"][0].update(valid_time_utc="2026-10-01T09:00:00+00:00"),  # not issue + 1 h
+])
+def test_invalid_predictions_are_not_recorded(tmp_path, mutate):
+    r = result()
+    mutate(r)
+    counts = M.record_prediction(r, tmp_path)
+    assert counts["rejected"] == 1 and counts["inserted"] == 1
 
 
-def test_evaluate_end_to_end_with_refusals(tmp_path):
-    M.log_prediction(result(), tmp_path)
+def test_refusals_are_logged_separately(tmp_path):
     M.log_failure("ServiceError: Need 25 complete hours", tmp_path)
-    session = Session(archive_payload())
-    s = M.evaluate(date(2026, 10, 19), tmp_path, session=session)
-    assert session.calls == 1
-    assert s["logged_predictions"] == 2 and s["refusals"] == 1 and s["refusal_rate"] == 0.5
-    assert s["matured_predictions"] == 2 and s["scores"]["n"] == 2
-    assert M.load_summary(tmp_path)["scores"]["n"] == 2
+    assert M.query(tmp_path).empty and "25 complete hours" in M.refusals(tmp_path)["reason"].iloc[0]
 
 
-def test_evaluate_with_nothing_matured_makes_no_api_call(tmp_path):
-    M.log_prediction(result(issue="2026-10-18T06:00:00+00:00"), tmp_path)
-    session = Session(archive_payload())
-    s = M.evaluate(date(2026, 10, 19), tmp_path, session=session)
-    assert session.calls == 0 and s["scores"] == {"n": 0}
+# --- Evaluation ------------------------------------------------------------------------------
+
+def test_evaluation_matches_exact_hour_and_records_source(tmp_path):
+    M.record_prediction(result(), tmp_path)
+    s = Session(archive_payload(temp=lambda i: 20.0 + i))  # 2026-10-01T00:00 = 20.0, 07:00 = 27.0, +30 h = 50
+    out = M.evaluate(date(2026, 10, 19), tmp_path, session=s)
+    assert out["newly_evaluated"] == 2 and out["still_pending"] == 0
+    df = M.query(tmp_path).set_index("horizon_h")
+    assert df.loc[1, "observed"] == 27.0 and df.loc[1, "abs_error"] == 3.0     # 07:00 UTC exactly
+    assert df.loc[24, "observed"] == 50.0                                       # 2026-10-02 06:00 UTC
+    assert "not a station observation" in df.loc[1, "observation_source"]
 
 
-def test_reanalysis_must_be_utc():
+def test_not_yet_matured_predictions_stay_pending_without_any_request(tmp_path):
+    M.record_prediction(result(issue="2026-10-18T06:00:00+00:00"), tmp_path)
+    s = Session(archive_payload())
+    out = M.evaluate(date(2026, 10, 19), tmp_path, session=s)
+    assert s.calls == 0 and out["still_pending"] == 2
+
+
+def test_missing_reference_stays_pending_then_becomes_unavailable(tmp_path):
+    M.record_prediction(result(), tmp_path)
+    empty = archive_payload(start="2026-09-01", hours=24)  # covers other hours only
+    M.evaluate(date(2026, 10, 19), tmp_path, session=Session(empty))
+    assert set(M.query(tmp_path)["status"]) == {"pending"}               # not invented
+    M.evaluate(date(2026, 11, 15), tmp_path, session=Session(empty))      # > 30 days after target
+    assert set(M.query(tmp_path)["status"]) == {"unavailable"}
+
+
+def test_reference_failure_changes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.data_collection.time.sleep", lambda s: None)
+    M.record_prediction(result(), tmp_path)
+    with pytest.raises(Exception):
+        M.evaluate(date(2026, 10, 19), tmp_path, session=Session(fail=True))
+    assert set(M.query(tmp_path)["status"]) == {"pending"}
+
+
+def test_reference_must_be_utc_and_celsius():
     p = archive_payload()
     p["utc_offset_seconds"] = 19800
     with pytest.raises(ValueError, match="UTC"):
         M.fetch_reanalysis(date(2026, 10, 1), date(2026, 10, 2), session=Session(p))
+    p = archive_payload()
+    p["hourly_units"]["temperature_2m"] = "°F"
+    with pytest.raises(ValueError, match="°C"):
+        M.fetch_reanalysis(date(2026, 10, 1), date(2026, 10, 2), session=Session(p))
 
 
-def test_malformed_log_lines_are_skipped(tmp_path):
-    M.log_prediction(result(), tmp_path)
-    with (tmp_path / M.PREDICTIONS).open("a") as fh:
-        fh.write("{broken\n")
-    assert len(M.load_predictions(tmp_path)) == 2
+# --- Aggregates and queries ---------------------------------------------------------------------
+
+def test_aggregates_use_only_evaluated_records(tmp_path):
+    M.record_prediction(result(), tmp_path)
+    M.record_prediction(result(issue="2026-10-18T06:00:00+00:00"), tmp_path)   # stays pending
+    M.evaluate(date(2026, 10, 19), tmp_path, session=Session(archive_payload(temp=lambda i: 30.5)))
+    agg = M.aggregate(M.query(tmp_path))
+    by_h = {r["horizon_h"]: r for r in agg["by_horizon"]}
+    assert agg["n"] == 2 and agg["issue_times"] == 1 and agg["conclusive"] is False
+    assert by_h[1]["mae_c"] == 0.5 and by_h[1]["ifs_mae_c"] == 1.5 and by_h[1]["expected_mae_c"] == 1.1
+    assert by_h[24]["bias_c"] == 0.5
+    assert agg["target_from_utc"].startswith("2026-10-01T07:00")
 
 
-def test_cloudzy_block_logs_predictions_and_refusals(monkeypatch, tmp_path):
+def test_aggregate_of_nothing():
+    assert M.aggregate(pd.DataFrame()) == {"n": 0}
+
+
+def test_query_filters(tmp_path):
+    M.record_prediction(result(), tmp_path)
+    M.record_prediction(result(issue="2026-10-10T06:00:00+00:00", version="v2"), tmp_path)
+    assert len(M.query(tmp_path, model_version="v2")) == 2
+    assert len(M.query(tmp_path, start=pd.Timestamp("2026-10-05", tz="UTC"))) == 2
+    assert len(M.query(tmp_path, end=pd.Timestamp("2026-10-01T12:00", tz="UTC"))) == 1
+    assert len(M.query(tmp_path, status="evaluated")) == 0
+    with pytest.raises(ValueError):
+        M.distinct("predicted; DROP TABLE predictions", tmp_path)
+
+
+# --- Legacy import and app integration ------------------------------------------------------------
+
+def test_legacy_jsonl_is_imported_once_and_kept(tmp_path):
+    rows = [{"logged_at_utc": "2026-10-19T08:12:06+00:00", "issue_time_utc": "2026-10-19T08:00:00+00:00",
+             "valid_time_utc": "2026-10-19T09:00:00+00:00", "horizon_h": 1, "cloudzy_c": 28.9, "ifs_c": 29.3,
+             "expected_mae_c": 1.12}] * 2 + ["{broken"]
+    (tmp_path / M.LEGACY_JSONL).write_text("\n".join(r if isinstance(r, str) else json.dumps(r) for r in rows))
+    df = M.query(tmp_path)
+    assert len(df) == 1 and df["model_version"].iloc[0].startswith("unrecorded")
+    assert (tmp_path / M.LEGACY_JSONL).exists()
+    assert len(M.query(tmp_path)) == 1  # second connect doesn't re-import
+
+
+def test_cloudzy_block_records_predictions_and_refusals(monkeypatch, tmp_path):
     import src.service
     monkeypatch.setenv("CLOUDZY_MONITORING_DIR", str(tmp_path))
     monkeypatch.setattr(src.service, "forecast_now", lambda snapshot=True, session=None: result())
     assert briefing.cloudzy_block(DELHI)["available"]
+    briefing.cloudzy_block(DELHI)  # same issue time again: no duplicate
 
     def boom(snapshot=True, session=None):
         raise src.service.ServiceError("Need 25 complete hours")
     monkeypatch.setattr(src.service, "forecast_now", boom)
     assert not briefing.cloudzy_block(DELHI)["available"]
-    assert len(M.load_predictions(tmp_path)) == 2
-    assert "Need 25 complete hours" in M.read_log(tmp_path / M.FAILURES)["reason"].iloc[0]
+    assert len(M.query(tmp_path)) == 2 and len(M.refusals(tmp_path)) == 1
 
 
-def test_monitoring_problems_never_break_a_prediction(monkeypatch):
+def test_tracking_problems_never_break_a_prediction(monkeypatch):
     import src.service
     monkeypatch.setattr(src.service, "forecast_now", lambda snapshot=True, session=None: result())
 
@@ -135,10 +211,10 @@ def test_monitoring_problems_never_break_a_prediction(monkeypatch):
     assert briefing.cloudzy_block(DELHI)["available"]
 
 
-def test_monitoring_can_be_disabled(monkeypatch, tmp_path):
+def test_tracking_can_be_disabled(monkeypatch, tmp_path):
     import src.service
     monkeypatch.setenv("CLOUDZY_MONITORING", "0")
     monkeypatch.setenv("CLOUDZY_MONITORING_DIR", str(tmp_path))
     monkeypatch.setattr(src.service, "forecast_now", lambda snapshot=True, session=None: result())
     briefing.cloudzy_block(DELHI)
-    assert not (tmp_path / M.PREDICTIONS).exists()
+    assert not (tmp_path / M.DB_NAME).exists()
