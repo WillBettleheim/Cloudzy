@@ -1,0 +1,179 @@
+{
+  "data_end_date": "2026-09-30",
+  "holdout_month": "2026-09",
+  "holdout_mae_c": {
+    "1": {
+      "new_mae_c": 0.8121,
+      "current_mae_c": 0.8425,
+      "holdout_rows": 719,
+      "current_saw_holdout": false
+    },
+    "2": {
+      "new_mae_c": 0.8152,
+      "current_mae_c": 0.8378,
+      "holdout_rows": 718,
+      "current_saw_holdout": false
+    },
+    "3": {
+      "new_mae_c": 0.8498,
+      "current_mae_c": 0.869,
+      "holdout_rows": 717,
+      "current_saw_holdout": false
+    },
+    "6": {
+      "new_mae_c": 0.9054,
+      "current_mae_c": 0.9048,
+      "holdout_rows": 714,
+      "current_saw_holdout": false
+    },
+    "12": {
+      "new_mae_c": 0.9861,
+      "current_mae_c": 0.9979,
+      "holdout_rows": 708,
+      "current_saw_holdout": false
+    },
+    "24": {
+      "new_mae_c": 1.196,
+      "current_mae_c": 1.1777,
+      "holdout_rows": 696,
+      "current_saw_holdout": false
+    }
+  },
+  "mean_holdout_mae_c": {
+    "new": 0.9274,
+    "current": 0.9383
+  },
+  "replaced": true,
+  "backup": "cloudzy_core_delhi_serving_direct.backup-2026-10-19.joblib",
+  "provenance": {
+    "created_at_utc": "2026-10-19T06:43:17+00:00",
+    "command": "python -m src.refit",
+    "data_start_date": "2023-01-01",
+    "data_end_date": "2026-09-30",
+    "holdout_month": [
+      "2026-09-01",
+      "2026-09-30"
+    ],
+    "refit_data_end_exclusive": "2026-09-01",
+    "rows_per_horizon": {
+      "1": {
+        "refit": 32111,
+        "holdout": 719
+      },
+      "2": {
+        "refit": 32110,
+        "holdout": 718
+      },
+      "3": {
+        "refit": 32109,
+        "holdout": 717
+      },
+      "6": {
+        "refit": 32106,
+        "holdout": 714
+      },
+      "12": {
+        "refit": 32100,
+        "holdout": 708
+      },
+      "24": {
+        "refit": 32088,
+        "holdout": 696
+      }
+    },
+    "hyperparameters_from": "cloudzy_core_delhi_serving_direct.joblib",
+    "previous_bundle_trained_on": {
+      "1": [
+        "2023-01-02T00:00:00+00:00",
+        "2025-12-31T22:00:00+00:00",
+        26279
+      ],
+      "2": [
+        "2023-01-02T00:00:00+00:00",
+        "2025-12-31T21:00:00+00:00",
+        26278
+      ],
+      "3": [
+        "2023-01-02T00:00:00+00:00",
+        "2025-12-31T20:00:00+00:00",
+        26277
+      ],
+      "6": [
+        "2023-01-02T00:00:00+00:00",
+        "2025-12-31T17:00:00+00:00",
+        26274
+      ],
+      "12": [
+        "2023-01-02T00:00:00+00:00",
+        "2025-12-31T11:00:00+00:00",
+        26268
+      ],
+      "24": [
+        "2023-01-02T00:00:00+00:00",
+        "2025-12-30T23:00:00+00:00",
+        26256
+      ]
+    },
+    "python": "3.13.6",
+    "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "packages": {
+      "numpy": "2.5.4",
+      "pandas": "3.0.6",
+      "scikit-learn": "1.9.1",
+      "joblib": "1.6.0",
+      "requests": "2.34.2"
+    },
+    "sources": {
+      "era5_seamless": {
+        "rows": 32856,
+        "start_utc": "2023-01-01T00:00:00+00:00",
+        "end_utc": "2026-09-30T23:00:00+00:00",
+        "missing_timestamps_inserted": 0,
+        "warnings": [],
+        "raw_files": [
+          {
+            "file": "delhi_era5_seamless_2023-01-01_2023-12-31_b75c6907.json",
+            "retrieved_at_utc": "2026-10-19T06:08:00+00:00"
+          },
+          {
+            "file": "delhi_era5_seamless_2024-01-01_2024-12-31_f36411fd.json",
+            "retrieved_at_utc": "2026-10-19T06:08:00+00:00"
+          },
+          {
+            "file": "delhi_era5_seamless_2025-01-01_2025-12-31_c1580e07.json",
+            "retrieved_at_utc": "2026-10-19T06:08:01+00:00"
+          },
+          {
+            "file": "delhi_era5_seamless_2026-01-01_2026-09-30_cf8f8a04.json",
+            "retrieved_at_utc": "2026-10-19T06:42:52+00:00"
+          }
+        ]
+      },
+      "ecmwf_ifs": {
+        "rows": 32856,
+        "start_utc": "2023-01-01T00:00:00+00:00",
+        "end_utc": "2026-09-30T23:00:00+00:00",
+        "missing_timestamps_inserted": 0,
+        "warnings": [],
+        "raw_files": [
+          {
+            "file": "delhi_ecmwf_ifs_2023-01-01_2023-12-31_376a7280.json",
+            "retrieved_at_utc": "2026-10-19T06:19:05+00:00"
+          },
+          {
+            "file": "delhi_ecmwf_ifs_2024-01-01_2024-12-31_4087ab7f.json",
+            "retrieved_at_utc": "2026-10-19T06:19:05+00:00"
+          },
+          {
+            "file": "delhi_ecmwf_ifs_2025-01-01_2025-12-31_b480ff58.json",
+            "retrieved_at_utc": "2026-10-19T06:19:06+00:00"
+          },
+          {
+            "file": "delhi_ecmwf_ifs_2026-01-01_2026-09-30_f797685b.json",
+            "retrieved_at_utc": "2026-10-19T06:42:54+00:00"
+          }
+        ]
+      }
+    }
+  }
+}
