@@ -1,0 +1,59 @@
+{
+  "config": {
+    "horizon_hours": 1,
+    "temp_lags": [
+      1,
+      2,
+      3,
+      6,
+      12,
+      24
+    ],
+    "rolling_windows": [
+      3,
+      6,
+      24
+    ],
+    "current_vars": [
+      "relative_humidity_2m",
+      "surface_pressure",
+      "wind_speed_10m",
+      "precipitation"
+    ],
+    "local_timezone": "Asia/Kolkata"
+  },
+  "rows_input": 26304,
+  "rows_output": 26279,
+  "rows_dropped_incomplete": 25,
+  "feature_columns": [
+    "temperature_2m",
+    "temp_lag_1h",
+    "temp_lag_2h",
+    "temp_lag_3h",
+    "temp_lag_6h",
+    "temp_lag_12h",
+    "temp_lag_24h",
+    "temp_change_1h",
+    "temp_change_24h",
+    "temp_roll_mean_3h",
+    "temp_roll_std_3h",
+    "temp_roll_mean_6h",
+    "temp_roll_std_6h",
+    "temp_roll_mean_24h",
+    "temp_roll_std_24h",
+    "temp_roll_min_24h",
+    "temp_roll_max_24h",
+    "relative_humidity_2m",
+    "surface_pressure",
+    "wind_speed_10m",
+    "precipitation",
+    "pressure_change_3h",
+    "precip_sum_3h",
+    "hour_sin",
+    "hour_cos",
+    "doy_sin",
+    "doy_cos"
+  ],
+  "first_issue_time_utc": "2023-01-02T00:00:00+00:00",
+  "last_issue_time_utc": "2025-12-31T22:00:00+00:00"
+}
