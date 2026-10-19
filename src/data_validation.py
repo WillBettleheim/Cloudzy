@@ -24,7 +24,7 @@ import argparse
 import json
 import logging
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Any
 
@@ -158,11 +158,11 @@ def validate_and_clean(
 
     # --- Complete hourly index ---------------------------------------------
     start = (
-        pd.Timestamp(datetime.combine(expected_start, time(0), tzinfo=timezone.utc))
+        pd.Timestamp(datetime.combine(expected_start, time(0), tzinfo=UTC))
         if expected_start else df.index.min()
     )
     end = (
-        pd.Timestamp(datetime.combine(expected_end, time(23), tzinfo=timezone.utc))
+        pd.Timestamp(datetime.combine(expected_end, time(23), tzinfo=UTC))
         if expected_end else df.index.max()
     )
     outside = (df.index < start) | (df.index > end)
@@ -171,7 +171,7 @@ def validate_and_clean(
         df = df[~outside]
     full_index = pd.date_range(start, end, freq="h", tz="UTC", name="time")
     observed_index = df.index
-    report.missing_timestamps_inserted = int(len(full_index.difference(observed_index)))
+    report.missing_timestamps_inserted = len(full_index.difference(observed_index))
     df = df.reindex(full_index)
     df["is_gap_fill"] = ~df.index.isin(observed_index)
 

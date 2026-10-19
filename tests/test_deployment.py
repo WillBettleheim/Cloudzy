@@ -5,8 +5,6 @@ from pathlib import Path
 
 import joblib
 import numpy as np
-import pandas as pd
-import pytest
 
 from src import compact, config
 from src.features import feature_columns
@@ -60,7 +58,7 @@ def test_bundle_keys_match_what_refit_expects():
     b = joblib.load(BUNDLE)
     for key in ("horizons", "feature_columns", "feature_config", "test_2025_mae_c"):
         assert key in b
-    for h, entry in b["horizons"].items():
+    for entry in b["horizons"].values():
         assert {"model", "params", "deployed_model_trained_on"} <= set(entry)
 
 

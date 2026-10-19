@@ -130,7 +130,7 @@ def main() -> None:
     r = b["rain_outlook"]
     print(f"  rain next 24 h: {'expected from ' + r['first_rain_hour_local'][11:16] if r['rain_expected'] else 'not expected'}"
           f" — {r['label']}")
-    print(f"\n[Cloudzy Core — experimental ML]")
+    print("\n[Cloudzy Core — experimental ML]")
     if not c["available"]:
         print(f"  unavailable: {c['reason']}")
     else:

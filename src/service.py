@@ -33,10 +33,9 @@ import argparse
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-import joblib
 import numpy as np
 import pandas as pd
 import requests
@@ -82,7 +81,7 @@ def fetch_live(location: config.Location = config.DELHI, session: requests.Sessi
         "past_days": 2, "forecast_days": 2,
     }
     payload = fetch_json(config.FORECAST_API_URL, params, session=session, **INTERACTIVE)
-    retrieved = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    retrieved = datetime.now(UTC).isoformat(timespec="seconds")
     check_response(payload, variables)
     meta = {k: v for k, v in payload.items() if k != "hourly"} | {"file": "live"}
     validate_metadata([meta], config.HOURLY_VARIABLES)

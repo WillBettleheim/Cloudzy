@@ -73,11 +73,11 @@ def compare_sources(ref: pd.DataFrame, live: pd.DataFrame) -> dict:
     both = ref.index.intersection(live.index)
     years = both.year
     for var in VARIABLES:
-        r, l = ref.loc[both, var], live.loc[both, var]
-        ok = r.notna() & l.notna()
+        r, lv = ref.loc[both, var], live.loc[both, var]
+        ok = r.notna() & lv.notna()
         per = {}
         for label, mask in [("all", ok), *[(str(y), ok & (years == y)) for y in sorted(set(years))]]:
-            rr, ll = r[mask], l[mask]
+            rr, ll = r[mask], lv[mask]
             d = ll - rr
             per[label] = {
                 "n": int(mask.sum()),

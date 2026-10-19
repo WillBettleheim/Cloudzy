@@ -43,7 +43,7 @@ def test_archive_sources_return_valid_hourly_data(source, session):
 
 
 def test_live_forecast_inputs_validate(session, tmp_path):
-    df, retrieved = fetch_live(session=session, snapshot_dir=tmp_path)
+    df, _ = fetch_live(session=session, snapshot_dir=tmp_path)
     now = pd.Timestamp.now(tz="UTC").floor("h")
     assert now in df.index
     assert df.loc[:now].iloc[-25:][VARS].notna().all().all()

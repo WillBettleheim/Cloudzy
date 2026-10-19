@@ -106,7 +106,7 @@ def test_diurnal_baseline_learns_hourly_change_from_training_only(table):
 def test_every_candidate_fits_and_predicts_finite_values(table):
     X, y = table[feature_columns()], table[TARGET]
     for family, configs in candidates().items():
-        params, est = configs[0]
+        _, est = configs[0]
         pred = clone(est).fit(X, y).predict(X)
         assert pred.shape == (len(X),), family
         assert np.isfinite(pred).all(), family

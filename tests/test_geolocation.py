@@ -10,7 +10,7 @@ from streamlit.testing.v1 import AppTest
 import src.geolocation as G
 import src.provider
 from src import preferences as P
-from src.provider import ProviderError, parse_forecast
+from src.provider import ProviderError
 from tests.test_app import fake_network  # noqa: F401  (fixture)
 
 DELHI_FIX = {"status": "ok", "latitude": 28.61392, "longitude": 77.20903, "accuracy": 35.0, "timestamp": 1}

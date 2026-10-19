@@ -26,7 +26,7 @@ from __future__ import annotations
 import argparse
 import logging
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pandas as pd
@@ -323,7 +323,7 @@ def fetch_forecast(place: Place, days: int = FORECAST_DAYS, session: requests.Se
         payload = fetch_json(FORECAST_URL, params, session=session, **INTERACTIVE)
     except DataCollectionError as exc:
         raise ProviderError(f"Could not reach the forecast provider: {exc}") from exc
-    return parse_forecast(payload, place, datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    return parse_forecast(payload, place, datetime.now(UTC).isoformat(timespec="seconds"))
 
 
 def upcoming(forecast: ProviderForecast, now: pd.Timestamp, hours: int) -> pd.DataFrame:

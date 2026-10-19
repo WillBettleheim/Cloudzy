@@ -32,14 +32,13 @@ import hashlib
 import json
 import sys
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
 
 import joblib
 
-from src.features import TARGET, FeatureConfig, feature_columns
+from src.features import FeatureConfig, feature_columns
 
 SCHEMA_VERSION = 1
 
@@ -109,7 +108,7 @@ def metadata_for(bundle: dict, model_path: Path, extra: dict | None = None) -> d
         "artifact_file": Path(model_path).name,
         "artifact_sha256": sha,
         "artifact_version": f"{Path(model_path).stem}@{sha[:12]}",
-        "described_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "described_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         "kind": bundle.get("kind", "single_horizon"),
         "horizons_h": horizons,
         "models": models,

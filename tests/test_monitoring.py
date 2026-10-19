@@ -8,6 +8,7 @@ import pytest
 
 import src.briefing as briefing
 from src import monitoring as M
+from src.data_collection import DataCollectionError
 from src.provider import Place
 
 DELHI = Place("New Delhi", 28.6358, 77.2244, "Asia/Kolkata", "India", None, None, "IN")
@@ -129,7 +130,7 @@ def test_missing_reference_stays_pending_then_becomes_unavailable(tmp_path):
 def test_reference_failure_changes_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr("src.data_collection.time.sleep", lambda s: None)
     M.record_prediction(result(), tmp_path)
-    with pytest.raises(Exception):
+    with pytest.raises(DataCollectionError):
         M.evaluate(date(2026, 10, 19), tmp_path, session=Session(fail=True))
     assert set(M.query(tmp_path)["status"]) == {"pending"}
 

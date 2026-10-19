@@ -9,7 +9,7 @@ from src import config, service
 from src.data_validation import DataValidationError
 from src.features import TARGET, TEMP, FeatureConfig, add_features, build_features, feature_columns, features_from_windows
 from src.models import PersistenceModel
-from src.multistep import HISTORY, MAX_H, eval_origins, recursive_forecast
+from src.multistep import MAX_H, eval_origins, recursive_forecast
 from src.shift import compare_sources, tables
 
 VARS = list(config.HOURLY_VARIABLES)
@@ -178,7 +178,7 @@ def tiny_bundle(tmp_path):
 
 def test_fetch_live_requests_pinned_model_validates_and_snapshots(tmp_path):
     session = FakeSession(live_payload())
-    df, retrieved = service.fetch_live(session=session, snapshot_dir=tmp_path)
+    df, _ = service.fetch_live(session=session, snapshot_dir=tmp_path)
     assert session.params["models"] == "ecmwf_ifs" and session.params["timezone"] == "GMT"
     assert len(df) == 96 and str(df.index.tz) == "UTC"
     assert len(list(tmp_path.glob("delhi_ecmwf_ifs_*.json"))) == 1

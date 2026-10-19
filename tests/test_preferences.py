@@ -124,7 +124,7 @@ def test_rate_limit_respects_retry_after(sleeps):
 
 def test_rate_limit_with_long_wait_fails_fast(sleeps):
     s = Session([Resp(429, {}, {"Retry-After": "120"})])
-    with pytest.raises(dc.DataCollectionError, match="Rate limited.*120 s"):
+    with pytest.raises(dc.DataCollectionError, match=r"Rate limited.*120 s"):
         dc.fetch_json("u", {}, session=s, **dc.INTERACTIVE)
     assert sleeps == []
 

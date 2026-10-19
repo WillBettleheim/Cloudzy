@@ -79,13 +79,13 @@ def train(location: config.Location, start: date, end: date) -> dict:
 
 
 def evaluate(location: config.Location, start: date, end: date) -> dict:
+    from src.artifacts import feature_config_of, read_metadata
     from src.data_validation import load_processed, processed_path
     from src.evaluate import metrics
     from src.features import TARGET, TEMP, build_features, feature_columns
     from src.predict import load_bundle, predict, predict_next_hour
     from src.splits import chronological_split
     from src.train import model_path, splits_for, tag_for
-    from src.artifacts import read_metadata, feature_config_of
 
     path = model_path(location, config.REANALYSIS, start, end)
     bundle = load_bundle(path)  # verified: schema, keys, checksum

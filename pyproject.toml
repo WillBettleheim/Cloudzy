@@ -1,0 +1,42 @@
+# Tool settings only (Cloudzy is run from source, not packaged). Tests are configured in pytest.ini.
+# Install the tools with:  pip install -r requirements-dev.txt
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+select = [
+    "F",     # pyflakes: unused imports and names, undefined names
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "B",     # bugbear: likely bugs
+    "UP",    # modern syntax for the target Python
+    "SIM",   # simplifications
+    "PERF",  # performance anti-patterns
+    "RUF",   # ruff-specific checks
+]
+ignore = [
+    "E501",    # long lines: the code wraps at about 120 columns by hand; not worth a mass reformat
+    "B008",    # call in a default argument: used only for immutable (frozen) config objects
+    "RUF001",  # ambiguous unicode in strings: °, ×, – and → are intentional in user-facing text
+    "RUF002",  # same, in docstrings
+    "RUF003",  # same, in comments
+    "SIM300",  # "Yoda" comparisons: its fix flips assertions into a harder-to-read order
+    "B905",    # zip(strict=True): would turn today's working code into a runtime error; lengths match by construction
+    # Style-only suggestions; the current form is equivalent and was chosen for readability:
+    "RUF005",  # [*a, b] instead of a + [b]
+    "RUF007",  # itertools.pairwise instead of zip(a, a[1:])
+    "RUF012",  # ClassVar annotation for class-level constant dicts
+    "RUF015",  # next(iter(...)) instead of [...][0]
+    "PERF401", # list comprehension instead of an append loop
+    "SIM102",  # merging nested ifs
+    "SIM401",  # dict.get instead of an if/else
+]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["src", "app_pages", "streamlit_app.py"]
+ignore_missing_imports = true   # pandas, sklearn, plotly and joblib ship partial or no type information
+warn_unused_ignores = true

@@ -21,9 +21,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-import numpy as np
 import pandas as pd
 from sklearn.base import clone
 
@@ -194,7 +193,7 @@ def run() -> dict:
     bias.to_csv(LAB_DIR / "shift_bias_by_hour.csv", index=False)
     importance.to_csv(LAB_DIR / "feature_importance.csv", index=False)
     manifest = {
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "generated_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         "location": config.DELHI.name,
         "reference_source": config.REANALYSIS.model,
         "live_source": config.LIVE_ARCHIVE.model,

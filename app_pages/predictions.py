@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
-
 import pandas as pd
 import streamlit as st
 
@@ -106,6 +104,7 @@ else:
                "the historical evaluation shown in Cloudzy Lab; the other columns come from live predictions.")
     ev = df[df["status"] == "evaluated"]
     import plotly.graph_objects as go
+
     from src.ui import _layout
     colors = palette()
     fig = go.Figure()

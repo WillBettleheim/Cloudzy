@@ -749,6 +749,8 @@ trained on 2023-01-02 → 2026-08-31.
 |---|---|---|
 | Offline (424) | Everything in phases A–F and Cloudzy 2.0, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
 | Integration (5) | Live calls: both archive sources validate, live IFS inputs give 25 complete hours, the provider forecast and geocoding work, and a nonsense search returns nothing | `python -m pytest -m integration` |
+| Lint | Unused imports and names, likely bugs, outdated syntax (ruff; rules and the reasons for each ignored rule are in `pyproject.toml`) | `pip install -r requirements-dev.txt`, then `ruff check .` |
+| Types (advisory) | mypy over `src/`, `app_pages/` and the entry point. It still reports annotation-level errors (loose types around pandas and optional values), so it isn't a pass/fail gate yet | `mypy` |
 
 GitHub Actions (`.github/workflows/tests.yml`) runs the offline suite on every
 push and pull request, and the live checks every Monday or on demand. These

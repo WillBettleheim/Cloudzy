@@ -5,7 +5,8 @@ from datetime import date
 import pytest
 import requests
 
-from src import config, data_collection as dc
+from src import config
+from src import data_collection as dc
 
 VARS = ["temperature_2m", "precipitation"]
 

@@ -90,7 +90,7 @@ def block_bootstrap_mae_diff(
         "ci95_low_c": round(float(np.percentile(boot, 2.5)), 4),
         "ci95_high_c": round(float(np.percentile(boot, 97.5)), 4),
         "block": block,
-        "n_blocks": int(len(sums)),
+        "n_blocks": len(sums),
         "n_boot": n_boot,
     }
 

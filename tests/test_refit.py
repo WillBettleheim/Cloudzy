@@ -9,7 +9,8 @@ import pytest
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.linear_model import LinearRegression
 
-from src import config, data_collection as dc, refit
+from src import config, refit
+from src import data_collection as dc
 from src.features import TARGET, TEMP, feature_columns
 from src.multistep import HORIZONS
 from src.service import CloudzyForecaster
@@ -173,7 +174,7 @@ def test_holdout_month_never_reaches_the_refitted_models(tmp_path):
 # --- Bundle --------------------------------------------------------------------------
 
 def test_bundle_keys_and_provenance(tmp_path):
-    report, bundle_path = run_refit(tmp_path)
+    _, bundle_path = run_refit(tmp_path)
     bundle = joblib.load(bundle_path)
     assert {"kind", "inputs_source", "target_source", "feature_columns", "feature_config", "horizons",
             "test_2025_mae_c", "holdout_mae_c", "provenance"} <= set(bundle)

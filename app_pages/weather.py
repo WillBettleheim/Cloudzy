@@ -241,15 +241,14 @@ if st.session_state.get("_units_for") != units_for:
     for name, key in UNIT_KEYS.items():
         st.session_state[key] = getattr(effective, name)
     st.session_state["_units_for"] = units_for
-with unit_col:
-    with st.popover("Units", icon="⚙️", width="stretch"):
-        st.segmented_control("Temperature", U.TEMPERATURE, key="unit_temp", on_change=save_unit_override)
-        st.segmented_control("Wind", U.WIND, key="unit_wind", on_change=save_unit_override)
-        st.segmented_control("Rain", U.PRECIPITATION, key="unit_rain", on_change=save_unit_override)
-        st.caption(f"Default for {place.country or 'this place'}: {regional.temperature}, {regional.wind}, "
-                   f"{regional.precipitation}." + (" You've saved your own choice." if override else ""))
-        if override:
-            st.button("Use regional defaults", on_click=use_regional_units)
+with unit_col, st.popover("Units", icon="⚙️", width="stretch"):
+    st.segmented_control("Temperature", U.TEMPERATURE, key="unit_temp", on_change=save_unit_override)
+    st.segmented_control("Wind", U.WIND, key="unit_wind", on_change=save_unit_override)
+    st.segmented_control("Rain", U.PRECIPITATION, key="unit_rain", on_change=save_unit_override)
+    st.caption(f"Default for {place.country or 'this place'}: {regional.temperature}, {regional.wind}, "
+               f"{regional.precipitation}." + (" You've saved your own choice." if override else ""))
+    if override:
+        st.button("Use regional defaults", on_click=use_regional_units)
 units = U.Units(st.session_state.get("unit_temp") or effective.temperature,
                 st.session_state.get("unit_wind") or effective.wind,
                 st.session_state.get("unit_rain") or effective.precipitation)

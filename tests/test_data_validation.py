@@ -87,7 +87,7 @@ def test_out_of_range_and_non_numeric_values_become_nan():
 def test_null_values_from_api_are_counted_not_filled():
     raw = raw_frame()
     raw.loc[3, "temperature_2m"] = None
-    df, report = validate_and_clean(raw, VARS, RANGES)
+    _, report = validate_and_clean(raw, VARS, RANGES)
     assert report.missing_values["temperature_2m"] == 1
     assert report.non_numeric_set_to_nan == {}
 

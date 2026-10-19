@@ -18,7 +18,7 @@ import json
 import logging
 import platform
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
 
@@ -168,7 +168,7 @@ def run(location: config.Location = config.DELHI, start=config.START_DATE, end=c
                            reference_name=source.model.replace("_", "-").upper())
 
     provenance = {
-        "created_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "created_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         "python": platform.python_version(),
         "platform": platform.platform(),
         "packages": {p: version(p) for p in PACKAGES},

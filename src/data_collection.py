@@ -19,7 +19,7 @@ import hashlib
 import json
 import logging
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -200,7 +200,7 @@ def download_chunk(
         "source": "Open-Meteo Historical Weather API (https://open-meteo.com/)",
         "url": url,
         "request_params": params,
-        "retrieved_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "retrieved_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         "response": payload,
     }
     tmp = path.with_suffix(".json.tmp")

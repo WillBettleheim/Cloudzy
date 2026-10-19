@@ -35,7 +35,7 @@ import json
 import logging
 import os
 import platform
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from importlib.metadata import version
 from pathlib import Path
 
@@ -201,7 +201,7 @@ def install_bundle(bundle: dict, path: Path, stamp: date) -> Path | None:
 def run(today: date | None = None, start: date = config.START_DATE, raw_dir: Path = config.RAW_DIR,
         bundle_path: Path = SERVING_BUNDLE, report_path: Path | None = REPORT_PATH,
         allow_worse: bool = False) -> dict:
-    today = today or datetime.now(timezone.utc).date()
+    today = today or datetime.now(UTC).date()
     end = refit_end_date(today)
     hold = holdout_start(end)
     logger.info("Refit: data %s → %s, held-out month %s", start, end, hold.strftime("%Y-%m"))
@@ -220,7 +220,7 @@ def run(today: date | None = None, start: date = config.START_DATE, raw_dir: Pat
                 "replacing bundle" if replace else "keeping current bundle")
 
     provenance = {
-        "created_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "created_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         "command": "python -m src.refit",
         "data_start_date": start.isoformat(),
         "data_end_date": end.isoformat(),

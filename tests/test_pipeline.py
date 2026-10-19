@@ -1,13 +1,12 @@
 """Tests for the configurable training pipeline, model selection and artifact handling."""
 
-import json
 from datetime import date
 
 import joblib
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.linear_model import LinearRegression
 
 from src import artifacts as A

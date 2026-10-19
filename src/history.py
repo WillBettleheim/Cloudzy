@@ -123,7 +123,7 @@ def overview(daily: pd.DataFrame) -> dict:
     hottest, coldest = daily["temp_max_c"].idxmax(), daily["temp_min_c"].idxmin()
     wettest = daily["precipitation_mm"].idxmax() if daily["precipitation_mm"].notna().any() else None
     return {
-        "days": int(len(daily)),
+        "days": len(daily),
         "mean_c": float(daily["temp_mean_c"].mean()),
         "hottest": (hottest, float(daily.loc[hottest, "temp_max_c"])),
         "coldest": (coldest, float(daily.loc[coldest, "temp_min_c"])),

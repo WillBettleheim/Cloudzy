@@ -39,9 +39,10 @@ import math
 import os
 import threading
 import time
+from collections.abc import MutableMapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, MutableMapping
+from datetime import UTC, datetime
+from typing import Any
 
 import requests
 
@@ -145,7 +146,7 @@ def interpret(payload: Any) -> Outcome:
             return _error("invalid_coordinates")
         acc = payload.get("accuracy")
         acc = float(acc) if isinstance(acc, (int, float)) and math.isfinite(acc) and acc >= 0 else None
-        return Outcome(True, "located", fix=DeviceFix(lat, lon, acc, datetime.now(timezone.utc).isoformat(timespec="seconds")))
+        return Outcome(True, "located", fix=DeviceFix(lat, lon, acc, datetime.now(UTC).isoformat(timespec="seconds")))
     if status in ("unsupported", "insecure"):
         return _error(status, retry=False)
     if status == "error":

@@ -23,7 +23,7 @@ from __future__ import annotations
 import io
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import joblib
 import pandas as pd
@@ -117,7 +117,7 @@ def run() -> dict:
         "horizons": deployed,
         "test_2025_mae_c": {h: results[str(h)]["compact_test"]["mae_c"] for h in HORIZONS},
         "test_2025_provider_optimistic_mae_c": {h: results[str(h)]["provider_optimistic_test_mae_c"] for h in HORIZONS},
-        "created_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "created_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
     }
     total = size_mb(bundle)
     if total > MAX_BUNDLE_MB:

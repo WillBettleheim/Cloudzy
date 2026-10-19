@@ -42,7 +42,7 @@ import math
 import os
 import sqlite3
 from contextlib import closing
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -109,7 +109,7 @@ def enabled() -> bool:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def connect(directory: Path | None = None) -> sqlite3.Connection:
@@ -250,7 +250,7 @@ def aggregate(df: pd.DataFrame) -> dict:
     ev["ifs_err"] = ev["provider_value"] - ev["observed"]
     by_h = []
     for h, g in ev.groupby("horizon_h"):
-        by_h.append({"horizon_h": int(h), "n": int(len(g)),
+        by_h.append({"horizon_h": int(h), "n": len(g),
                      "mae_c": round(float(g["err"].abs().mean()), 3),
                      "rmse_c": round(float(np.sqrt((g["err"] ** 2).mean())), 3),
                      "bias_c": round(float(g["err"].mean()), 3),
@@ -258,10 +258,10 @@ def aggregate(df: pd.DataFrame) -> dict:
                      "expected_mae_c": round(float(g["expected_mae"].dropna().iloc[0]), 3)
                      if g["expected_mae"].notna().any() else None})
     ev["range"] = pd.cut(ev["observed"], TEMP_BINS, labels=TEMP_LABELS)
-    by_t = [{"range": str(k), "n": int(len(g)), "mae_c": round(float(g["err"].abs().mean()), 3)}
+    by_t = [{"range": str(k), "n": len(g), "mae_c": round(float(g["err"].abs().mean()), 3)}
             for k, g in ev.groupby("range", observed=True)]
     issues = int(ev["issue_time_utc"].nunique())
-    return {"n": int(len(ev)), "issue_times": issues,
+    return {"n": len(ev), "issue_times": issues,
             "target_from_utc": ev["target_time_utc"].min().isoformat(), "target_to_utc": ev["target_time_utc"].max().isoformat(),
             "conclusive": issues >= CONCLUSIVE_MIN_ISSUES, "by_horizon": by_h, "by_temperature_range": by_t,
             "observation_source": OBSERVATION_SOURCE, "match_tolerance": MATCH_TOLERANCE}
@@ -288,8 +288,8 @@ def evaluate(today: date | None = None, directory: Path | None = None, session=N
     cutoff = pd.Timestamp(today - timedelta(days=config.REANALYSIS.lag_days), tz="UTC")
     pending = query(directory, status="pending")
     ready = pending[pending["target_time_utc"] < cutoff] if len(pending) else pending
-    result = {"evaluated_at_utc": _now(), "pending_before": int(len(pending)), "matured": int(len(ready)),
-              "newly_evaluated": 0, "marked_unavailable": 0, "still_pending": int(len(pending))}
+    result = {"evaluated_at_utc": _now(), "pending_before": len(pending), "matured": len(ready),
+              "newly_evaluated": 0, "marked_unavailable": 0, "still_pending": len(pending)}
     if ready.empty:
         return result
     truth = fetch_reanalysis(ready["target_time_utc"].min().date(), ready["target_time_utc"].max().date(), session=session)
@@ -305,7 +305,7 @@ def evaluate(today: date | None = None, directory: Path | None = None, session=N
             elif r.target_time_utc < give_up:
                 con.execute("UPDATE predictions SET status='unavailable', evaluated_at_utc=? WHERE id=?", (_now(), r.id))
                 result["marked_unavailable"] += 1
-    result["still_pending"] = int(len(query(directory, status="pending")))
+    result["still_pending"] = len(query(directory, status="pending"))
     return result
 
 

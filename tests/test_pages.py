@@ -2,7 +2,6 @@
 
 import json
 
-import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
@@ -68,13 +67,15 @@ def test_predictions_page_with_records_never_claims_accuracy_without_evaluations
 
 
 def test_navigation_lists_every_page():
-    src = open("streamlit_app.py").read()
+    with open("streamlit_app.py") as f:
+        src = f.read()
     for page in ("weather", "history", "predictions", "lab", "settings"):
         assert f"app_pages/{page}.py" in src
 
 
 def test_figure_table_lists_drawn_values_and_skips_reference_lines():
     import plotly.graph_objects as go
+
     from src.ui import figure_table
     fig = go.Figure([go.Bar(x=["a", "b"], y=[1.0, 2.0], name="MAE"),
                      go.Scatter(x=[0, 1], y=[0, 1], name="Perfect", hoverinfo="skip")])
