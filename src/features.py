@@ -113,19 +113,66 @@ def add_features(df: pd.DataFrame, cfg: FeatureConfig = FeatureConfig()) -> pd.D
     out["pressure_change_3h"] = df["surface_pressure"] - df["surface_pressure"].shift(3)
     out["precip_sum_3h"] = df["precipitation"].rolling(3, min_periods=3).sum()
 
-    # Calendar features describe the issue time t and are known in advance.
-    # Hour uses local clock time (IST) so the daily cycle lines up with
-    # sunrise and sunset. Cyclical encoding puts 23:00 next to 00:00.
-    local = df.index.tz_convert(cfg.local_timezone)
-    hour = local.hour + local.minute / 60.0
-    out["hour_sin"] = np.sin(2 * np.pi * hour / 24)
-    out["hour_cos"] = np.cos(2 * np.pi * hour / 24)
-    hours_into_year = (local.dayofyear - 1) * 24 + hour
-    out["doy_sin"] = np.sin(2 * np.pi * hours_into_year / HOURS_PER_YEAR)
-    out["doy_cos"] = np.cos(2 * np.pi * hours_into_year / HOURS_PER_YEAR)
+    for name, values in calendar_features(df.index, cfg.local_timezone).items():
+        out[name] = values
 
     out[TARGET] = temp.shift(-cfg.horizon_hours)
     return out
+
+
+def calendar_features(index: pd.DatetimeIndex, local_timezone: str) -> dict[str, np.ndarray]:
+    """Cyclical hour-of-day and day-of-year encodings of the issue time.
+
+    Calendar features are known in advance. Hour uses local clock time (IST) so
+    the daily cycle lines up with sunrise and sunset. Cyclical encoding puts
+    23:00 next to 00:00.
+    """
+    local = index.tz_convert(local_timezone)
+    hour = np.asarray(local.hour + local.minute / 60.0, dtype=float)
+    hours_into_year = (np.asarray(local.dayofyear) - 1) * 24 + hour
+    return {
+        "hour_sin": np.sin(2 * np.pi * hour / 24),
+        "hour_cos": np.cos(2 * np.pi * hour / 24),
+        "doy_sin": np.sin(2 * np.pi * hours_into_year / HOURS_PER_YEAR),
+        "doy_cos": np.cos(2 * np.pi * hours_into_year / HOURS_PER_YEAR),
+    }
+
+
+def features_from_windows(
+    temp_window: np.ndarray,
+    exog: dict[str, np.ndarray],
+    issue_times: pd.DatetimeIndex,
+    cfg: FeatureConfig = FeatureConfig(),
+) -> pd.DataFrame:
+    """Vectorised features for many issue times at once (used by recursive forecasting).
+
+    temp_window: shape (n, 25); the last column is temperature at the issue time.
+    exog: current_vars at the issue time (shape (n,)), plus "surface_pressure_window"
+          (n, 4) and "precipitation_window" (n, 3), whose last column is the issue time.
+    Must match add_features exactly; a test enforces this.
+    """
+    w = np.asarray(temp_window, dtype=float)
+    need = max(max(cfg.temp_lags), max(cfg.rolling_windows), 24) + 1
+    if w.ndim != 2 or w.shape[1] < need:
+        raise ValueError(f"temp_window must have shape (n, >= {need})")
+    cur = w[:, -1]
+    cols: dict[str, np.ndarray] = {TEMP: cur}
+    for k in cfg.temp_lags:
+        cols[f"temp_lag_{k}h"] = w[:, -1 - k]
+    cols["temp_change_1h"] = cur - w[:, -2]
+    cols["temp_change_24h"] = cur - w[:, -25]
+    for win in cfg.rolling_windows:
+        cols[f"temp_roll_mean_{win}h"] = w[:, -win:].mean(axis=1)
+        cols[f"temp_roll_std_{win}h"] = w[:, -win:].std(axis=1, ddof=1)
+    cols["temp_roll_min_24h"] = w[:, -24:].min(axis=1)
+    cols["temp_roll_max_24h"] = w[:, -24:].max(axis=1)
+    for var in cfg.current_vars:
+        cols[var] = np.asarray(exog[var], dtype=float)
+    pw = np.asarray(exog["surface_pressure_window"], dtype=float)
+    cols["pressure_change_3h"] = pw[:, -1] - pw[:, -4]
+    cols["precip_sum_3h"] = np.asarray(exog["precipitation_window"], dtype=float)[:, -3:].sum(axis=1)
+    cols.update(calendar_features(issue_times, cfg.local_timezone))
+    return pd.DataFrame(cols, index=issue_times)[feature_columns(cfg)]
 
 
 def build_features(

@@ -4,11 +4,15 @@ Cloudzy is a weather app backed by **Cloudzy Core**, a machine-learning forecast
 engine evaluated against honest baselines. This repository is built engine-first:
 the UI comes only after the ML pipeline works and has been measured.
 
-> **Status:** Phase A (ML engine) is complete for one task: predicting Delhi's
-> 2 m temperature one hour ahead. On the untouched 2025 test year, the selected
-> random forest has an MAE of **0.242 °C**. Persistence scores 0.924 °C and a
-> climatological diurnal baseline scores 0.337 °C. These are errors against
-> **reanalysis data, not a thermometer** (see the caveats below).
+> **Status:** Phases A (ML engine) and B (forecast service) are complete for Delhi.
+> - **Research setting** (reanalysis in, reanalysis out): MAE is **0.242 °C** one
+>   hour ahead on the untouched 2025 test year. Persistence scores 0.924 °C and a
+>   climatological diurnal baseline 0.337 °C.
+> - **Live setting** (real-time ECMWF IFS inputs): MAE is **1.10 °C** one hour
+>   ahead and **1.37 °C** 24 hours ahead. The bottleneck is the disagreement
+>   between the two data sources, not the model.
+>
+> All errors are measured against **reanalysis data, not a thermometer**.
 
 ## Quick start (macOS, Apple Silicon)
 
@@ -18,10 +22,16 @@ python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-python -m pytest                 # 72 offline tests, no network needed
+python -m pytest                 # 87 offline tests, no network needed
 python -m src.data_validation    # download (first run only), validate, write processed CSV
 python -m src.features           # build the feature table
 python -m src.train              # tune on 2024, test on 2025, save model and report (~1 min)
+
+# Phase B
+python -m src.data_validation --source ecmwf_ifs   # archived live-model inputs, 2023-2025
+python -m src.shift              # distribution shift study (~15 s)
+python -m src.multistep          # direct vs recursive, horizons 1-24 h; saves the serving bundle (~1 min)
+python -m src.service            # live forecast for Delhi right now (needs internet)
 ```
 
 The data step downloads three yearly files on its first run (about 1 s each).
@@ -237,6 +247,167 @@ its own evaluation.
 observation-type. A provider's forecast for *t + 1* would be a different kind of
 input, so it is reserved for a separate, clearly labelled experiment.
 
+## Phase B: forecast service, distribution shift and multi-step
+
+### Where live inputs come from
+
+At run time Cloudzy can't get reanalysis data, which is published about five
+days late. It uses **ECMWF IFS** output from the Open-Meteo Forecast API
+(`models=ecmwf_ifs`). The default `best_match` uses the same grid cell for Delhi,
+but it is pinned here because `best_match` can change its underlying model
+without notice. The 15-minute "current" value is model-derived as well.
+
+**Replaying live inputs for 2023–2025.** Open-Meteo's Historical Forecast API
+archives what the Forecast API serves. I checked this directly: for 144 hours
+(2026-10-14 to 2026-10-19), the live past hours and the archive were identical
+for all five variables.
+
+**This replay is a best case.** The archive keeps, for each hour, the value from
+the newest model run covering it. A system running at time *t* only has runs
+already published, which arrive hours late, so its newest inputs are
+longer-lead forecasts. The service saves every live response to
+`data/live_snapshots/` so this gap can be measured over time. For the same
+reason, the archived IFS value *for t+h* is never used as a feature: it may come
+from a run started after *t*.
+
+### Distribution shift: IFS vs. reanalysis (`python -m src.shift`)
+
+Hour-by-hour differences between the two sources (IFS − reanalysis), 2023–2025:
+
+| Variable | Bias, all years | MAE | Correlation | Bias, 2023 / 2024 / 2025 |
+|---|---|---|---|---|
+| Temperature (°C) | +0.29 | 1.13 | 0.982 | −0.23 / +0.10 / **+0.99** |
+| Relative humidity (%) | −2.2 | 6.1 | 0.943 | +0.2 / −2.1 / −4.7 |
+| Surface pressure (hPa) | +0.12 | 0.37 | 0.998 | stable |
+| Wind speed (km/h) | −0.36 | 2.53 | 0.713 | +0.9 / +0.3 / −2.3 |
+| Precipitation (mm) | +0.01 | 0.14 | 0.242 | rain timing rarely agrees hour by hour |
+
+Three things stand out:
+- **The sources disagree by 1.13 °C** hour by hour. That is more than
+  persistence's entire 1-hour error on reanalysis.
+- **The IFS source drifts.** The temperature bias jumped in 2025, and IFS's
+  hourly temperature became smoother over time: its mean absolute second
+  difference fell from 0.80 to 0.69 to 0.55. This is consistent with model
+  upgrades, but the data alone can't confirm the cause.
+- **The bias depends on the time of day,** and its shape changes from year to
+  year. In 2025, IFS ran about 1.5 °C warm at night. In 2023, it ran about
+  1.4 °C cold in the early evening (`reports/figures/shift/`).
+
+![IFS minus reanalysis by hour](reports/figures/shift/ifs_minus_reanalysis_by_hour.png)
+
+**Effect on the 1-hour model.** All setups use the Phase A configuration. The
+serving setup was chosen on 2024; the 2025 numbers are the test.
+
+| Setup | Trained on (inputs → target) | Evaluated on | 2025 MAE °C | Persistence | Diurnal baseline |
+|---|---|---|---|---|---|
+| A | reanalysis → reanalysis | reanalysis → reanalysis | 0.243 | 0.924 | 0.337 |
+| B | reanalysis → reanalysis | **IFS → reanalysis** | 1.417 | 1.794 | 1.445 |
+| C | reanalysis → reanalysis | IFS → IFS | 0.378 | 0.897 | 0.448 |
+| D | IFS → IFS | IFS → IFS | 0.354 | 0.897 | 0.403 |
+| **E** | **IFS → reanalysis** | **IFS → reanalysis** | **1.133** | 1.794 | 1.462 |
+| E + monthly refit | same, refitted at each month start | IFS → reanalysis | **1.053** | | |
+
+What the setups show:
+- **Shift penalty (B):** feeding live inputs to the Phase A model raises its
+  error almost sixfold.
+- **Cross-source training (E):** training directly on live inputs → reanalysis
+  target, a form of statistical post-processing, recovers part of the loss. It
+  was chosen over B on 2024 (0.843 vs 0.948 °C).
+- **Monthly refit:** this was also decided on 2024, where it improved MAE by
+  0.047 °C (95% interval 0.022–0.079). On 2025 it improved MAE by 0.080 °C
+  (interval 0.053–0.107).
+- **C and D:** predicting IFS's *own* next hour is easy (0.35–0.38 °C). But the
+  provider already publishes its own forecast for that hour, so this is not a
+  useful product.
+
+### Multi-step strategy (`python -m src.multistep`)
+
+There are two strategies. **Direct** trains one model per horizon, each mapping
+features at *t* to temperature at *t + h*. **Recursive** applies the 1-hour
+model repeatedly and feeds its own predictions back in. Future humidity,
+pressure, wind and rain are unknown, so the recursive strategy holds them at
+their last known values. Direct models were tuned per horizon on 2024 among the
+residual random-forest configurations, then tested once on 2025 (8,736 shared
+issue times).
+
+**Part 1, reanalysis → reanalysis (2025 test MAE, °C):**
+
+| Horizon | Direct | Recursive | Persistence | Diurnal baseline | Direct − recursive (95% CI) |
+|---|---|---|---|---|---|
+| 1 h | 0.243 | 0.242 | 0.924 | 0.337 | +0.001 [−0.000, +0.001] |
+| 2 h | 0.421 | 0.428 | 1.791 | 0.596 | −0.007 [−0.011, −0.002] |
+| 3 h | 0.572 | 0.590 | 2.614 | 0.809 | −0.018 [−0.028, −0.007] |
+| 6 h | 0.811 | 0.987 | 4.738 | 1.263 | −0.176 [−0.221, −0.133] |
+| 12 h | 0.999 | 1.565 | 6.605 | 1.675 | −0.567 [−0.658, −0.473] |
+| 24 h | 1.098 | 2.009 | 1.148 | 1.145 | −0.911 [−1.080, −0.737] |
+
+![MAE by horizon](reports/figures/multistep/mae_by_horizon_reanalysis.png)
+
+**Direct wins at every horizon of 2 h or more, and the gap widens with lead
+time.** Recursive errors compound, and the frozen weather inputs grow stale. At
+24 h the recursive strategy is worse than plain persistence, which at 24 h means
+"same time tomorrow". At 24 h even the direct model barely beats that baseline
+(by 0.048 °C): local recent history carries little information a day ahead.
+That is where physical weather models take over.
+
+**Part 2, serving setup (IFS inputs → reanalysis, 2025 test MAE, °C):**
+
+| Horizon | Cloudzy direct | IFS value at *t+h* (optimistic) | Persistence | Diurnal baseline |
+|---|---|---|---|---|
+| 1 h | 1.099 | 1.419 | 1.796 | 1.464 |
+| 3 h | 1.154 | 1.419 | 3.139 | 1.567 |
+| 6 h | 1.214 | 1.419 | 5.014 | 1.767 |
+| 12 h | 1.287 | 1.419 | 6.332 | 1.971 |
+| 24 h | 1.370 | 1.420 | 1.690 | 1.704 |
+
+How to read this:
+- **Closer to the reanalysis than IFS itself:** up to 12 h, Cloudzy's
+  predictions are closer to the reanalysis than IFS's own values are (95%
+  intervals exclude zero). At 24 h the difference is not significant.
+- **What that means:** this is a learned **bias correction toward the
+  reanalysis**. It doesn't show that Cloudzy forecasts the weather better than
+  ECMWF, because the reanalysis is the target Cloudzy was trained to reproduce,
+  not the ground truth.
+- **What the service ships:** these configurations, refitted on all of
+  2023–2025. The 2025 test errors above are their error estimates.
+
+### The service (`python -m src.service`)
+
+```
+☁️  Cloudzy — New Delhi, India   issued 2026-10-19T11:30:00+05:30
+   input temperature now (IFS model value): 27.6 °C
+
+    ahead  local time         Cloudzy  2025 MAE*     IFS
+      1 h  2026-10-19T12:30     28.0°      1.10°    28.5
+      ...
+     24 h  2026-10-20T11:30     27.4°      1.37°    27.3
+```
+
+That is real output from 2026-10-19; it will differ when you run it. In Python:
+
+```python
+from src.service import forecast_now
+result = forecast_now()   # dict: issue time, inputs, cloudzy.predictions, provider.forecasts, limitations
+```
+
+**Input requirements:** 25 consecutive complete hours ending at the issue time
+(the latest whole UTC hour), with the five training variables. Live data passes
+the same validation as the training data. Any missing hour stops the forecast
+with a `ServiceError`, and nothing is imputed.
+
+**What the output contains:**
+- Cloudzy's predictions and the provider's forecast in separate, labelled
+  blocks. They are never mixed.
+- For each horizon, Cloudzy's 2025-replay MAE. It is labelled as an average
+  error, not a confidence interval.
+
+**Known limitations:**
+- One location.
+- Accuracy is measured on a replay that is a best case for real-time inputs.
+- The deployed models are fitted on data up to 2025-12-31, while the IFS source
+  drifts. Monthly refitting helped in the experiments, but it is not automated
+  yet.
+
 ## Using a trained model
 
 ```python
@@ -272,7 +443,10 @@ src/models.py            baselines, residual wrapper, model grids
 src/evaluate.py          metrics, breakdowns, week-block bootstrap, figures
 src/train.py             tune → select → refit → test → save bundle and report
 src/predict.py           load bundle, validate inputs, predict
-tests/                   72 offline tests
+src/shift.py             reanalysis vs live-source comparison and shift experiments
+src/multistep.py         direct vs recursive multi-step evaluation; serving bundle
+src/service.py           live inputs → validated → labelled Cloudzy + provider forecasts
+tests/                   87 offline tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
 ```
@@ -285,7 +459,8 @@ Three modules go beyond the suggested layout, and each has a reason:
 ## Roadmap
 
 - **A — ML engine** ✅ data → features and leakage tests → baselines and models → chronological evaluation
-- **B — Forecast service:** a reusable prediction interface built on `predict.py`; a real-time input source; multi-step strategy and evaluation
+- **B — Forecast service** ✅ live IFS inputs, shift study, direct multi-horizon models, service.
+  Open follow-ups: automated monthly refit; measuring the real-time vs. archive input gap from snapshots.
 - **C — Real weather:** the Open-Meteo forecast API, kept clearly separate from Cloudzy's own predictions
 - **D — Web app:** Streamlit and Plotly
 - **E — Cloudzy Lab:** a model-evaluation dashboard

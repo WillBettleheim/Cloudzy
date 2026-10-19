@@ -30,8 +30,6 @@ from src import config
 
 logger = logging.getLogger(__name__)
 
-# ERA5 is published with a delay of roughly five days.
-ARCHIVE_LAG_DAYS = 6
 REQUEST_TIMEOUT_S = 60
 MAX_RETRIES = 4
 BACKOFF_BASE_S = 2.0
@@ -155,6 +153,7 @@ def download_chunk(
     raw_dir: Path,
     force: bool = False,
     session: requests.Session | None = None,
+    url: str = config.ARCHIVE_API_URL,
 ) -> Path:
     """Download one date range and cache it. Returns the cache file path."""
     params = build_params(location, start, end, variables, model)
@@ -164,13 +163,13 @@ def download_chunk(
         return path
 
     logger.info("Downloading %s %s → %s", location.slug, start, end)
-    payload = fetch_json(config.ARCHIVE_API_URL, params, session=session)
+    payload = fetch_json(url, params, session=session)
     check_response(payload, variables)
 
     raw_dir.mkdir(parents=True, exist_ok=True)
     record = {
         "source": "Open-Meteo Historical Weather API (https://open-meteo.com/)",
-        "url": config.ARCHIVE_API_URL,
+        "url": url,
         "request_params": params,
         "retrieved_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "response": payload,
@@ -187,19 +186,20 @@ def collect(
     start: date = config.START_DATE,
     end: date = config.END_DATE,
     variables: list[str] | None = None,
-    model: str = config.WEATHER_MODEL,
+    source: config.DataSource = config.REANALYSIS,
     raw_dir: Path = config.RAW_DIR,
     force: bool = False,
 ) -> list[Path]:
     variables = variables or list(config.HOURLY_VARIABLES)
-    latest_available = date.today() - timedelta(days=ARCHIVE_LAG_DAYS)
+    latest_available = date.today() - timedelta(days=source.lag_days)
     if end > latest_available:
         raise ValueError(
-            f"end date {end} is too recent; archive data is reliable only up to about {latest_available}"
+            f"end date {end} is too recent; {source.model} data is complete only up to about {latest_available}"
         )
     session = requests.Session()
     return [
-        download_chunk(location, s, e, variables, model, raw_dir, force=force, session=session)
+        download_chunk(location, s, e, variables, source.model, raw_dir, force=force,
+                       session=session, url=source.url)
         for s, e in year_chunks(start, end)
     ]
 
@@ -232,9 +232,10 @@ def load_raw_frames(paths: list[Path]) -> tuple[pd.DataFrame, list[dict]]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--force", action="store_true", help="re-download even if cached")
+    parser.add_argument("--source", choices=sorted(config.SOURCES), default=config.REANALYSIS.model)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    paths = collect(force=args.force)
+    paths = collect(source=config.SOURCES[args.source], force=args.force)
     logger.info("Raw files ready: %s", [p.name for p in paths])
 
 

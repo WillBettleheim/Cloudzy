@@ -19,6 +19,8 @@ MODELS_DIR = PROJECT_ROOT / "models"
 REPORTS_DIR = PROJECT_ROOT / "reports"
 
 ARCHIVE_API_URL = "https://archive-api.open-meteo.com/v1/archive"
+HISTORICAL_FORECAST_API_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
+FORECAST_API_URL = "https://api.open-meteo.com/v1/forecast"
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,30 @@ if WEATHER_MODEL not in SUPPORTED_WEATHER_MODELS:
 
 # Prefix for every generated file, so runs on different sources never collide.
 RUN_TAG = f"{DELHI.slug}_{WEATHER_MODEL}"
+
+
+@dataclass(frozen=True)
+class DataSource:
+    """Where a historical dataset comes from. `model` is unique per source and
+    is used in every file name."""
+    model: str
+    url: str
+    lag_days: int  # how far behind real time the source is complete
+    kind: str      # "reanalysis" or "nwp_forecast"
+
+
+# Training data (Phase A).
+REANALYSIS = DataSource(WEATHER_MODEL, ARCHIVE_API_URL, lag_days=6, kind="reanalysis")
+
+# What a live service can actually get: ECMWF IFS output from the Open-Meteo
+# Forecast API. The Historical Forecast API archives exactly the values the live
+# API serves for past hours (verified to be identical over 144 h on 2026-10-19),
+# so it lets us replay "live" inputs for 2023-2025. Pinned to ecmwf_ifs rather
+# than best_match, whose underlying model can change without notice.
+LIVE_MODEL = "ecmwf_ifs"
+LIVE_ARCHIVE = DataSource(LIVE_MODEL, HISTORICAL_FORECAST_API_URL, lag_days=1, kind="nwp_forecast")
+
+SOURCES = {s.model: s for s in (REANALYSIS, LIVE_ARCHIVE)}
 
 # Open-Meteo variable name -> unit we expect the API to report.
 # We request UTC ("GMT") timestamps to avoid any time-zone ambiguity in storage.

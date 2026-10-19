@@ -14,6 +14,7 @@ venv/
 # Generated data and models (reproducible via the pipeline)
 data/raw/*
 data/processed/*
+data/live_snapshots/
 models/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep

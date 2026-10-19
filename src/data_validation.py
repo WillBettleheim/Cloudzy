@@ -20,6 +20,7 @@ Run:  python -m src.data_validation
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 from dataclasses import asdict, dataclass, field
@@ -224,14 +225,18 @@ def load_processed(path: Path) -> pd.DataFrame:
     return df.set_index("time")
 
 
-def processed_path(location: config.Location = config.DELHI) -> Path:
+def processed_path(
+    location: config.Location = config.DELHI, source: config.DataSource = config.REANALYSIS
+) -> Path:
     return config.PROCESSED_DIR / (
-        f"{location.slug}_hourly_{config.WEATHER_MODEL}_{config.START_DATE}_{config.END_DATE}.csv"
+        f"{location.slug}_hourly_{source.model}_{config.START_DATE}_{config.END_DATE}.csv"
     )
 
 
-def run_pipeline(force_download: bool = False) -> tuple[pd.DataFrame, QualityReport]:
-    paths = collect(force=force_download)
+def run_pipeline(
+    force_download: bool = False, source: config.DataSource = config.REANALYSIS
+) -> tuple[pd.DataFrame, QualityReport]:
+    paths = collect(source=source, force=force_download)
     raw, metadata = load_raw_frames(paths)
     variables = list(config.HOURLY_VARIABLES)
     validate_metadata(metadata, config.HOURLY_VARIABLES)
@@ -240,9 +245,9 @@ def run_pipeline(force_download: bool = False) -> tuple[pd.DataFrame, QualityRep
     )
     report.source_metadata = metadata
 
-    out = processed_path()
+    out = processed_path(source=source)
     save_processed(clean, out)
-    report_path = config.REPORTS_DIR / f"data_quality_{config.RUN_TAG}.json"
+    report_path = config.REPORTS_DIR / f"data_quality_{config.DELHI.slug}_{source.model}.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
     logger.info("Processed data: %s (%d rows, %s → %s)", out.name, report.rows_clean,
@@ -254,8 +259,11 @@ def run_pipeline(force_download: bool = False) -> tuple[pd.DataFrame, QualityRep
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--source", choices=sorted(config.SOURCES), default=config.REANALYSIS.model)
+    args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    _, report = run_pipeline()
+    _, report = run_pipeline(source=config.SOURCES[args.source])
     summary = {k: v for k, v in report.to_dict().items() if k not in ("summary_stats", "source_metadata")}
     print(json.dumps(summary, indent=2))
 
