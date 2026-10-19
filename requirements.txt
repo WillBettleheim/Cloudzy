@@ -1,0 +1,11 @@
+# Cloudzy — pinned versions verified on macOS (Apple Silicon), Python 3.13
+pandas==3.0.6
+numpy==2.5.4
+scikit-learn==1.9.1
+matplotlib==3.11.2
+requests==2.34.2
+joblib==1.6.0
+pytest==9.1.1
+# Phase D (web app) — installed now so the environment is complete
+streamlit==1.66.0
+plotly==7.1.0

@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Secrets and local config
+.env
+.env.*
+*.local
+.streamlit/secrets.toml
+
+# Generated data and models (reproducible via the pipeline)
+data/raw/*
+data/processed/*
+models/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!models/.gitkeep
+*.tmp
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
