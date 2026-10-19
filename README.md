@@ -4,7 +4,8 @@ Cloudzy is a weather app backed by **Cloudzy Core**, a machine-learning forecast
 engine evaluated against honest baselines. This repository is built engine-first:
 the UI comes only after the ML pipeline works and has been measured.
 
-> **Status:** Phases A–D are complete: ML engine, forecast service, provider forecasts and the web app.
+> **Status:** Phases A–E are complete: ML engine, forecast service, provider forecasts, the web app
+> and Cloudzy Lab, the model-evaluation dashboard.
 > Cloudzy's own predictions cover Delhi only; provider forecasts work for any place.
 > - **Research setting** (reanalysis in, reanalysis out): MAE is **0.242 °C** one
 >   hour ahead on the untouched 2025 test year. Persistence scores 0.924 °C and a
@@ -23,7 +24,7 @@ python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-python -m pytest                 # 156 offline tests, no network needed
+python -m pytest                 # 171 offline tests, no network needed
 python -m src.data_validation    # download (first run only), validate, write processed CSV
 python -m src.features           # build the feature table
 python -m src.train              # tune on 2024, test on 2025, save model and report (~1 min)
@@ -39,8 +40,9 @@ python -m src.refit              # monthly: refit serving models on data to the 
 python -m src.provider "Reykjavik"   # Open-Meteo forecast for any place
 python -m src.briefing "New Delhi"   # provider forecast + rain outlook + Cloudzy (Delhi only)
 
-# Phase D
-streamlit run streamlit_app.py       # the web app at http://localhost:8501
+# Phase D and E
+streamlit run streamlit_app.py       # weather app at http://localhost:8501, Cloudzy Lab at /lab
+python -m src.lab_data               # rebuild the Lab's data after re-running the experiments (~15 s)
 ```
 
 The data step downloads three yearly files on its first run (about 1 s each).
@@ -541,12 +543,18 @@ replaced by fakes:
 
 **Themes.** `.streamlit/config.toml` defines separate light (pale sky and navy
 text) and dark (midnight navy) palettes. Streamlit follows the viewer's system
-setting, and viewers can switch in ⋮ → Settings. Charts read the active theme
-(`st.context.theme`) and use matching colours. Provider data is **blue** and
-Cloudzy is **orange** in every chart, in both themes. Both colour pairs passed a
-palette check against their background: colour-blind separation ΔE > 24, and
-contrast ≥ 3:1. I checked both themes visually in a browser, including at a
-narrow width, where metrics and day cards wrap instead of stacking.
+setting, and viewers can switch in ⋮ → Settings. Provider data is **blue** and
+Cloudzy is **orange** in every chart, with aqua as an occasional third series.
+
+Streamlit doesn't rerun the page when a viewer switches theme. My first version
+picked chart colours per theme in Python, so after a live switch the chart titles
+stayed near-white on the light background. Now there is one set of series
+colours that passes the palette check against *both* backgrounds: colour-blind
+separation, lightness band, and contrast ≥ 3:1. Chart text, grid and tooltips
+come from Streamlit's Plotly theme, which restyles them in the browser
+instantly. I checked this in a browser: switching light → dark without a reload
+changes the chart titles from navy to near-white. Both themes were also checked
+at a narrow width, where metrics and day cards wrap instead of stacking.
 
 **Caching.** Search, provider forecasts and Cloudzy results are cached for 10
 minutes per place, because one Delhi page view otherwise makes three API calls.
@@ -557,6 +565,52 @@ Live IFS snapshots are saved to `data/live_snapshots/`; set
 (`python -m src.multistep`, or a monthly `python -m src.refit`). Model files
 aren't committed. Without one, the Cloudzy tab says so, and everything else
 works.
+
+## Phase E: Cloudzy Lab
+
+Cloudzy Lab is the second page of the app (`/lab`). It answers one question:
+*how good is Cloudzy Core, really?*
+
+**Honest data, verified.** The deployed serving models were refitted on all data
+up to 2025, so they can't be scored on 2025. Instead, `python -m src.lab_data`
+refits each *selected* configuration on 2023–2024, reading the configurations
+from the experiment reports with no re-tuning. It predicts the 2025 test year
+and refuses to write anything unless every MAE reproduces the report (tolerance
+0.002 °C). All 17 checks reproduce exactly. The output is about 600 KB of
+compressed CSVs in `reports/lab/`, committed so the Lab runs without the raw
+data or model files. The page itself never fits a model.
+
+| Tab | What it shows |
+|---|---|
+| Scoreboard | MAE bar chart and full metric table for every model; the verdict |
+| Predictions vs observed | A chosen date range of observed vs Cloudzy vs a comparison model; scatter; error histogram; the 10 largest misses |
+| Error trends | Rolling 7/14/30-day MAE through 2025; MAE by local hour and by month |
+| Live setting | MAE by horizon with live IFS inputs; IFS's own values with bootstrap intervals; IFS − reanalysis bias by hour, per year |
+| Multi-step | Direct vs recursive vs baselines by horizon |
+| Limitations | What the numbers do *not* show |
+
+**A finding the Lab surfaced.** I originally wrote that Cloudzy's largest misses
+were storms. The data said otherwise:
+- **Storm season:** 6 of the 10 largest misses fall in April–June.
+- **A recurring jump:** 5 of the 10 are issued at 11:30 IST. On some days the
+  reanalysis jumps 3–4 °C between 06 and 07 UTC and then goes flat, for example
+  19.8 → 24.0 → 24.5 °C on 2025-02-20. There are 18 such jumps at 07 UTC in
+  2023–2025, while neighbouring hours average about 1 °C of change.
+
+This looks like an artifact of how the reanalysis is produced, not weather. The
+Lab says so, and its captions are now computed from the data instead of written
+by hand.
+
+**Design choices.**
+- **Comparison:** one control, "Compare Cloudzy with…", sets the blue series on
+  every chart. Cloudzy is always orange.
+- **Colour limit:** a palette check showed that only three series colours stay
+  distinguishable in every pairing, including for colour-blind viewers, so
+  extra baselines are dashed grey.
+- **Years in the bias chart:** these share one blue and differ by line style.
+  No three-step colour ramp stays readable on both backgrounds.
+- **Live chart scale:** persistence is left off the live-setting chart, because
+  its 4–6 °C errors would squash the scale. Its values appear in a caption.
 
 ## Using a trained model
 
@@ -600,9 +654,14 @@ src/refit.py             monthly refit of the serving models, held-out check, da
 src/provider.py          Open-Meteo provider forecasts and location search (provider data only)
 src/briefing.py          provider forecast, rain outlook and Cloudzy side by side, labelled
 src/ui.py                chart, icon and table helpers for the app (no Streamlit calls; tested)
-streamlit_app.py         the Cloudzy web app
+streamlit_app.py         entry point: navigation between the two pages
+app_pages/weather.py     the weather app (Phase D)
+app_pages/lab.py         Cloudzy Lab (Phase E)
+src/lab_data.py          refits selected models, exports 2025 test predictions, checks they reproduce
+src/lab_ui.py            Lab metrics and charts (no Streamlit calls; tested)
+reports/lab/             the Lab's committed data (~600 KB)
 .streamlit/config.toml   brand theme: light and dark palettes
-tests/                   156 offline tests
+tests/                   171 offline tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
 ```
@@ -620,7 +679,7 @@ Three modules go beyond the suggested layout, and each has a reason:
   Open follow-up: measuring the real-time vs. archive input gap from snapshots.
 - **C — Real weather** ✅ provider current/hourly/7-day forecasts, location search, rain indicator, labelled briefing
 - **D — Web app** ✅ Streamlit + Plotly: search, current, 48-hour and 7-day views, rain indicator, Cloudzy panel, both themes
-- **E — Cloudzy Lab:** a model-evaluation dashboard
+- **E — Cloudzy Lab** ✅ scoreboard, predictions vs observed, error trends, live setting, multi-step, limitations
 - **F — Quality and deployment**
 
 ## Attribution and terms

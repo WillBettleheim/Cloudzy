@@ -3,9 +3,12 @@
 Pure functions with no Streamlit calls, so they can be tested directly.
 
 Colour rule used everywhere: provider data is blue and Cloudzy predictions are
-orange. Both pairs were checked with a palette validator (colour-blind
-separation and contrast) against the app's light and dark backgrounds. Text never
-takes a series colour.
+orange (aqua is a third series where needed). One set of series colours serves
+both themes: it passes a palette validator (colour-blind separation, lightness,
+contrast) against the light *and* the dark background. Streamlit doesn't rerun
+the page when a viewer switches theme, so colours chosen per theme would go
+stale. Text, grid and tooltip colours are left to Streamlit's Plotly theme
+(`theme="streamlit"`), which restyles them in the browser immediately.
 """
 
 from __future__ import annotations
@@ -13,12 +16,10 @@ from __future__ import annotations
 import pandas as pd
 import plotly.graph_objects as go
 
-PALETTES = {
-    "light": {"provider": "#2a78d6", "cloudzy": "#eb6834", "muted": "#5b6577",
-              "grid": "#dfe7f1", "text": "#0f1d3a", "surface": "#f7fafd"},
-    "dark": {"provider": "#3987e5", "cloudzy": "#d95926", "muted": "#9aa6ba",
-             "grid": "#22335a", "text": "#eef3fb", "surface": "#0b1630"},
-}
+# Validated on both #f7fafd (light) and #0b1630 (dark): all checks pass.
+SERIES = {"provider": "#3987e5", "cloudzy": "#d95926", "third": "#199e70",
+          # Neutral grey, >= 3:1 on both backgrounds: observed values and baselines.
+          "muted": "#7c879a", "observed": "#7c879a"}
 
 _EMOJI = [  # (WMO codes, day icon, night icon)
     ({0}, "☀️", "🌙"), ({1}, "🌤️", "🌙"), ({2}, "⛅", "☁️"), ({3}, "☁️", "☁️"),
@@ -36,8 +37,9 @@ COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "
 CHART_CONFIG = {"displayModeBar": False, "responsive": True}
 
 
-def palette(theme_type: str | None) -> dict[str, str]:
-    return PALETTES["dark" if theme_type == "dark" else "light"]
+def palette(theme_type: str | None = None) -> dict[str, str]:
+    """Series colours. The same in both themes (see the module docstring)."""
+    return dict(SERIES)
 
 
 def weather_icon(code, is_day=1) -> str:
@@ -63,20 +65,19 @@ def fmt(value, unit: str = "", digits: int = 0) -> str:
 
 
 def _layout(fig: go.Figure, colors: dict, title: str, y_title: str, height: int = 280) -> go.Figure:
+    # No text, grid or tooltip colours here: Streamlit's Plotly theme supplies
+    # them and follows the viewer's theme without a rerun.
     fig.update_layout(
-        title={"text": title, "x": 0, "xanchor": "left", "font": {"size": 15, "color": colors["text"]}},
-        height=height, margin={"l": 56, "r": 16, "t": 56, "b": 44},
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font={"color": colors["muted"]}, hovermode="x unified",
-        hoverlabel={"bgcolor": colors["surface"], "bordercolor": colors["grid"],
-                    "font": {"color": colors["text"]}},
-        legend={"orientation": "h", "y": 1.0, "x": 1, "xanchor": "right", "yanchor": "bottom",
-                "font": {"color": colors["text"]}, "bgcolor": "rgba(0,0,0,0)"},
+        # Title on the first line, legend on its own line beneath it, so they never
+        # collide, even in a half-width column.
+        title={"text": title, "x": 0, "xanchor": "left", "y": 1, "yref": "container", "yanchor": "top",
+               "pad": {"t": 6}, "font": {"size": 15}},
+        height=height + 24, margin={"l": 56, "r": 16, "t": 80, "b": 44},
+        hovermode="x unified",
+        legend={"orientation": "h", "y": 1.02, "x": 0, "xanchor": "left", "yanchor": "bottom"},
     )
-    fig.update_xaxes(showgrid=False, linecolor=colors["grid"], tickfont={"color": colors["muted"]},
-                     automargin=True)
-    fig.update_yaxes(title_text=y_title, title_font={"color": colors["muted"]}, gridcolor=colors["grid"],
-                     zeroline=False, tickfont={"color": colors["muted"]}, automargin=True)
+    fig.update_xaxes(showgrid=False, automargin=True)
+    fig.update_yaxes(title_text=y_title, zeroline=False, automargin=True)
     return fig
 
 
@@ -114,11 +115,9 @@ def daily_range_chart(daily: pd.DataFrame, colors: dict) -> go.Figure:
                 customdata=list(zip(lo, hi)),
                 hovertemplate="%{customdata[0]:.0f}° – %{customdata[1]:.0f}°<extra></extra>")
     fig.add_scatter(x=labels, y=hi, mode="text", text=[fmt(v, "°") for v in hi],
-                    textposition="top center", textfont={"color": colors["text"]}, hoverinfo="skip",
-                    showlegend=False)
+                    textposition="top center", hoverinfo="skip", showlegend=False)
     fig.add_scatter(x=labels, y=lo, mode="text", text=[fmt(v, "°") for v in lo],
-                    textposition="bottom center", textfont={"color": colors["muted"]}, hoverinfo="skip",
-                    showlegend=False)
+                    textposition="bottom center", hoverinfo="skip", showlegend=False)
     fig = _layout(fig, colors, "Daily low and high", "°C", height=300)
     span = (hi.max() - lo.min()) if hi.notna().any() and lo.notna().any() else 10
     fig.update_yaxes(range=[lo.min() - 0.15 * span - 1, hi.max() + 0.15 * span + 1])

@@ -1,0 +1,99 @@
+{
+  "generated_at_utc": "2026-10-19T07:01:35+00:00",
+  "location": "New Delhi, India",
+  "reference_source": "era5_seamless",
+  "live_source": "ecmwf_ifs",
+  "protocol": "Selected configurations refitted on 2023-2024 and scored on 2025; no re-tuning.",
+  "rounding_decimals": 2,
+  "reproduction_checks": [
+    {
+      "name": "phase_a/persistence",
+      "mae_c": 0.924,
+      "report_mae_c": 0.924
+    },
+    {
+      "name": "phase_a/diurnal_baseline",
+      "mae_c": 0.3373,
+      "report_mae_c": 0.3373
+    },
+    {
+      "name": "phase_a/linear_regression",
+      "mae_c": 0.3813,
+      "report_mae_c": 0.3813
+    },
+    {
+      "name": "phase_a/random_forest",
+      "mae_c": 0.2423,
+      "report_mae_c": 0.2423
+    },
+    {
+      "name": "phase_a/gradient_boosting",
+      "mae_c": 0.2484,
+      "report_mae_c": 0.2484
+    },
+    {
+      "name": "serving/h1/cloudzy",
+      "mae_c": 1.0989,
+      "report_mae_c": 1.0989
+    },
+    {
+      "name": "serving/h1/provider",
+      "mae_c": 1.419,
+      "report_mae_c": 1.419
+    },
+    {
+      "name": "serving/h2/cloudzy",
+      "mae_c": 1.1202,
+      "report_mae_c": 1.1202
+    },
+    {
+      "name": "serving/h2/provider",
+      "mae_c": 1.419,
+      "report_mae_c": 1.419
+    },
+    {
+      "name": "serving/h3/cloudzy",
+      "mae_c": 1.1536,
+      "report_mae_c": 1.1536
+    },
+    {
+      "name": "serving/h3/provider",
+      "mae_c": 1.419,
+      "report_mae_c": 1.419
+    },
+    {
+      "name": "serving/h6/cloudzy",
+      "mae_c": 1.2143,
+      "report_mae_c": 1.2143
+    },
+    {
+      "name": "serving/h6/provider",
+      "mae_c": 1.4189,
+      "report_mae_c": 1.4189
+    },
+    {
+      "name": "serving/h12/cloudzy",
+      "mae_c": 1.2866,
+      "report_mae_c": 1.2866
+    },
+    {
+      "name": "serving/h12/provider",
+      "mae_c": 1.4192,
+      "report_mae_c": 1.4192
+    },
+    {
+      "name": "serving/h24/cloudzy",
+      "mae_c": 1.3699,
+      "report_mae_c": 1.3699
+    },
+    {
+      "name": "serving/h24/provider",
+      "mae_c": 1.4203,
+      "report_mae_c": 1.4203
+    }
+  ],
+  "rows": {
+    "phase_a": 8759,
+    "serving": 52416
+  }
+}

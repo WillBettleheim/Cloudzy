@@ -37,9 +37,10 @@ def test_fmt_never_turns_missing_into_zero():
     assert ui.fmt(0, "%") == "0%" and ui.fmt(21.46, " °C", 1) == "21.5 °C"
 
 
-def test_palette_switches_and_defaults_to_light():
-    assert ui.palette("dark")["surface"] == "#0b1630"
-    assert ui.palette("light") == ui.palette(None) == ui.palette("unknown")
+def test_palette_is_theme_independent():
+    # Streamlit doesn't rerun on a theme switch, so series colours must suit both themes.
+    assert ui.palette("dark") == ui.palette("light") == ui.palette()
+    assert ui.palette()["provider"] != ui.palette()["cloudzy"]
 
 
 def test_charts_use_provider_and_cloudzy_colours_consistently():
@@ -113,7 +114,7 @@ def fake_network(monkeypatch):
 
 
 def run_app(query=None):
-    at = AppTest.from_file("../streamlit_app.py", default_timeout=30)
+    at = AppTest.from_file("../app_pages/weather.py", default_timeout=30)
     at.run()
     if query is not None:
         at.text_input[0].set_value(query).run()
