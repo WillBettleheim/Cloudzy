@@ -10,10 +10,11 @@ the UI comes only after the ML pipeline works and has been measured.
 > operational weather forecast. For decisions, use the provider forecast shown
 > beside them, or your national weather service.
 
-> **Status:** All phases (A–F) are complete: ML engine, forecast service, provider
-> forecasts, the web app, Cloudzy Lab, and quality and deployment.
-> Cloudzy's own predictions cover Delhi only; provider forecasts work for any place.
-> See the [model card](MODEL_CARD.md) and the [deployment guide](DEPLOYMENT.md).
+> **Status: Cloudzy 2.0, running locally.** It works end to end on this machine, but
+> it is not deployed and not production-ready. Real forecasts and history work for
+> any place. Cloudzy's own ML predictions cover Delhi only. See the
+> [architecture](docs/ARCHITECTURE.md), the [model card](MODEL_CARD.md) and the
+> [deployment guide](DEPLOYMENT.md).
 > - **Research setting** (reanalysis in, reanalysis out): MAE is **0.242 °C** one
 >   hour ahead on the untouched 2025 test year. Persistence scores 0.924 °C and a
 >   climatological diurnal baseline 0.337 °C.
@@ -23,6 +24,19 @@ the UI comes only after the ML pipeline works and has been measured.
 >
 > All errors are measured against **reanalysis data, not a thermometer**.
 
+## What Cloudzy does
+
+| Area | Features |
+|---|---|
+| **Weather app** | City search with a match picker (same-name places kept apart by coordinates); current conditions; next 24 hours (cards and graph); 7-day forecast; detail cards (UV, humidity and dew point, wind, feels-like, rain, clouds, pressure, visibility, sun) |
+| **Preferences** | °C/°F, km/h, m/s, mph or knots, mm/in; defaults follow the place's region; favourite places; adjustable alert thresholds; all saved locally |
+| **Weather intelligence** | "Cloudzy says" summary, unofficial alerts (reason, value, period, uncertainty), daily briefing, suggestions with reasons (umbrella, clothing, outdoor comfort, UV). Rule-based, built from the forecast numbers, with no language model |
+| **Cloudzy Core** | Experimental 1–24 h temperature model for Delhi, kept separate from the provider forecast; refuses to predict on incomplete inputs; live predictions logged and later scored |
+| **Cloudzy Lab** (`/lab`) | Scoreboard against baselines, predictions vs. observed, error breakdowns, live setting, multi-step, explainability, live monitoring, a historical explorer (1940 onward), plain-language explainers, limitations |
+
+Data comes from Open-Meteo (free, non-commercial, CC BY 4.0). No API keys or
+accounts are needed.
+
 ## Quick start (macOS, Apple Silicon)
 
 ```bash
@@ -31,7 +45,8 @@ python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-python -m pytest                 # 222 offline tests, no network needed
+streamlit run streamlit_app.py   # the app: weather at http://localhost:8501, Cloudzy Lab at /lab
+python -m pytest                 # 303 offline tests, no network needed
 python -m pytest -m integration   # 5 live checks against the Open-Meteo APIs
 python -m src.data_validation    # download (first run only), validate, write processed CSV
 python -m src.features           # build the feature table
@@ -54,7 +69,13 @@ python -m src.lab_data               # rebuild the Lab's data after re-running t
 
 # Phase F
 python -m src.compact                # size-constrained serving models → the deployed 2 MB bundle (~1 min)
+
+# Cloudzy 2.0
+python -m src.monitoring             # score logged live predictions once the reanalysis is out (~6 days later)
 ```
+
+Only the first block is needed to run the app: the deployed model and the Lab
+data are committed. The other commands reproduce the experiments.
 
 The data step downloads three yearly files on its first run (about 1 s each).
 Later runs log `Cached: ... (skipping download)` and make no API calls.
@@ -715,7 +736,7 @@ trained on 2023-01-02 → 2026-08-31.
 
 | Suite | What it covers | How to run |
 |---|---|---|
-| Offline (222) | Everything in phases A–E, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
+| Offline (303) | Everything in phases A–E, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
 | Integration (5) | Live calls: both archive sources validate, live IFS inputs give 25 complete hours, the provider forecast and geocoding work, and a nonsense search returns nothing | `python -m pytest -m integration` |
 
 GitHub Actions (`.github/workflows/tests.yml`) runs the offline suite on every
@@ -740,6 +761,88 @@ The distinction is kept consistent across the whole project:
 - **Rain indicator:** labelled as unofficial.
 - **Disclaimers:** every page footer, the README banner and the model card say
   that Cloudzy is experimental.
+
+## Cloudzy 2.0: weather intelligence, monitoring and analytics
+
+**Summary, alerts, briefing and suggestions** (`src/insights.py`) are
+transparent rules applied to the provider forecast. Each sentence quotes the
+numbers and local times it rests on.
+
+Examples generated live on 2026-10-19:
+- Reykjavik: *"Rain is more likely in the afternoon (up to 100%) than in the
+  night (up to 55%)."*
+- Chicago: *"It's 44° now (clear sky), warming to 63° around 14:00."*
+
+How the parts behave:
+- **Alerts:** shown only when a threshold is crossed (defaults: rain chance 60%,
+  feels-like 40 °C or 0 °C, UV 8, gusts 50 km/h, a 5 °C day-to-day change, all
+  adjustable). Each says *when*, *why* and *how uncertain*. Gaps are never
+  hidden: "between 08:00 and 20:00 (2 hours)". Every alert is labelled as not
+  an official warning.
+- **Briefing conditions:** Open-Meteo's daily weather code is the day's *most
+  severe* condition, so the briefing reports the typical sky and the most
+  significant condition separately ("Mostly clear skies; most significant:
+  moderate drizzle") instead of contradicting itself.
+- **Missing data:** a sentence is dropped rather than guessed. With too little
+  data, the summary says so.
+
+**Preferences** (`src/preferences.py`) are stored in one local JSON file:
+- unit override (otherwise the place's regional default: US → °F/mph/in,
+  UK → °C/mph/mm, elsewhere metric);
+- up to 12 favourites, matched by coordinates;
+- alert thresholds.
+
+A corrupt or partly invalid file falls back to defaults, part by part. Saving
+to the browser and device location would need third-party JavaScript
+components, so they aren't used: manual search is the location method.
+
+**Faster failures.** Live requests now give up within about 25 seconds instead
+of several minutes. A 429 rate-limit reply is retried after the server's
+`Retry-After` delay, or reported right away if that delay is too long. Errors
+are written in plain language ("the weather service didn't respond within
+10 s").
+
+**Live monitoring** (`src/monitoring.py`):
+- **Logging:** every live Cloudzy prediction and every refusal (incomplete
+  inputs) is logged locally.
+- **Scoring:** the target reanalysis is published about 6 days late, so
+  `python -m src.monitoring` scores only matured predictions, at their exact
+  valid times. It reports MAE, RMSE and bias by horizon (next to the 2025 test
+  MAE the app shows), MAE by temperature range, and the refusal rate.
+- **Current state:** as of this writing nothing has matured yet. The Lab says
+  so instead of showing numbers.
+
+**Cloudzy Lab additions:**
+- **Error breakdown:** Cloudzy's 2025 error is 1.5× higher in hours that start
+  with rain (0.337 vs 0.226 °C, over 1,264 vs 7,495 hours) and rises with
+  temperature (0.200 °C below 10 °C, 0.280 °C at 30 °C and above). The rain
+  condition is taken at prediction time, which the model knows.
+- **Explainability:** permutation importance on the 2025 test set, for the
+  evaluated random forest, with every feature described in plain language.
+  - *The current temperature is the model's starting point:* it predicts
+    "current temperature + learned change", so shuffling the current
+    temperature costs 8.4 °C.
+  - *The learned change relies mostly on time of day* (+0.35 and +0.31 °C) and
+    the last hour's change (+0.23 °C).
+  - *Caveats:* the page states that this is association, not causation, and
+    that related features share credit.
+- **History explorer** (`src/history.py`):
+  - *Range:* any place, any range up to 366 days from 1940 onward, validated
+    before any request.
+  - *Labelling:* labelled as historical reanalysis, never as observations.
+  - *Bug fixed:* the archive anchors unix-time ranges with one fixed UTC offset,
+    which added a stray hour from the previous evening across daylight-saving
+    changes. Hours are now trimmed to the requested local dates.
+- **Learn:** plain-language sections on how the model predicts, MAE vs RMSE,
+  why baselines matter, why weather is hard, and why past performance isn't a
+  guarantee.
+
+**Reproducible Lab data:**
+- **Same bytes every time:** `python -m src.lab_data` now produces
+  byte-identical files on every run. Gzip timestamps are fixed, and forest
+  predictions run single-threaded, because parallel tree sums flipped 41 of
+  52,417 rounded values between runs.
+- **Still checked:** all 17 reproduction checks pass.
 
 ## Using a trained model
 
@@ -785,7 +888,12 @@ src/provider.py          Open-Meteo provider forecasts and location search (prov
 src/briefing.py          provider forecast, rain outlook and Cloudzy side by side, labelled
 src/ui.py                chart, icon and table helpers for the app (no Streamlit calls; tested)
 src/weather_view.py      HTML for the hero, hourly cards, 7-day list and detail cards (tested)
-src/units.py             display-unit conversions (°C/°F, km/h/m/s/mph/kn, mm/in, km/mi)
+src/units.py             display-unit conversions (°C/°F, km/h/m/s/mph/kn, mm/in, km/mi), regional defaults
+src/insights.py          summary, unofficial alerts, recommendations, daily briefing (rule-based)
+src/preferences.py       local preferences: unit override, favourites, alert thresholds
+src/monitoring.py        live prediction log and delayed scoring against the reanalysis
+src/history.py           historical weather explorer (archive API)
+docs/ARCHITECTURE.md     architecture diagram, layers, data types, local state
 streamlit_app.py         entry point: navigation between the two pages
 app_pages/weather.py     the weather app (Phase D)
 app_pages/lab.py         Cloudzy Lab (Phase E)
@@ -798,7 +906,7 @@ DEPLOYMENT.md            deployment and maintenance guide
 .github/workflows/       CI: offline tests on push, live API checks weekly
 reports/lab/             the Lab's committed data (~600 KB)
 .streamlit/config.toml   brand theme: light and dark palettes
-tests/                   222 offline tests + 5 live integration tests
+tests/                   303 offline tests + 5 live integration tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
 ```
