@@ -198,3 +198,27 @@ def test_detail_cards_never_invent_missing_values(fc):
                                        (11, "Extreme"), (None, "Not available here")])
 def test_uv_categories(uv, label):
     assert V.uv_category(uv) == label
+
+
+# --- Atmosphere (hero sky) -------------------------------------------------------------------------
+
+@pytest.mark.parametrize("code, is_day, expected", [
+    (0, 1, "clear-day"), (0, 0, "clear-night"), (2, 1, "partly-day"), (1, 0, "partly-night"), (3, 1, "cloudy"),
+    (45, 1, "fog"), (61, 1, "rain"), (81, 0, "rain"), (95, 1, "storm"), (73, 0, "snow"), (None, 1, "clear-day"),
+])
+def test_atmosphere_follows_the_weather_code(code, is_day, expected):
+    assert V.atmosphere(code, is_day) == expected
+
+
+def test_atmosphere_dawn_and_dusk_only_for_clear_skies_near_sunrise_or_sunset():
+    rise, set_ = pd.Timestamp("2026-10-20 06:25"), pd.Timestamp("2026-10-20 17:46")
+    assert V.atmosphere(0, 1, pd.Timestamp("2026-10-20 06:40"), rise, set_) == "dawn"
+    assert V.atmosphere(1, 1, pd.Timestamp("2026-10-20 17:30"), rise, set_) == "dusk"
+    assert V.atmosphere(0, 1, pd.Timestamp("2026-10-20 12:00"), rise, set_) == "clear-day"
+    assert V.atmosphere(61, 1, pd.Timestamp("2026-10-20 06:40"), rise, set_) == "rain"   # weather wins
+
+
+def test_hero_carries_the_atmosphere_and_keeps_effects_decorative(fc):
+    html = V.hero_html(DELHI.label, fc.current, fc.daily.iloc[0], U.METRIC, "IST")
+    assert 'data-atmosphere="' in html and 'class="fx" aria-hidden="true"' in html
+    assert "Pressure" in html and "Visibility" in html

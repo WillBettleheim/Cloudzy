@@ -97,7 +97,7 @@ the tests use that mode.
 
 ## Tests
 
-- **Offline suite:** `python -m pytest` runs 483 tests and needs no network.
+- **Offline suite:** `python -m pytest` runs 498 tests and needs no network.
   `tests/conftest.py` points preferences, monitoring and snapshots at temporary
   folders, so tests never touch real user data.
 - **Live checks:** `python -m pytest -m integration` runs 5 tests against the
@@ -183,6 +183,17 @@ app_pages/explorer.py ──► src/explorer_view.py (components v2 + Leaflet, i
 All layers are GFS model forecast fields; the page never calls them observations or radar.
 
 ## Design system
+
+**Art direction: "Atmospheric Intelligence."** Deep ink and midnight surfaces, electric sky and cobalt accents
+used sparingly, cloud-white and silver text, and amber reserved for sunlight and highlights.
+
+- **Hierarchy:** one focal point per screen, editorial headers (`theme.page_header`), and hairline sections and
+  readouts rather than a box around everything.
+- **Weather hero:** `weather_view.atmosphere()` picks the sky treatment from the actual WMO code, `is_day` and local
+  sunrise/sunset. Effects are CSS only, moved by transform, marked `aria-hidden`, and static under reduced motion.
+  The page says the sky is decoration, not imagery.
+- **Type:** Inter for the interface and Outfit for display figures. Both are SIL OFL, self-hosted in
+  `static/vendor/fonts` and registered with `[[theme.fontFaces]]`.
 
 `src/theme.py` holds the tokens, exposed as `--cz-*` CSS custom properties:
 - colours (midnight, navy, sky, cloud, violet, sunshine and status colours);

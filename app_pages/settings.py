@@ -14,7 +14,7 @@ from src import preferences as P
 from src import theme as T
 from src import units as U
 
-st.markdown("## :material/settings: Settings")
+st.html(T.page_header("Settings", "You · preferences", "settings"))
 if P.store() == "browser":
     if browser_prefs.storage_available() is False:
         st.warning("This browser isn't letting Cloudzy store settings (private browsing, or site data blocked), so "

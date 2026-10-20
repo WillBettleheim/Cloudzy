@@ -41,7 +41,7 @@ def chart(fig) -> None:
     st.plotly_chart(fig, width="stretch", theme="streamlit", config=CHART_CONFIG)
 
 
-st.markdown("## :material/history: History & Trends")
+st.html(T.page_header("History & Trends", "Forecast · the past, reconstructed", "history"))
 st.caption(f"Past weather anywhere since 1940. **Data type:** {history.LABEL}. Grid cells are roughly 9–25 km "
            "across, so values can differ from a nearby weather station. This is not a forecast.")
 

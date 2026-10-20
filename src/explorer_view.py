@@ -178,7 +178,7 @@ async function init(S, root, setTriggerValue) {
   S.canvas = document.createElement("canvas"); S.canvas.className = "czx-canvas"; pane.appendChild(S.canvas);
   S.pcanvas = document.createElement("canvas"); S.pcanvas.className = "czx-canvas"; pane.appendChild(S.pcanvas);
   map.on("movestart zoomstart", () => { S.moving = true; clearParticles(S); });
-  map.on("moveend zoomend resize", () => { S.moving = false; redraw(S); });
+  map.on("moveend zoomend resize", () => { S.moving = false; placePanels(S); redraw(S); });
   map.on("click", (ev) => {
     const ll = ev.latlng.wrap();
     S.picked = { lat: +ll.lat.toFixed(3), lon: +ll.lng.toFixed(3) };
@@ -338,6 +338,13 @@ function timeLabel(S) {
   const utc = f.valid_utc.slice(5, 16).replace("T", " ");
   S.el(".czx-tl-label").innerHTML = `<b>${local}</b> <span class="mut">(your time) · ${utc} UTC · +${f.fhr} h from the ${S.manifest.run_utc.slice(11, 16)} UTC run · step ${S.frameIdx + 1} of ${S.frames.length} · forecast${f.fhr === 0 ? " (model analysis)" : ""}</span>`;
   S.el(".czx-slider").setAttribute("aria-valuetext", `${local}, plus ${f.fhr} hours`);
+  placePanels(S);
+}
+// Keep the legend and readout just above the timeline, whatever height its label wraps to.
+function placePanels(S) {
+  const t = S.el(".czx-time"); if (!t) return;
+  const bottom = (t.offsetHeight + parseFloat(getComputedStyle(t).bottom || "0") + 10) + "px";
+  S.el(".czx-legend").style.bottom = bottom; S.el(".czx-readout").style.bottom = bottom;
 }
 
 function setLayer(S, key, silent) {
@@ -368,9 +375,11 @@ async function redraw(S) {
     S.L.DomUtil.setPosition(c, map.containerPointToLayerPoint([0, 0]));
   }
   cancelAnimationFrame(S.raf);
+  const layerChanged = S.drawnLayer !== S.layer;
+  if (layerChanged) { S.canvas.style.opacity = "0"; S.pcanvas.style.opacity = "0"; }
   const ctx = S.canvas.getContext("2d"); ctx.clearRect(0, 0, size.x, size.y);
   clearParticles(S);
-  if (S.layer === "none") { S.status(""); return; }
+  if (S.layer === "none") { S.status(""); S.drawnLayer = "none"; return; }
   let fields;
   try {
     S.loading = true; S.root.querySelector(".czx").classList.add("busy");
@@ -425,6 +434,8 @@ async function redraw(S) {
     paint((la, lo) => { const v = s(la, lo); if (!isFinite(v)) return null; if (sc.floor && v < sc.floor) return null; const c = ramp(v); return [c[0], c[1], c[2], 255 * sc.alpha]; });
   }
   ctx.putImageData(img, 0, 0);
+  S.drawnLayer = L_;
+  requestAnimationFrame(() => { S.canvas.style.opacity = "1"; S.pcanvas.style.opacity = "1"; });
   if (L_ === "pressure") isobars(S, ctx, fields.prmsl);
   if (L_ === "wind") startParticles(S);
   readout(S);
@@ -565,13 +576,15 @@ function readout(S) {
 
 CSS = r"""
 .czx,.czx *{box-sizing:border-box}
-.czx{position:relative;height:clamp(440px,calc(100vh - 230px),980px);border-radius:20px;overflow:hidden;
-  background:#071027;border:1px solid rgba(128,145,170,.28);box-shadow:0 10px 30px rgba(0,0,0,.35);
-  font-family:inherit;color:#e9f1fc}
-.czx-map{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 40%,#0f1f45 0%,#071027 70%)}
+.czx{position:relative;height:clamp(460px,calc(100vh - 220px),1000px);border-radius:22px;overflow:hidden;
+  background:#040914;border:1px solid rgba(140,160,195,.18);
+  box-shadow:0 2px 8px rgba(2,6,18,.4),0 24px 60px rgba(2,6,18,.45);font-family:inherit;color:#eaf0fa}
+.czx::after{content:"";position:absolute;inset:0;z-index:700;pointer-events:none;border-radius:inherit;
+  background:radial-gradient(ellipse 120% 90% at 50% 45%,rgba(4,9,20,0) 55%,rgba(4,9,20,.55) 100%)}
+.czx-map{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 38%,#0e1d42 0%,#060f26 55%,#040914 100%)}
 .czx-map:focus-visible{outline:3px solid #5aa2f0;outline-offset:-3px}
 .czx .leaflet-container{background:transparent;font-family:inherit}
-.czx-canvas{position:absolute;left:0;top:0;pointer-events:none}
+.czx-canvas{position:absolute;left:0;top:0;pointer-events:none;transition:opacity 240ms cubic-bezier(.16,1,.3,1)}
 .ico{font-family:"Material Symbols Rounded";font-weight:normal;font-style:normal;font-size:20px;line-height:1;
   display:inline-block;-webkit-font-smoothing:antialiased;font-feature-settings:"liga";vertical-align:middle}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
@@ -583,8 +596,9 @@ CSS = r"""
   padding:6px 10px;background:transparent;color:#d6e2f5;font:inherit;font-size:.85rem;cursor:pointer;
   transition:background .15s ease,border-color .15s ease}
 .czx-layer:hover{background:rgba(90,162,240,.14)}
-.czx-layer[aria-pressed="true"]{background:rgba(90,162,240,.28);border-color:#5aa2f0;color:#fff;
-  box-shadow:inset 0 -2px 0 #f5b800}
+.czx-layer[aria-pressed="true"]{background:linear-gradient(180deg,rgba(74,163,255,.32),rgba(74,163,255,.14));
+  border-color:rgba(74,163,255,.8);color:#fff;box-shadow:0 0 0 1px rgba(74,163,255,.35),0 0 18px rgba(74,163,255,.28),
+  inset 0 -2px 0 #f2a93b}
 .czx-layer .ico{font-size:18px}
 .czx button:focus-visible,.czx select:focus-visible,.czx input:focus-visible{outline:3px solid #5aa2f0;outline-offset:2px}
 .czx-side{position:absolute;right:10px;top:92px;z-index:800;display:flex;flex-direction:column;gap:6px}
@@ -600,7 +614,7 @@ CSS = r"""
 .czx .leaflet-top.leaflet-right{top:52px}
 .czx-legend{position:absolute;left:10px;bottom:96px;z-index:800;width:min(280px,calc(100% - 20px));padding:10px 12px;
   border-radius:12px;background:rgba(8,16,38,.86);border:1px solid rgba(120,150,200,.25);font-size:.78rem}
-.lg-h{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.lg-h{display:flex;align-items:center;gap:6px;margin-bottom:8px;font-family:Outfit,Inter,sans-serif;font-size:.92rem}
 .lg-h .kind{margin-left:auto;font-size:.7rem;padding:1px 7px;border-radius:999px;border:1px solid rgba(90,162,240,.6);color:#9ccaff}
 .czx-legend .bar{height:9px;border-radius:5px;border:1px solid rgba(255,255,255,.15)}
 .czx-legend .ticks{display:flex;justify-content:space-between;margin-top:3px;opacity:.85}
@@ -613,9 +627,10 @@ CSS = r"""
 .czx-time{position:absolute;left:10px;right:10px;bottom:22px;z-index:800;padding:8px 10px;border-radius:14px;
   background:rgba(8,16,38,.9);border:1px solid rgba(120,150,200,.25)}
 .czx-tl-row{display:flex;align-items:center;gap:6px}
-.czx-slider{flex:1;min-width:60px;accent-color:#f5b800;height:24px}
+.czx-slider{flex:1;min-width:60px;accent-color:#f2a93b;height:24px;cursor:pointer}
 .czx-speed{background:rgba(8,16,38,.9);color:#e9f1fc;border:1px solid rgba(120,150,200,.3);border-radius:8px;height:32px;font:inherit}
-.czx-tl-label{font-size:.78rem;margin-top:4px;overflow-wrap:anywhere}
+.czx-tl-label{font-size:.78rem;margin-top:6px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.czx-tl-label b{font-family:Outfit,Inter,sans-serif;font-size:1rem;font-weight:500;letter-spacing:-.01em}
 .czx-status{position:absolute;left:50%;top:64px;transform:translateX(-50%);z-index:900;max-width:calc(100% - 40px);
   padding:8px 14px;border-radius:999px;background:rgba(8,16,38,.92);border:1px solid rgba(90,162,240,.5);
   font-size:.82rem;display:none;text-align:center}
@@ -633,13 +648,14 @@ CSS = r"""
   .czx{height:clamp(420px,calc(100vh - 170px),760px);border-radius:14px}
   .czx-layer .t{display:none}
   .czx-layer{padding:7px}
-  .czx-legend{bottom:118px;width:calc(100% - 20px)}
+  .czx-legend{bottom:124px;width:calc(100% - 20px)}
+  .czx-legend .note{display:none}
   .czx-readout{display:none}
   .czx-side{top:96px}
   .czx-speed-l{display:none}
   .czx-time{bottom:18px}
 }
-@media (prefers-reduced-motion:reduce){.czx-layer{transition:none}}
+@media (prefers-reduced-motion:reduce){.czx-layer,.czx-canvas{transition:none}}
 """
 
 _component = None

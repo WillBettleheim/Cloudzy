@@ -14,7 +14,7 @@ from src.ui import CHART_CONFIG, palette
 TZ = config.DELHI.local_timezone
 M = monitoring
 
-st.markdown("## :material/query_stats: Prediction tracking")
+st.html(T.page_header("Prediction tracking", "Cloudzy Core · live record", "query_stats"))
 st.caption("Every Cloudzy Core prediction the app actually makes is recorded, then checked once the reference data "
            "for its target hour exists.")
 
@@ -42,7 +42,7 @@ def ist(ts) -> str:
 
 
 # --- Check now, and the last check (stored, so it survives reloads) ------------------------------------
-c1, c2 = st.columns([1, 3], vertical_alignment="center")
+c1, c2 = st.columns([1.35, 3], vertical_alignment="center")
 if c1.button("Check matured predictions", icon=":material/search:", help="Fetch the reference data for predictions whose "
              "target hour is old enough, and evaluate them. Safe to press again: nothing is evaluated twice."):
     try:

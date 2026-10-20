@@ -16,6 +16,7 @@ import streamlit as st
 from src import artifacts, config, lab_ui, monitoring
 from src.lab_data import LAB_DIR, MULTISTEP_REPORT, load_predictions
 from src.ui import CHART_CONFIG, figure_table
+from src import theme as T
 
 TZ = config.DELHI.local_timezone
 COMPACT_REPORT = config.REPORTS_DIR / f"compact_{config.DELHI.slug}.json"
@@ -54,7 +55,7 @@ def chart(fig) -> None:
             st.caption(f"Showing the first {len(df):,} rows only.")
 
 
-st.markdown("## :material/science: Cloudzy Lab")
+st.html(T.page_header("Cloudzy Lab", "Cloudzy Core · offline evaluation", "science"))
 st.caption("How good is Cloudzy Core, really? Every number here comes from the untouched 2025 test year.")
 
 try:

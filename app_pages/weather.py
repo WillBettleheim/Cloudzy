@@ -265,17 +265,19 @@ if detected_slot is not None:
 
 # --- Above the fold: conditions, Cloudzy says, alerts --------------------------------------------
 
-hero_col, side_col = st.columns([1.55, 1], gap="medium")
-with hero_col:
-    st.html(V.hero_html(place.label, cur, today, units, local_now.tzname() or str(tz)))
-    st.caption(f"{forecast.source_label} · {V.updated_label(forecast.retrieved_at_utc, tz)}, refreshed at most "
-               "every 10 minutes · model estimates for this location, not a station reading")
+st.html(V.hero_html(place.label, cur, today, units, local_now.tzname() or str(tz)))
+st.caption(f"{forecast.source_label} · {V.updated_label(forecast.retrieved_at_utc, tz)}, refreshed at most every "
+           "10 minutes · model estimates for this location, not a station reading · the sky behind the reading "
+           "reflects the forecast condition and time of day; it is decoration, not imagery")
+side_col, alert_col = st.columns([1.5, 1], gap="large")
 
 found = I.alerts(forecast, now, prefs.alerts, units, enabled=prefs.enabled_alert_kinds())
 dismissed = prefs.active_dismissals(now)
 shown = [a for a in found if a.key not in dismissed]
 with side_col:
     st.html(V.summary_html(I.summary(forecast, now, units, style=prefs.summary_style)))
+with alert_col:
+    st.html(T.eyebrow("Alerts · next 24 hours", "notifications"))
     for i, alert in enumerate(shown):
         st.html(V.alerts_html([alert]))
         if st.button("Dismiss for 24 hours", key=f"dismiss_{i}_{alert.kind}", icon=":material/close:",

@@ -23,7 +23,7 @@ from src.provider import Place, ProviderError
 
 PICK_KEY = "_explorer_pick"
 
-st.markdown("## :material/public: Weather Explorer")
+st.html(T.page_header("Weather Explorer", "Forecast · global model view", "public"))
 st.caption("Global forecast from the NOAA GFS weather model on a 1° grid (about 110 km), 3-hourly to +72 hours. "
            "A model forecast, not radar or observations. Click the map to select a point.")
 

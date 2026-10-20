@@ -9,13 +9,18 @@ from __future__ import annotations
 from dataclasses import asdict
 from html import escape
 
+import pandas as pd
 import streamlit as st
 
-from src import nav
+from src import app_data, nav
+from src import units as U
+from src import weather_view as V
+from src.data_collection import DataCollectionError
+from src.provider import ProviderError
 from src import preferences as P
 from src import theme as T
 
-st.markdown("## :material/bookmark: Places")
+st.html(T.page_header("Places", "You · saved cities", "bookmark"))
 prefs = P.load()
 favs = prefs.favourite_places()
 home = prefs.home_place()
@@ -36,17 +41,24 @@ if not favs:
     nav.page_link("app_pages/weather.py", "Go to the Weather page", ":material/partly_cloudy_day:")
     st.stop()
 
-cols = st.columns(2, gap="medium")
+st.html(V.CSS)
+override = prefs.unit_override()
+cols = st.columns(2, gap="large")
 for i, f in enumerate(favs):
     is_home = home is not None and P._same_place(f, home)
-    with cols[i % 2], st.container(border=True):
-        badge = T.chip("Home", "ok", "home") if is_home else ""
-        st.html(f'<div class="cz-place-card"><h4 style="margin:0 0 4px;display:flex;gap:8px;align-items:center;'
-                f'flex-wrap:wrap">{T.icon("location_on")}{escape(f.name)} {badge}</h4>'
-                f'<p style="margin:0;opacity:.85">{escape(", ".join(x for x in (f.admin1, f.country) if x))}</p>'
-                f'<p style="margin:2px 0 0;font-size:.82rem;opacity:.7">{f.latitude:.2f}°, {f.longitude:.2f}° · '
-                f'{escape(f.timezone)}</p></div>')
-        b1, b2, b3 = st.columns(3)
+    units = override or U.default_for_country(f.country_code)
+    try:
+        fc = app_data.forecast(f)            # cached 10 minutes, shared with the Weather page
+        cur = fc.current
+        key = pd.Timestamp.now(tz="UTC").tz_convert(fc.hourly.index.tz).date()
+        today = fc.daily.loc[key] if key in fc.daily.index else None
+    except (ProviderError, DataCollectionError):
+        cur, today = None, None
+    with cols[i % 2]:
+        st.html(V.place_card_html(f, cur, today, units, is_home)
+                + f'<p class="cz-place-card" style="margin:6px 2px 0;font-size:.78rem;opacity:.65">'
+                  f'{f.latitude:.2f}°, {f.longitude:.2f}° · {escape(f.timezone)}</p>')
+        b1, b2, b3 = st.columns([1, 1.45, 1.15])
         if b1.button("Open", key=f"open_{i}", icon=":material/arrow_forward:", width="stretch",
                      help=f"Show the weather for {f.label}"):
             open_place(f)
@@ -68,3 +80,4 @@ for i, f in enumerate(favs):
             P.save(prefs)
             st.toast(f"Removed {f.name}", icon=":material/check:")
             st.rerun()
+        st.write("")

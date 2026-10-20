@@ -8,6 +8,7 @@ from streamlit.testing.v1 import AppTest
 from src import monitoring
 from src import preferences as P
 from src.provider import Place
+from tests.test_app import fake_network  # noqa: F401  (fixture)
 
 PARIS = Place("Paris", 48.8534, 2.3488, "Europe/Paris", "France", "Île-de-France", 2138551, "FR")
 
@@ -39,12 +40,12 @@ def test_settings_saves_summary_style_and_location_choice():
 
 # --- Places -----------------------------------------------------------------------------------------
 
-def test_places_empty_state():
+def test_places_empty_state(fake_network):  # noqa: F811
     at = run("places")
     assert any("No saved places yet" in i.value for i in at.info)
 
 
-def test_places_home_city_and_removal():
+def test_places_home_city_and_removal(fake_network):  # noqa: F811
     prefs = P.load()
     prefs.toggle_favourite(PARIS)
     P.save(prefs)
@@ -57,7 +58,7 @@ def test_places_home_city_and_removal():
     assert P.load().favourites == [] and P.load().home is None      # removing the home city clears it
 
 
-def test_places_open_hands_the_place_to_the_weather_page():
+def test_places_open_hands_the_place_to_the_weather_page(fake_network):  # noqa: F811
     prefs = P.load()
     prefs.toggle_favourite(PARIS)
     P.save(prefs)
@@ -120,3 +121,22 @@ def test_predictions_page_keeps_model_versions_separate():
     assert len(headings) == 2 and all("evaluated" not in h for h in headings)
     assert sum("**2 evaluated predictions**" in m.value for m in at.markdown) == 2   # 2 each, never 4 pooled
     assert any("Last check" in c.value for c in at.caption)
+
+
+def test_places_cards_show_real_current_weather(fake_network):  # noqa: F811
+    prefs = P.load()
+    prefs.toggle_favourite(PARIS)
+    P.save(prefs)
+    at = run("places")
+    html = " ".join(h.proto.body for h in at.html)
+    assert 'class="cz-hero cz-mini atm-' in html and "28°" in html          # temperature from the forecast payload
+
+
+def test_places_card_without_weather_says_so(fake_network):  # noqa: F811
+    from src.provider import ProviderError
+    fake_network["forecast_error"] = ProviderError("timed out")
+    prefs = P.load()
+    prefs.toggle_favourite(PARIS)
+    P.save(prefs)
+    at = run("places")
+    assert "Current weather isn't available right now." in " ".join(h.proto.body for h in at.html)

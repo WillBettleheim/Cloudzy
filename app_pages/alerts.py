@@ -21,7 +21,7 @@ from src.data_collection import DataCollectionError
 from src.provider import ProviderError
 
 st.html(V.CSS)
-st.markdown("## :material/notifications: Alerts")
+st.html(T.page_header("Alerts", "Forecast · your thresholds", "notifications"))
 st.info("Cloudzy alerts are automatic checks of the forecast against **your thresholds**. They are **not "
         "official warnings** and have no severity levels: for warnings, follow your national weather service.",
         icon=":material/info:")

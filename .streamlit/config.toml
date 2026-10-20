@@ -1,12 +1,25 @@
-# Cloudzy brand: sky blue, midnight navy, sunshine yellow.
+# Cloudzy "Atmospheric Intelligence": midnight and ink navy, electric sky and cobalt, cloud white, amber.
 # Light and dark palettes are both defined; Streamlit follows the viewer's
 # system setting, and the viewer can switch in the app menu (⋮ → Settings).
 
 [theme]
+# Typography: Inter for the interface, Outfit for display figures (both SIL OFL, self-hosted in static/vendor/fonts).
+font = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+headingFont = "Outfit, Inter, sans-serif"
 baseRadius = "large"
 buttonRadius = "full"
 showWidgetBorder = true
 metricValueFontSize = "1.6rem"
+
+[[theme.fontFaces]]
+family = "Inter"
+url = "app/static/vendor/fonts/Inter-latin.woff2"
+weight = "300 800"
+
+[[theme.fontFaces]]
+family = "Outfit"
+url = "app/static/vendor/fonts/Outfit-latin.woff2"
+weight = "200 700"
 
 [theme.light]
 primaryColor = "#2a78d6"
@@ -18,11 +31,11 @@ yellowColor = "#f5b800"
 blueColor = "#2a78d6"
 
 [theme.dark]
-primaryColor = "#5aa2f0"
-backgroundColor = "#0b1630"
-secondaryBackgroundColor = "#13234a"
-textColor = "#eef3fb"
-borderColor = "#22335a"
+primaryColor = "#4aa3ff"
+backgroundColor = "#060d1f"
+secondaryBackgroundColor = "#0e1a36"
+textColor = "#eaf0fa"
+borderColor = "#1c2b4d"
 yellowColor = "#ffcc33"
 blueColor = "#3987e5"
 
