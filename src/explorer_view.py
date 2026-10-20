@@ -565,7 +565,7 @@ function readout(S) {
     if (isFinite(a) && isFinite(b)) { const from = (Math.atan2(-a, -b) * 180 / Math.PI + 360) % 360; const dirs = ["N","NE","E","SE","S","SW","W","NW"]; val = `${fmtWind(Math.hypot(a, b), u.wind).toFixed(0)} ${u.wind} from ${dirs[Math.round(from / 45) % 8]} (${from.toFixed(0)}°)`; } else val = na;
   }
   else if (S.layer === "gusts") { const x = s("gust"); val = isFinite(x) ? `${fmtWind(x, u.wind).toFixed(0)} ${u.wind}` : na; }
-  else if (S.layer === "precipitation") { const x = s("prate"); const t = f.ptype ? Math.round(s("ptype")) : NaN; val = isFinite(x) ? `${fmtRate(x, u.precipitation).toFixed(u.precipitation === "in" ? 2 : 1)} ${u.precipitation === "in" ? "in/h" : "mm/h"}${x >= 0.1 && isFinite(t) ? " · " + (["none","rain","snow","mixed/freezing"][t] || "") : ""}` : na; }
+  else if (S.layer === "precipitation") { const x = s("prate"); const t = f.ptype ? Math.round(s("ptype")) : NaN; val = isFinite(x) ? `${fmtRate(x, u.precipitation).toFixed(u.precipitation === "in" ? 2 : 1)} ${u.precipitation === "in" ? "in/h" : "mm/h"}${x >= 0.1 && t >= 1 && t <= 3 ? " · " + ["rain", "snow", "mixed/freezing"][t - 1] : ""}` : na; }
   else if (S.layer === "clouds") { const x = s("tcc"); val = isFinite(x) ? `${x.toFixed(0)}% cloud cover` : na; }
   else if (S.layer === "pressure") { const x = s("prmsl"); val = isFinite(x) ? `${x.toFixed(1)} hPa` : na; }
   else if (S.layer === "humidity") { const x = s("rh2m"); val = isFinite(x) ? `${x.toFixed(0)}% relative humidity` : na; }

@@ -39,7 +39,7 @@ the UI comes only after the ML pipeline works and has been measured.
 | **Settings** (`/settings`) | °C/°F, km/h, m/s, mph or knots, mm/in (regional by default); detect location on start; brief or detailed summary; theme guidance; reset. Saved in each visitor's own browser, so people sharing one Cloudzy server never see or change each other's settings; never synced between devices, never precise device coordinates |
 | **Places** (`/places`) | Saved cities as cards: open one on the Weather page, make it your home city (opens first), or remove it |
 | **Alerts** (`/alerts`) | Active and dismissed alerts for the place you're viewing (with each dismissal's expiry and "show again"), alert categories, thresholds and optional browser notifications. Clearly labelled as unofficial |
-| **Weather Explorer** (`/explorer`) | 3D globe (NASA Blue Marble Earth with the GFS temperature layer) and a global map of NOAA GFS forecast fields (1° grid, 3-hourly to +72 h): wind particles driven by the real vectors, temperature, precipitation with rain/snow/mixed type, cloud cover, pressure with isobars, gusts, humidity, CAPE; forecast timeline with playback; click for grid values and a separate point forecast |
+| **Weather Explorer** (`/explorer`) | 3D globe (NASA Earth imagery with real day and night; GFS temperature, wind particles, precipitation and cloud layers) and a global map of NOAA GFS forecast fields (1° grid, 3-hourly to +72 h): wind particles driven by the real vectors, temperature, precipitation with rain/snow/mixed type, cloud cover, pressure with isobars, gusts, humidity, CAPE; forecast timeline with playback; click for grid values and a separate point forecast |
 | **Design** | "Atmospheric Intelligence": an immersive current-weather sky that follows the real weather code and local sun times (clear day/night, dawn, dusk, partly cloudy, overcast, fog, rain, storm, snow; decorative, static under reduced motion), Inter and Outfit type with tabular figures, editorial page headers, hairline instrument readouts instead of boxed tiles, weather-aware saved-place cards, sidebar navigation, Material Symbols icons, and layouts checked at phone, tablet and laptop widths |
 | **Weather intelligence** | "Cloudzy says" summary (temperature trend, earlier today, rain timing, wind, clouds, tomorrow; nothing when data is missing or more than 3 h old), unofficial alerts (reason, value, period, uncertainty; dismissable; at most one per kind per day), daily briefing, suggestions with reasons. Rule-based, built from the forecast numbers, with no language model |
 | **Cloudzy Core** | Experimental 1–24 h temperature model for Delhi, kept separate from the provider forecast; refuses to predict on incomplete inputs |
@@ -887,18 +887,26 @@ are written in plain language ("the weather service didn't respond within
 Open **Weather Explorer** in the sidebar (`/explorer`). A **Globe / Map** switch at the top picks the view.
 
 **Globe (the default).** A 3D Earth drawn with three.js:
-- **Earth:** NASA Blue Marble shaded relief and bathymetry, a 4096 × 2048 image fetched once from NASA GIBS
-  (`tools/build_globe_texture.py`) and stored in `static/vendor/earth/`. It's a cloud-free composite, **not current
-  conditions**. The blue rim is a visual atmosphere effect, not a physical model, and the lighting is a fixed soft
-  light, not the real sun position.
-- **Layer:** GFS 2 m temperature (the same frames, colour scale and units as the map), or "Earth only". Other layers
-  are on the map for now.
+- **Earth:** two 4096 × 2048 images fetched once from NASA GIBS (`tools/build_globe_texture.py`) and stored in
+  `static/vendor/earth/`: Blue Marble shaded relief and bathymetry for the day side, and VIIRS Black Marble 2016
+  city lights for the night side. Both are composites, **not current conditions**.
+- **Day and night:** the sun is placed at its real position for the selected forecast time (a standard
+  low-precision solar formula, under 0.1° of error for this century), so the terminator moves as you step through
+  the timeline. The sun button switches to even lighting. The blue rim is a visual atmosphere effect, not a
+  physical model.
+- **Layers:** temperature, wind, precipitation, cloud cover, or "Earth only". They use the same GFS frames,
+  colour scales, thresholds and units as the map. Wind adds particles moved by the real 10 m u/v vectors, which
+  pause when the globe is off screen or the tab is hidden, and become static streamlines under reduced motion or
+  with the motion button. Data layers are dimmed only slightly at night so they stay readable; cloud cover is
+  dimmed more. Pressure, gusts, humidity and CAPE are on the map.
 - **Controls:** drag to rotate, scroll or pinch to zoom, arrow keys and `+`/`-` on the focused globe, buttons for
-  zoom, reset and "turn to the selected place". There's no auto-rotation, and no inertia under reduced motion.
-  It only redraws while something changes.
+  zoom, reset, "turn to the selected place", lighting and wind motion. There's no auto-rotation, and no inertia under reduced motion.
+  It only redraws while something changes or wind particles are moving on screen.
 - **Timeline:** previous/next step, a slider and "Now".
-- **Clicking the globe** reads the GFS grid value there and shows the same point panel as the map.
-- **Fallback:** without WebGL, after a lost graphics context or if the Earth image can't load, the page says why and
+- **Clicking the globe** reads the GFS grid value there, says whether it's day or night at that time, and shows
+  the same point panel as the map.
+- **Fallback:** without WebGL, after a lost graphics context or if the day image can't load (a missing night image
+  only loses the city lights), the page says why and
   shows the 2D map instead.
 
 **Map.** A dark, full-width map of the world:
@@ -940,7 +948,7 @@ Open **Weather Explorer** in the sidebar (`/explorer`). A **Globe / Map** switch
 
 **Globe, map, basemap and licences:**
 - **Globe library:** three.js r186, MIT, bundled unmodified in `static/vendor/three` (`three.module.js` and `three.core.js`, from the npm package; no CDN at runtime).
-- **Earth imagery:** NASA Blue Marble via NASA GIBS, public domain, with the acknowledgment GIBS asks for in `static/vendor/earth/README.md`.
+- **Earth imagery:** NASA Blue Marble and VIIRS Black Marble via NASA GIBS, public domain, with the acknowledgment GIBS asks for in `static/vendor/earth/README.md`.
 - **Map library:** Leaflet 1.9.4, BSD 2-Clause, bundled in `static/vendor/leaflet` (no third-party CDN at runtime).
 - **Basemap:** Natural Earth (public domain) coastlines, land borders and major cities, drawn by the app. No tile service and no key. CARTO's raster basemaps were considered, but now need an API key.
 - **Decoding:** ECMWF ecCodes (`eccodes` with `eccodeslib`, Apache-2.0), pinned in `requirements.txt`.

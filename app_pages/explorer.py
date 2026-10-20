@@ -1,6 +1,7 @@
 """Weather Explorer: a 3D globe and a global map of NOAA GFS forecast fields with a forecast timeline.
 
-The globe (src.globe_view, Milestone 1: temperature) and the map (src.explorer_view, all layers) draw
+The globe (src.globe_view: temperature, wind, precipitation, clouds, with day and night) and the map
+(src.explorer_view, all layers) draw
 real 1° GFS grids prepared by src.explorer_data. If the globe can't run (no WebGL, a lost graphics
 context or a failed texture) the page switches to the map by itself. Clicking either selects a point; this page then shows a separate *point forecast* for it (Open-Meteo), and a
 Cloudzy Core point prediction only where that model is valid (its Delhi grid cell).
@@ -52,7 +53,7 @@ pick = st.session_state.get(PICK_KEY)
 fallback = st.session_state.get(FALLBACK_KEY)
 view = st.segmented_control("View", list(VIEWS), format_func=lambda v: VIEWS[v], key=VIEW_KEY, default="globe",
                             required=True, label_visibility="collapsed",
-                            help="Globe: 3D Earth with the temperature layer. Map: flat map with every layer.")
+                            help="Globe: 3D Earth with day and night, and the temperature, wind, precipitation and cloud layers. Map: flat map with every layer, including pressure, gusts, humidity and CAPE.")
 if view == "globe" and fallback:
     st.info(f"The 3D globe isn't available here: {fallback.rstrip('.')}. The 2D map is shown instead.",
             icon=":material/map:")
@@ -166,9 +167,10 @@ with st.expander("About the layers and data"):
         ("Humidity", "2 m relative humidity", "%"),
         ("CAPE", "Surface-based convective available potential energy", "J/kg; instability, not a storm forecast"),
     ], columns=["Layer", "GFS field", "Notes"]), hide_index=True, width="stretch")
-    st.caption("Globe: three.js r186 (MIT). Earth imagery: NASA Blue Marble shaded relief and bathymetry via "
-               "NASA GIBS (public domain; a cloud-free composite, not current conditions). In this first version the "
-               "globe shows the temperature layer; the map has every layer. "
+    st.caption("Globe: three.js r186 (MIT). Earth imagery via NASA GIBS (public domain): Blue Marble shaded relief "
+               "and bathymetry by day and VIIRS Black Marble 2016 city lights by night. Both are composites, not "
+               "current conditions. Day and night follow the real sun position at the selected time. The globe has "
+               "the temperature, wind, precipitation and cloud layers; the map has every layer. "
                "Map: Leaflet 1.9.4 (BSD-2-Clause). Basemap: Natural Earth coastlines, borders and cities (public "
                "domain). Data decoding: ECMWF ecCodes (Apache-2.0). Point forecasts: Open-Meteo (CC BY 4.0). "
                "Place names: © OpenStreetMap contributors (ODbL).")
