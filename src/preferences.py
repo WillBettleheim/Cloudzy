@@ -1,22 +1,31 @@
-"""Local, account-free preferences: unit overrides, favourite places, alert thresholds.
+"""Account-free preferences: units, favourite places, home city, alert settings.
 
-Cloudzy runs locally, so preferences are stored in one small JSON file on this
-machine (default `data/user/preferences.json`, which git ignores; override with
-CLOUDZY_PREFS_PATH). Nothing is sent anywhere. Favourites store the coordinates
-returned by geocoding, so two places with the same name never get mixed up.
+Where they are stored (`store()`):
+- **browser** (the default): each visitor's own browser storage, through
+  `src.browser_prefs`. Visitors never see or change each other's settings, and
+  nothing about them is kept on the server.
+- **file**: one JSON file (`data/user/preferences.json`, ignored by git;
+  override with CLOUDZY_PREFS_PATH). Only suitable for a single person running
+  Cloudzy on their own computer, and used by the tests. Choose it with
+  CLOUDZY_PREFS_STORE=file, or by setting CLOUDZY_PREFS_PATH.
 
-Robustness: a missing file gives defaults. A corrupt or partly invalid file
-also gives defaults for the bad parts, never a crash. Writes are atomic, so a
-failed save can't leave a half-written file.
+Favourites store the coordinates returned by geocoding (never device
+coordinates), so two places with the same name never get mixed up.
+
+Robustness: stored settings are untrusted input (a browser's storage can be
+edited by hand). Missing, corrupt or partly invalid data gives defaults for the
+bad parts, never a crash. File writes are atomic.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from src import config
 from src import units as U
@@ -29,6 +38,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PATH = config.DATA_DIR / "user" / "preferences.json"
 MAX_FAVOURITES = 12
+MAX_DISMISSED = 200
+MAX_STORED_CHARS = 50_000   # far above any real settings; larger stored data is ignored
 
 
 @dataclass
@@ -118,58 +129,116 @@ def _same_place(a: Place, b: Place) -> bool:
     return abs(a.latitude - b.latitude) < 0.01 and abs(a.longitude - b.longitude) < 0.01
 
 
-def prefs_path() -> Path:
-    return Path(os.environ.get("CLOUDZY_PREFS_PATH", DEFAULT_PATH))
-
-
-def load(path: Path | None = None) -> Preferences:
-    path = path or prefs_path()
+def _clean_place(d) -> dict | None:
+    """A stored place, checked field by field, or None if any part is unusable."""
+    if not isinstance(d, dict):
+        return None
     try:
-        raw = json.loads(Path(path).read_text())
-    except FileNotFoundError:
-        return Preferences()
-    except (OSError, ValueError) as exc:
-        logger.warning("Ignoring unreadable preferences file %s: %s", path, exc)
-        return Preferences()
-    if not isinstance(raw, dict):
-        return Preferences()
+        place = Place(**d)
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (place.latitude, place.longitude)):
+            return None
+        lat, lon = float(place.latitude), float(place.longitude)
+        if not (isinstance(place.name, str) and place.name and len(place.name) <= 200):
+            return None
+        if not (math.isfinite(lat) and math.isfinite(lon) and -90 <= lat <= 90 and -180 <= lon <= 180):
+            return None
+        ZoneInfo(place.timezone)                       # raises for unknown or malformed zones
+        for opt in (place.country, place.admin1, place.country_code):
+            if opt is not None and not (isinstance(opt, str) and len(opt) <= 200):
+                return None
+        if place.population is not None and not isinstance(place.population, int):
+            return None
+    except (TypeError, ValueError, KeyError, OSError):
+        return None
+    return asdict(place) | {"latitude": lat, "longitude": lon}
+
+
+def from_dict(raw) -> Preferences:
+    """Preferences from stored data. Anything missing or invalid falls back to its default."""
     prefs = Preferences()
+    if not isinstance(raw, dict):
+        return prefs
     if isinstance(raw.get("units"), dict):
         prefs.units = raw["units"]
         if prefs.unit_override() is None:
             prefs.units = None
     if isinstance(raw.get("favourites"), list):
-        prefs.favourites = [f for f in raw["favourites"] if isinstance(f, dict)][:MAX_FAVOURITES]
+        prefs.favourites = [c for c in (_clean_place(f) for f in raw["favourites"]) if c][:MAX_FAVOURITES]
     if isinstance(raw.get("alerts"), dict):
         defaults = AlertThresholds()
         for key, (lo, hi) in AlertThresholds.LIMITS.items():
             value = raw["alerts"].get(key)
-            if isinstance(value, (int, float)) and lo <= value <= hi:
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and lo <= value <= hi:
                 setattr(defaults, key, float(value))
         prefs.alerts = defaults
     prefs.auto_locate = raw.get("auto_locate") is True
     if isinstance(raw.get("alert_categories"), dict):
         prefs.alert_categories = {k: raw["alert_categories"].get(k, True) is not False for k in ALERT_KINDS}
     if isinstance(raw.get("dismissed_alerts"), dict):
-        prefs.dismissed_alerts = {str(k): str(v) for k, v in list(raw["dismissed_alerts"].items())[:200]}
+        prefs.dismissed_alerts = {str(k)[:200]: str(v)[:40]
+                                  for k, v in list(raw["dismissed_alerts"].items())[:MAX_DISMISSED]}
     prefs.notifications = raw.get("notifications") is True
     if raw.get("summary_style") in SUMMARY_STYLES:
         prefs.summary_style = raw["summary_style"]
-    if isinstance(raw.get("home"), dict) and Preferences(home=raw["home"]).home_place() is not None:
-        prefs.home = raw["home"]
+    prefs.home = _clean_place(raw.get("home"))
     return prefs
 
 
-def save(prefs: Preferences, path: Path | None = None) -> None:
-    path = Path(path or prefs_path())
-    path.parent.mkdir(parents=True, exist_ok=True)
-    data = {"units": prefs.units, "favourites": prefs.favourites,
+def to_dict(prefs: Preferences) -> dict:
+    return {"units": prefs.units, "favourites": prefs.favourites,
             "alerts": {k: getattr(prefs.alerts, k) for k in AlertThresholds.LIMITS},
             "auto_locate": bool(prefs.auto_locate),
             "alert_categories": {k: bool(prefs.alert_categories.get(k, True)) for k in ALERT_KINDS},
-            "dismissed_alerts": prefs.dismissed_alerts,
+            "dismissed_alerts": dict(list(prefs.dismissed_alerts.items())[-MAX_DISMISSED:]),
             "summary_style": prefs.summary_style if prefs.summary_style in SUMMARY_STYLES else "detailed",
             "home": prefs.home, "notifications": bool(prefs.notifications)}
+
+
+def parse_json(text) -> Preferences:
+    """Preferences from a stored JSON string (browser storage or file). Bad input gives defaults."""
+    if not isinstance(text, str) or len(text) > MAX_STORED_CHARS:
+        return Preferences()
+    try:
+        return from_dict(json.loads(text))
+    except ValueError:
+        return Preferences()
+
+
+def store() -> str:
+    """'browser' (each visitor's own settings) unless file storage was asked for."""
+    chosen = os.environ.get("CLOUDZY_PREFS_STORE", "").strip().lower()
+    if chosen in ("browser", "file"):
+        return chosen
+    return "file" if os.environ.get("CLOUDZY_PREFS_PATH") else "browser"
+
+
+def prefs_path() -> Path:
+    return Path(os.environ.get("CLOUDZY_PREFS_PATH", DEFAULT_PATH))
+
+
+def load(path: Path | None = None) -> Preferences:
+    if path is None and store() == "browser":
+        from src import browser_prefs
+        return from_dict(browser_prefs.current())
+    path = path or prefs_path()
+    try:
+        text = Path(path).read_text()
+    except FileNotFoundError:
+        return Preferences()
+    except OSError as exc:
+        logger.warning("Ignoring unreadable preferences file %s: %s", path, exc)
+        return Preferences()
+    return parse_json(text)
+
+
+def save(prefs: Preferences, path: Path | None = None) -> None:
+    data = to_dict(prefs)
+    if path is None and store() == "browser":
+        from src import browser_prefs
+        browser_prefs.stage(data)
+        return
+    path = Path(path or prefs_path())
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
     tmp.replace(path)

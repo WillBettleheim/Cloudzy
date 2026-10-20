@@ -11,6 +11,8 @@ import streamlit as st
 
 st.set_page_config(page_title="Cloudzy", page_icon="☁️", layout="wide")
 
+from src import browser_prefs  # noqa: E402  (after set_page_config)
+
 page = st.navigation([
     st.Page("app_pages/weather.py", title="Weather", icon="☁️", default=True),
     st.Page("app_pages/history.py", title="History", icon="🕰️", url_path="history"),
@@ -18,4 +20,7 @@ page = st.navigation([
     st.Page("app_pages/lab.py", title="Cloudzy Lab", icon="🧪", url_path="lab"),
     st.Page("app_pages/settings.py", title="Settings", icon="⚙️", url_path="settings"),
 ], position="top")
+# Each visitor's settings live in their own browser; wait for them before drawing any page.
+if not browser_prefs.begin():
+    st.stop()
 page.run()

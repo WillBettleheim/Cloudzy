@@ -44,6 +44,20 @@ and per-minute call limits. The app caches every response for 10 minutes per
 place. A briefing makes three calls (geocoding, forecast, live IFS inputs), so a
 small public demo stays far inside the limits.
 
+**When several people use it:**
+- **Settings are per visitor.** They're kept in each visitor's own browser, so
+  nobody sees or changes anyone else's favourites, home city or alert choices.
+- **"Use my location" needs HTTPS.** Browsers only share location with secure
+  pages. Streamlit Community Cloud serves HTTPS; elsewhere, put the app behind
+  HTTPS, or visitors get a clear message and can search instead.
+- **Prediction tracking is shared.** It records the model's predictions (no
+  visitor data), and anyone can press "Check matured predictions". A hosted
+  app's disk is temporary, so these records reset when it restarts. Run
+  tracking on a machine with persistent storage if you want a long record.
+- **Place names come from OpenStreetMap's Nominatim**, which allows about one
+  request per second for the whole app. Cloudzy queues lookups and caches
+  results, which suits a small demo, not heavy traffic.
+
 ## Option 2: run locally
 
 ```bash

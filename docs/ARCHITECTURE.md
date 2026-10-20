@@ -18,7 +18,7 @@ request.
           │   (validated, metric, time-zone aware)                     │      src/features.py (27 features)
           ▼                                                            │      src/train.py, multistep.py,
    src/units.py ── display units      src/insights.py ── summary,      │      shift.py, compact.py
-   src/preferences.py ── local JSON   alerts, suggestions, briefing    │      → models/…compact.joblib (2 MB)
+   src/preferences.py ── per browser  alerts, suggestions, briefing    │      → models/…compact.joblib (2 MB)
           │                                   │                        │      → reports/*.json
           ▼                                   ▼                        │      src/lab_data.py → reports/lab/
    app_pages/weather.py ◄── src/weather_view.py (HTML), src/ui.py (charts)   (refit, 17 reproduction checks)
@@ -72,17 +72,31 @@ request.
   forecast, and Cloudzy's inputs near Delhi). That is far inside Open-Meteo's
   free limits: 600 per minute, 5,000 per hour, 10,000 per day.
 
-## Local state (never committed, never sent anywhere)
+## Per-visitor state (in each visitor's browser)
+
+| Where | Contents |
+|---|---|
+| `localStorage["cloudzy-preferences-v1"]` (`src/browser_prefs.py`) | Unit override, favourites and home city (city coordinates), alert thresholds, categories and dismissals, summary style, auto-locate and notification choices (yes/no). Never device coordinates |
+| `localStorage["cloudzy-notified-alerts"]` (`src/notify.py`) | Keys of alerts already sent as browser notifications |
+
+`streamlit_app.py` reads the settings once per session, before any page draws,
+and pages save through `src.preferences`. Stored settings are treated as
+untrusted input and validated field by field. If the browser blocks storage,
+settings last for the session only. Setting `CLOUDZY_PREFS_STORE=file` (or
+`CLOUDZY_PREFS_PATH`) switches back to one JSON file for a single local user;
+the tests use that mode.
+
+## Server state (never committed, shared by every visitor)
 
 | Path | Contents | Override |
 |---|---|---|
-| `data/user/preferences.json` | Unit override, favourites and home city (city coordinates), alert thresholds, categories and dismissals, summary style, auto-locate and notification choices (yes/no). Never device coordinates | `CLOUDZY_PREFS_PATH` |
 | `data/monitoring/` | `cloudzy_predictions.sqlite` (predictions, refusals); the old `predictions.jsonl` is imported once and kept | `CLOUDZY_MONITORING_DIR`, `CLOUDZY_MONITORING=0` |
-| `data/live_snapshots/` | Raw live-input responses | `CLOUDZY_SNAPSHOTS=0` |
+| `data/live_snapshots/` | Raw live-input responses, deleted after 30 days | `CLOUDZY_SNAPSHOTS=0` |
+| Memory | Place-name lookups (at most 1,000, oldest dropped first); Streamlit's data caches (public weather data only) | |
 
 ## Tests
 
-- **Offline suite:** `python -m pytest` runs 424 tests and needs no network.
+- **Offline suite:** `python -m pytest` runs 448 tests and needs no network.
   `tests/conftest.py` points preferences, monitoring and snapshots at temporary
   folders, so tests never touch real user data.
 - **Live checks:** `python -m pytest -m integration` runs 5 tests against the

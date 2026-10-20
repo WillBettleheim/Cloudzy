@@ -36,7 +36,7 @@ the UI comes only after the ML pipeline works and has been measured.
 |---|---|
 | **Your location** | "Use my location": a one-time browser location lookup with permission. The weather is fetched for the exact coordinates, and the place name comes from OpenStreetMap. Clear messages for every failure; manual search is always available |
 | **Weather app** | City search with a match picker (same-name places kept apart by coordinates); current conditions; next 24 hours (cards and graph); 7-day forecast; detail cards (UV, humidity and dew point, wind, feels-like, rain, clouds, pressure, visibility, sun) |
-| **Settings** (`/settings`) | °C/°F, km/h, m/s, mph or knots, mm/in (regional by default); home city; favourite places; brief or detailed summary; alert categories and thresholds; optional browser notifications; theme guidance; reset. Saved in a local file on the computer running Cloudzy (every browser that opens this copy of the app shares it); never synced, never precise device coordinates |
+| **Settings** (`/settings`) | °C/°F, km/h, m/s, mph or knots, mm/in (regional by default); home city; favourite places; brief or detailed summary; alert categories and thresholds; optional browser notifications; theme guidance; reset. Saved in each visitor's own browser, so people sharing one Cloudzy server never see or change each other's settings; never synced between devices, never precise device coordinates |
 | **Weather intelligence** | "Cloudzy says" summary (temperature trend, earlier today, rain timing, wind, clouds, tomorrow; nothing when data is missing or more than 3 h old), unofficial alerts (reason, value, period, uncertainty; dismissable; at most one per kind per day), daily briefing, suggestions with reasons. Rule-based, built from the forecast numbers, with no language model |
 | **Cloudzy Core** | Experimental 1–24 h temperature model for Delhi, kept separate from the provider forecast; refuses to predict on incomplete inputs |
 | **Predictions** (`/predictions`) | Every live Cloudzy Core prediction, recorded once (SQLite, local) with its model version, then evaluated against the reanalysis at the exact target hour once it's published; filters, tracked MAE/RMSE/bias by horizon with sample counts, CSV export |
@@ -56,7 +56,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 streamlit run streamlit_app.py   # the app: weather at http://localhost:8501, Cloudzy Lab at /lab
-python -m pytest                 # 424 offline tests, no network needed
+python -m pytest                 # 448 offline tests, no network needed
 python -m src.pipeline all       # Cloudzy Core: fetch → train → evaluate (Delhi, 2023-2025, ~30 s when cached)
 python -m pytest -m integration   # 5 live checks against the Open-Meteo APIs
 python -m src.data_validation    # download (first run only), validate, write processed CSV
@@ -747,7 +747,7 @@ trained on 2023-01-02 → 2026-08-31.
 
 | Suite | What it covers | How to run |
 |---|---|---|
-| Offline (424) | Everything in phases A–F and Cloudzy 2.0, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
+| Offline (448) | Everything in phases A–F and Cloudzy 2.0, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
 | Integration (5) | Live calls: both archive sources validate, live IFS inputs give 25 complete hours, the provider forecast and geocoding work, and a nonsense search returns nothing | `python -m pytest -m integration` |
 | Lint | Unused imports and names, likely bugs, outdated syntax (ruff; rules and the reasons for each ignored rule are in `pyproject.toml`) | `pip install -r requirements-dev.txt`, then `ruff check .` |
 | Types (advisory) | mypy over `src/`, `app_pages/` and the entry point. It still reports annotation-level errors (loose types around pandas and optional values), so it isn't a pass/fail gate yet | `mypy` |
@@ -799,15 +799,15 @@ How the parts behave:
 - **Missing data:** a sentence is dropped rather than guessed. With too little
   data, the summary says so.
 
-**Preferences** (`src/preferences.py`) are stored in one local JSON file:
+**Preferences** (`src/preferences.py`):
 - unit override (otherwise the place's regional default: US → °F/mph/in,
   UK → °C/mph/mm, elsewhere metric);
 - up to 12 favourites, matched by coordinates;
 - alert thresholds.
 
-A corrupt or partly invalid file falls back to defaults, part by part. Saving
-to the browser and device location would need third-party JavaScript
-components, so they aren't used: manual search is the location method.
+Corrupt or partly invalid saved settings fall back to defaults, part by part.
+(Settings were first kept in one JSON file on the server. They now live in each
+visitor's browser: see `src/browser_prefs.py` and DEPLOYMENT.md.)
 
 **Faster failures.** Live requests now give up within about 25 seconds instead
 of several minutes. A 429 rate-limit reply is retried after the server's
@@ -1044,7 +1044,8 @@ src/ui.py                chart, icon and table helpers for the app (no Streamlit
 src/weather_view.py      HTML for the hero, hourly cards, 7-day list and detail cards (tested)
 src/units.py             display-unit conversions (°C/°F, km/h/m/s/mph/kn, mm/in, km/mi), regional defaults
 src/insights.py          summary, unofficial alerts, recommendations, daily briefing (rule-based)
-src/preferences.py       local settings: units, favourites, home city, alert thresholds/categories/dismissals, summary style
+src/preferences.py       settings: units, favourites, home city, alert thresholds/categories/dismissals, summary style
+src/browser_prefs.py     keeps each visitor's settings in their own browser (localStorage)
 src/monitoring.py        prediction tracking (SQLite): idempotent records, exact-hour evaluation, aggregates
 src/history.py           historical weather (archive API): daily, monthly, same dates in earlier years
 src/notify.py            optional browser notifications for alerts (permission only on click)
@@ -1067,7 +1068,7 @@ DEPLOYMENT.md            deployment and maintenance guide
 .github/workflows/       CI: offline tests on push, live API checks weekly
 reports/lab/             the Lab's committed data (~600 KB)
 .streamlit/config.toml   brand theme: light and dark palettes
-tests/                   424 offline tests + 5 live integration tests
+tests/                   448 offline tests + 5 live integration tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
 ```

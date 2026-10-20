@@ -39,6 +39,7 @@ import math
 import os
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import MutableMapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -247,9 +248,28 @@ def browser_location(nonce: int, options: GeoOptions = GeoOptions()) -> dict | N
 
 # --- Reverse geocoding (Nominatim) -------------------------------------------------------------
 
-_cache: dict[tuple[float, float], dict | None] = {}
+# Shared by every visitor of this server, so it is bounded: the oldest entries are dropped first.
+CACHE_MAX = 1000
+_cache: OrderedDict[tuple[float, float], dict | None] = OrderedDict()
+_cache_lock = threading.Lock()
 _lock = threading.Lock()
 _last_call = [0.0]
+
+
+def _cache_get(key):
+    with _cache_lock:
+        if key in _cache:
+            _cache.move_to_end(key)
+            return True, _cache[key]
+        return False, None
+
+
+def _cache_put(key, value) -> None:
+    with _cache_lock:
+        _cache[key] = value
+        _cache.move_to_end(key)
+        while len(_cache) > CACHE_MAX:
+            _cache.popitem(last=False)
 
 
 def _throttle() -> None:
@@ -278,8 +298,9 @@ def reverse_geocode(lat: float, lon: float, session: requests.Session | None = N
     """Readable place for coordinates, or None on any failure (the caller then uses NEUTRAL_LABEL)."""
     lat, lon = validate_coordinates(lat, lon)
     key = (round(lat, REVERSE_DECIMALS), round(lon, REVERSE_DECIMALS))
-    if key in _cache:
-        return _cache[key]
+    hit, cached = _cache_get(key)
+    if hit:
+        return cached
     http = session or requests.Session()
     http.headers.update({"User-Agent": USER_AGENT, "Accept-Language": "en"})
     _throttle()
@@ -290,7 +311,7 @@ def reverse_geocode(lat: float, lon: float, session: requests.Session | None = N
     except DataCollectionError as exc:
         logger.warning("Reverse geocoding failed: %s", exc)
         return None  # not cached: a later try may succeed
-    _cache[key] = result
+    _cache_put(key, result)
     return result
 
 

@@ -10,17 +10,28 @@ from dataclasses import asdict
 
 import streamlit as st
 
+from src import browser_prefs
 from src import insights as I
 from src import preferences as P
 from src import units as U
 
 st.markdown("## ⚙️ Settings")
-st.caption("Saved on this device only (a small file next to the app). Nothing is uploaded or synced.")
+if P.store() == "browser":
+    if browser_prefs.storage_available() is False:
+        st.warning("This browser isn't letting Cloudzy store settings (private browsing, or site data blocked), so "
+                   "changes here last only until you close this tab.", icon="🔒")
+    else:
+        st.caption("Saved in this browser only. Other people using Cloudzy don't see or change your settings, and "
+                   "nothing is synced between your devices.")
+else:
+    st.caption("Saved in a settings file on the computer running Cloudzy (file mode, for one person). Nothing is "
+               "uploaded or synced.")
 prefs = P.load()
 
 
 def save(message: str = "Saved") -> None:
     P.save(prefs)
+    browser_prefs.flush()   # write to this browser now; this page doesn't rerun after saving
     st.toast(message, icon="✅")
 
 
@@ -117,7 +128,7 @@ st.markdown("Light, dark or *use system setting*: open the **⋮** menu (top rig
 # --- Reset ---------------------------------------------------------------------------------
 st.divider()
 with st.expander("Reset"):
-    st.caption("Deletes saved units, favourites, home city, thresholds and alert choices on this device. "
+    st.caption("Deletes your saved units, favourites, home city, thresholds and alert choices. "
                "Prediction tracking records are kept.")
     if st.button("Reset all settings", type="secondary"):
         P.save(P.Preferences())

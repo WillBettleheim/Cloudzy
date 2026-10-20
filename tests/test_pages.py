@@ -21,7 +21,7 @@ def run(page):
 
 def test_settings_empty_state_and_device_note():
     at = run("settings")
-    assert any("Saved on this device only" in c.value for c in at.caption)
+    assert any("settings file on the computer running Cloudzy" in c.value for c in at.caption)  # file mode in tests
     assert any("No favourite places yet" in i.value for i in at.info)
     assert any("no background or push" in c.value for c in at.caption)
 

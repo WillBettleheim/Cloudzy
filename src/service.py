@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 SERVING_BUNDLE = Path(os.environ.get(
     "CLOUDZY_SERVING_BUNDLE", config.MODELS_DIR / f"cloudzy_core_{config.DELHI.slug}_serving_compact.joblib"))
 SNAPSHOT_DIR = config.DATA_DIR / "live_snapshots"
+SNAPSHOT_KEEP_DAYS = 30   # older raw snapshots are deleted, so the folder can't grow without limit
 MIN_HISTORY_HOURS = 25
 CLOUDZY_LABEL = "Cloudzy Core ML prediction (experimental)"
 PROVIDER_LABEL = "ECMWF IFS forecast via Open-Meteo (provider)"
@@ -93,7 +94,23 @@ def fetch_live(location: config.Location = config.DELHI, session: requests.Sessi
         stamp = retrieved.replace(":", "").replace("+0000", "Z")
         (snapshot_dir / f"{location.slug}_{config.LIVE_MODEL}_{stamp}.json").write_text(
             json.dumps({"retrieved_at_utc": retrieved, "request_params": params, "response": payload}))
+        prune_snapshots(snapshot_dir)
     return frame, retrieved
+
+
+def prune_snapshots(snapshot_dir: Path, keep_days: int = SNAPSHOT_KEEP_DAYS, now: float | None = None) -> int:
+    """Delete raw live snapshots older than `keep_days`. Never raises; returns how many were removed."""
+    import time
+    cutoff = (now if now is not None else time.time()) - keep_days * 86400
+    removed = 0
+    for f in snapshot_dir.glob(f"*_{config.LIVE_MODEL}_*.json"):
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+                removed += 1
+        except OSError as exc:
+            logger.warning("Couldn't remove old snapshot %s: %s", f.name, exc)
+    return removed
 
 
 class CloudzyForecaster:
