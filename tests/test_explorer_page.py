@@ -116,3 +116,95 @@ def test_selected_point_panel_works_in_globe_view(fake_network, no_reverse):  # 
     at = run_page(pick=(48.85, 2.35))
     assert view_control(at).value == "globe"
     assert [m.label for m in at.metric] == ["Temperature", "Wind", "Cloud cover", "Condition"]
+
+
+# --- Fly to a place (search and saved places) -----------------------------------------------------------
+
+def test_ambiguous_search_waits_for_a_choice_then_flies_and_names_the_place(fake_network, monkeypatch):  # noqa: F811
+    calls = []
+    monkeypatch.setattr(G, "reverse_geocode", lambda lat, lon, session=None: calls.append((lat, lon)))
+    at = run_page()
+    at.text_input(key="explorer_q").set_value("Paris").run()
+    assert not at.exception
+    assert "_explorer_focus" not in at.session_state                     # several matches: nothing picked for you
+    box = at.selectbox(key="explorer_match_Paris")
+    labels = list(box.options)                                            # already formatted
+    assert any(lbl.startswith("City · Paris, Île-de-France, France") for lbl in labels)
+    assert any(lbl.startswith("City · Paris, Texas") for lbl in labels)
+    box.select_index(next(i for i, lbl in enumerate(labels) if "France" in lbl and lbl.startswith("City"))).run()
+    focus = at.session_state["_explorer_focus"]
+    assert (focus["kind"], focus["lat"], focus["lon"], focus["token"]) == ("city", 48.8534, 2.3488, 1)
+    assert at.session_state["_explorer_pick"] == (48.853, 2.349)
+    assert any("Paris" in m.value and "48.85°N" in m.value for m in at.markdown)
+    assert calls == []                                                    # the searched name is used
+    region = at.session_state["_explorer_region"]
+    assert region["a3"] == "FRA"                                          # the region it lies in, from Natural Earth
+    at.run()                                                              # a rerun doesn't fly again
+    assert at.session_state["_explorer_focus"]["token"] == 1
+
+
+def test_search_with_no_match_or_a_failing_service_says_so(fake_network, no_reverse):  # noqa: F811
+    at = run_page()
+    at.text_input(key="explorer_q").set_value("Xqzzyq").run()
+    assert any("Nothing matches" in c.value for c in at.caption)
+    assert "_explorer_focus" not in at.session_state
+    from src.provider import ProviderError
+    fake_network["search_error"] = ProviderError("timeout")
+    at.text_input(key="explorer_q").set_value("Maharashtra").run()         # regions still found without the service
+    assert not at.exception and any("City search is unavailable" in c.value for c in at.caption)
+    assert at.session_state["_explorer_focus"]["kind"] == "admin1"
+
+
+def test_saved_places_can_be_flown_to(fake_network, no_reverse):  # noqa: F811
+    from tests.test_app import PARIS
+    prefs = P.load()
+    prefs.toggle_favourite(PARIS)
+    P.save(prefs)
+    at = run_page()
+    at.button_group(key="explorer_fav").set_value(PARIS.label).run()
+    assert at.session_state["_explorer_focus"]["label"] == PARIS.label
+
+
+# --- Regions (browse, search, globe events) ---------------------------------------------------------------
+
+def prepared_run():
+    E.prepare_run(RUN, s3_for((0, 3)), Path(os.environ["CLOUDZY_EXPLORER_DIR"]), fhours=(0, 3))
+
+
+def test_browsing_to_a_state_shows_a_labelled_regional_aggregate(fake_network, no_reverse):  # noqa: F811
+    prepared_run()
+    at = run_page()
+    at.selectbox(key="explorer_b_cont").select("Asia").run()
+    ctry = at.selectbox(key="explorer_b_ctry_Asia")
+    ctry.select_index(list(ctry.options).index("India")).run()
+    adm = at.selectbox(key="explorer_b_adm_IND")
+    adm.select_index(list(adm.options).index("Maharashtra")).run()
+    assert not at.exception
+    assert at.session_state["_explorer_region"]["name"] == "Maharashtra"
+    assert at.session_state["_explorer_focus"]["kind"] == "admin1"
+    labels = [m.label for m in at.metric]
+    assert labels[:4] == ["Average temperature", "Area with precipitation", "Average wind", "Average cloud cover"]
+    cap = " ".join(c.value for c in at.caption)
+    assert "area-weighted average over the" in cap and "not a city forecast" in cap
+    assert any("State of India" in m.value or "state of India" in m.value for m in at.markdown)
+
+
+def test_a_region_smaller_than_the_grid_gets_no_regional_value(fake_network, no_reverse):  # noqa: F811
+    prepared_run()
+    at = run_page()
+    at.text_input(key="explorer_q").set_value("Delhi").run()
+    box = at.selectbox(key="explorer_match_Delhi")
+    box.select_index(next(i for i, o in enumerate(box.options) if o.startswith("State/province · Delhi"))).run()
+    assert any("smaller than the 1° forecast grid" in i.value for i in at.info)
+    assert not [m for m in at.metric if m.label == "Average temperature"]
+    btn = next(b for b in at.button if b.label.startswith("Point forecast for the centre of Delhi"))
+    btn.click().run()
+    assert at.session_state["_explorer_pick"] is not None
+
+
+def test_coordinates_search_selects_the_point_and_its_region(fake_network, no_reverse):  # noqa: F811
+    at = run_page()
+    at.text_input(key="explorer_q").set_value("19.02, 72.86").run()
+    assert at.session_state["_explorer_focus"]["kind"] == "point"
+    assert at.session_state["_explorer_region"]["name"] == "Maharashtra"
+    assert at.session_state["_explorer_pick"] == (19.02, 72.86)
