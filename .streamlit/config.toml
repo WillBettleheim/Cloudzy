@@ -31,3 +31,7 @@ gatherUsageStats = false
 
 [client]
 toolbarMode = "minimal"
+
+[server]
+# Serves ./static at /app/static: the Weather Explorer's map library, basemap and forecast frames.
+enableStaticServing = true

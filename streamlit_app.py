@@ -4,7 +4,7 @@ Run:  streamlit run streamlit_app.py
 
 Navigation (sidebar on wide screens; Streamlit collapses it behind a menu
 button on narrow ones):
-- Forecast: Weather, History & Trends, Alerts
+- Forecast: Weather, Weather Explorer (global map), History & Trends, Alerts
 - Cloudzy Core: Predictions (live tracking), Cloudzy Lab (offline evaluation)
 - You: Places (saved cities and home), Settings
 """
@@ -23,6 +23,7 @@ ASSETS = Path(__file__).parent / "assets"
 pages = {
     "Forecast": [
         st.Page("app_pages/weather.py", title="Weather", icon=":material/partly_cloudy_day:", default=True),
+        st.Page("app_pages/explorer.py", title="Weather Explorer", icon=":material/public:", url_path="explorer"),
         st.Page("app_pages/history.py", title="History & Trends", icon=":material/history:", url_path="history"),
         st.Page("app_pages/alerts.py", title="Alerts", icon=":material/notifications:", url_path="alerts"),
     ],

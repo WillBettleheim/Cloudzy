@@ -92,11 +92,12 @@ the tests use that mode.
 |---|---|---|
 | `data/monitoring/` | `cloudzy_predictions.sqlite` (predictions, refusals); the old `predictions.jsonl` is imported once and kept | `CLOUDZY_MONITORING_DIR`, `CLOUDZY_MONITORING=0` |
 | `data/live_snapshots/` | Raw live-input responses, deleted after 30 days | `CLOUDZY_SNAPSHOTS=0` |
+| `static/explorer/` | GFS forecast frames for the Weather Explorer (newest complete run only, ~31 MB) | `CLOUDZY_EXPLORER_DIR`, `CLOUDZY_EXPLORER_REFRESH=0` |
 | Memory | Place-name lookups (at most 1,000, oldest dropped first); Streamlit's data caches (public weather data only) | |
 
 ## Tests
 
-- **Offline suite:** `python -m pytest` runs 465 tests and needs no network.
+- **Offline suite:** `python -m pytest` runs 483 tests and needs no network.
   `tests/conftest.py` points preferences, monitoring and snapshots at temporary
   folders, so tests never touch real user data.
 - **Live checks:** `python -m pytest -m integration` runs 5 tests against the
@@ -165,6 +166,21 @@ structure, feature schema and checksum before the app or the evaluator uses a mo
   - Notifications appear only while a tab is open: there's no service worker or
     push.
   - If notifications are blocked or unsupported, alerts stay on the page.
+
+## Weather Explorer
+
+```
+NOAA GFS on AWS (.idx + GRIB2, byte ranges) ──► src/explorer_data.py (background thread)
+   decode with ecCodes, check the 1° grid, convert units, uint16 encode (65535 = missing)
+   ──► static/explorer/<run>/fXXX_<field>.bin + manifest.json   (newest complete run only)
+        served by Streamlit's static server (/app/static, enableStaticServing)
+app_pages/explorer.py ──► src/explorer_view.py (components v2 + Leaflet, in the browser)
+   fetches manifest and frames; renders rasters, wind particles and isobars on canvases;
+   bounded frame cache (64 fields); stale requests aborted; map click → point (Python)
+   → Open-Meteo point forecast (src.app_data) and, near Delhi only, Cloudzy Core
+```
+
+All layers are GFS model forecast fields; the page never calls them observations or radar.
 
 ## Design system
 

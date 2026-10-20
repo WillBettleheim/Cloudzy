@@ -9,3 +9,6 @@ pytest==9.1.1
 # Phase D (web app) — installed now so the environment is complete
 streamlit==1.66.0
 plotly==7.1.0
+# Weather Explorer: decodes NOAA GFS GRIB2 grids (Apache-2.0; eccodeslib ships the binary library)
+eccodes==2.50.0
+eccodeslib==2.50.0.33

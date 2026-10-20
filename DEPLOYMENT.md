@@ -58,6 +58,11 @@ small public demo stays far inside the limits.
   request per second for the whole app. Cloudzy queues lookups and caches
   results, which suits a small demo, not heavy traffic.
 
+**Weather Explorer:**
+- **Downloads:** each server downloads about 30 MB per GFS run (four runs a day) from NOAA's public AWS bucket. No key is needed.
+- **Storage:** frames are kept in `static/explorer/`, about 31 MB.
+- **Hosted apps:** a hosted app's disk is temporary, so the first visit after a restart prepares the data again, in the background, in about a minute.
+
 ## Option 2: run locally
 
 ```bash

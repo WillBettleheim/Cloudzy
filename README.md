@@ -39,6 +39,7 @@ the UI comes only after the ML pipeline works and has been measured.
 | **Settings** (`/settings`) | °C/°F, km/h, m/s, mph or knots, mm/in (regional by default); detect location on start; brief or detailed summary; theme guidance; reset. Saved in each visitor's own browser, so people sharing one Cloudzy server never see or change each other's settings; never synced between devices, never precise device coordinates |
 | **Places** (`/places`) | Saved cities as cards: open one on the Weather page, make it your home city (opens first), or remove it |
 | **Alerts** (`/alerts`) | Active and dismissed alerts for the place you're viewing (with each dismissal's expiry and "show again"), alert categories, thresholds and optional browser notifications. Clearly labelled as unofficial |
+| **Weather Explorer** (`/explorer`) | Global map of NOAA GFS forecast fields (1° grid, 3-hourly to +72 h): wind particles driven by the real vectors, temperature, precipitation with rain/snow/mixed type, cloud cover, pressure with isobars, gusts, humidity, CAPE; forecast timeline with playback; click for grid values and a separate point forecast |
 | **Design** | Sidebar navigation (Forecast · Cloudzy Core · You), a midnight/sky/sunshine design system (`src/theme.py`: colour, spacing, radius, type, shadow and motion tokens), Material Symbols icons, loading skeletons, visible keyboard focus, reduced-motion support, and layouts checked at phone, tablet and laptop widths |
 | **Weather intelligence** | "Cloudzy says" summary (temperature trend, earlier today, rain timing, wind, clouds, tomorrow; nothing when data is missing or more than 3 h old), unofficial alerts (reason, value, period, uncertainty; dismissable; at most one per kind per day), daily briefing, suggestions with reasons. Rule-based, built from the forecast numbers, with no language model |
 | **Cloudzy Core** | Experimental 1–24 h temperature model for Delhi, kept separate from the provider forecast; refuses to predict on incomplete inputs |
@@ -59,7 +60,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 streamlit run streamlit_app.py   # the app: weather at http://localhost:8501, Cloudzy Lab at /lab
-python -m pytest                 # 465 offline tests, no network needed
+python -m pytest                 # 483 offline tests, no network needed
 python -m src.pipeline all       # Cloudzy Core: fetch → train → evaluate (Delhi, 2023-2025, ~30 s when cached)
 python -m pytest -m integration   # 5 live checks against the Open-Meteo APIs
 python -m src.data_validation    # download (first run only), validate, write processed CSV
@@ -750,7 +751,7 @@ trained on 2023-01-02 → 2026-08-31.
 
 | Suite | What it covers | How to run |
 |---|---|---|
-| Offline (465) | Everything in phases A–F and Cloudzy 2.0, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
+| Offline (483) | Everything in phases A–F and Cloudzy 2.0, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
 | Integration (5) | Live calls: both archive sources validate, live IFS inputs give 25 complete hours, the provider forecast and geocoding work, and a nonsense search returns nothing | `python -m pytest -m integration` |
 | Lint | Unused imports and names, likely bugs, outdated syntax (ruff; rules and the reasons for each ignored rule are in `pyproject.toml`) | `pip install -r requirements-dev.txt`, then `ruff check .` |
 | Types (advisory) | mypy over `src/`, `app_pages/` and the entry point. It still reports annotation-level errors (loose types around pandas and optional values), so it isn't a pass/fail gate yet | `mypy` |
@@ -880,6 +881,60 @@ are written in plain language ("the weather service didn't respond within
   predictions run single-threaded, because parallel tree sums flipped 41 of
   52,417 rounded values between runs.
 - **Still checked:** all 17 reproduction checks pass.
+
+## Weather Explorer (global map)
+
+Open **Weather Explorer** in the sidebar (`/explorer`). It's a dark, full-width map of the world:
+- **Pan and zoom:** drag and scroll, the zoom buttons, or the keyboard (arrows, `+`/`-`).
+- **Map buttons:** world view, "recenter" on the place from your Weather page, and a wind-motion switch.
+- **Timeline:** play/pause, previous/next step, a slider, speed (0.5×, 1×, 2×) and "Now".
+- **Clicking a point** shows the layer's grid value on the map, and a separate point forecast below it.
+
+**Data: NOAA GFS forecast grids.**
+
+| | |
+|---|---|
+| Source | NOAA/NCEP Global Forecast System, 1.0° global grid (360 × 181 points), from the NOAA Open Data Dissemination bucket on AWS (`noaa-gfs-bdp-pds`) |
+| Licence | US government data, public domain. Credit: "NOAA/NCEP GFS". No key, no account |
+| Kind | **Numerical model forecast.** The +0 h step is the model analysis. Not radar, not observations |
+| Horizon and steps | +0 to +72 h every 3 h (25 steps). Each step is that hour's own instantaneous field, never a time average or a reused frame |
+| Updates | GFS runs at 00, 06, 12 and 18 UTC and is published a few hours later. The app checks for a newer run at most every 15 minutes, on page visits |
+| Download | Only the needed fields, by HTTP byte range using each step's `.idx` file: about 70 KB per field, ~30 MB per run, once per run. Prepared in a background thread; pages never wait |
+| Storage | `static/explorer/<run>/` (ignored by git), 16-bit encoded, ~31 MB. Only the newest complete run is kept |
+
+**Layers.** All are GFS forecast fields, drawn from the 1° grid with bilinear interpolation:
+
+| Layer | GFS field | Notes |
+|---|---|---|
+| Wind | 10 m u/v wind | colour = speed; particles are moved by the actual u/v vectors. Under reduced motion (or the motion switch) they become static streamlines |
+| Temperature | 2 m temperature | °C or °F from your settings |
+| Precipitation | surface precipitation rate | type from GFS rain/snow/freezing-rain/ice-pellet flags; below 0.1 mm/h is clear |
+| Cloud cover | total cloud cover | low, mid and high cloud are not split |
+| Pressure | mean sea-level pressure | isobars every 4 hPa (8 when zoomed out), traced on the model grid |
+| Wind gusts | surface gusts | |
+| Humidity | 2 m relative humidity | |
+| CAPE | surface-based CAPE | instability, not a storm forecast |
+
+**Clicking a point:**
+- The map shows the active layer's **GFS grid value** at the selected step.
+- The page shows a separate **point forecast from Open-Meteo**, labelled as a different source. The two can differ.
+- **Cloudzy Core** appears only within 15 km of its New Delhi grid cell, as a labelled point prediction. It is not a global model.
+- "Open … on the Weather page" uses the nearest named place, without changing your home city or saved places.
+
+**Map, basemap and licences:**
+- **Map library:** Leaflet 1.9.4, BSD 2-Clause, bundled in `static/vendor/leaflet` (no third-party CDN at runtime).
+- **Basemap:** Natural Earth (public domain) coastlines, land borders and major cities, drawn by the app. No tile service and no key. CARTO's raster basemaps were considered, but now need an API key.
+- **Decoding:** ECMWF ecCodes (`eccodes` with `eccodeslib`, Apache-2.0), pinned in `requirements.txt`.
+- **Open-Meteo's own grid files** were also considered. They're only readable with the GPL-2.0 `omfiles` library, which would sit awkwardly with Cloudzy's MIT licence.
+
+**Limits.** The 1° grid (~110 km) doesn't resolve small features such as single thunderstorms, sea breezes or mountain valleys. There's no radar or observed layer, and no wave layer (GFS-Wave isn't included). Polar areas are stretched by the map projection.
+
+**Running it.** It needs no configuration:
+- `CLOUDZY_EXPLORER_REFRESH=0` turns downloading off (the tests use this);
+- `CLOUDZY_GFS_BUCKET` points at a mirror;
+- `CLOUDZY_EXPLORER_DIR` moves the frame store.
+
+When deployed, every visitor shares one prepared run per server. The frames are static files, so the server does no per-visitor work.
 
 ## Device location ("Use my location")
 
@@ -1072,6 +1127,10 @@ src/notify.py            optional browser notifications for alerts (permission o
 src/theme.py             design tokens, global styles, icons, chips, section headers, skeletons
 src/app_data.py          cached forecast/search/Cloudzy calls shared by pages; the place being viewed
 src/nav.py               page links that degrade gracefully when a page runs on its own
+src/explorer_data.py     GFS run discovery, byte-range download, GRIB2 decoding, frame store and manifest
+src/explorer_view.py     the Explorer map component (Leaflet, layers, particles, isobars, timeline)
+static/vendor/           Leaflet 1.9.4 (BSD-2) and the Natural Earth basemap (public domain)
+tools/build_explorer_basemap.py  rebuilds the basemap file from Natural Earth GeoJSON
 assets/                  Cloudzy logo and mascot (sidebar logo)
 src/geolocation.py       one-time browser location, request handling, reverse geocoding (Nominatim)
 src/pipeline.py          one command for Cloudzy Core: fetch → train → evaluate, any location and period
@@ -1079,6 +1138,7 @@ src/artifacts.py         verified model loading, schema/checksum checks, metadat
 docs/ARCHITECTURE.md     architecture diagram, layers, data types, local state
 streamlit_app.py         entry point: sidebar navigation, logo, global theme, per-visitor settings
 app_pages/weather.py     the weather app
+app_pages/explorer.py    Weather Explorer: global GFS forecast map
 app_pages/history.py     history & trends (reanalysis)
 app_pages/alerts.py      alerts, categories, thresholds, notifications
 app_pages/places.py      saved places and home city
@@ -1094,7 +1154,7 @@ DEPLOYMENT.md            deployment and maintenance guide
 .github/workflows/       CI: offline tests on push, live API checks weekly
 reports/lab/             the Lab's committed data (~600 KB)
 .streamlit/config.toml   brand theme: light and dark palettes
-tests/                   465 offline tests + 5 live integration tests
+tests/                   483 offline tests + 5 live integration tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
 ```

@@ -9,3 +9,5 @@ def isolated_user_data(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("CLOUDZY_PREFS_PATH", str(base / "preferences.json"))
     monkeypatch.setenv("CLOUDZY_MONITORING_DIR", str(base / "monitoring"))
     monkeypatch.setenv("CLOUDZY_SNAPSHOTS", "0")
+    monkeypatch.setenv("CLOUDZY_EXPLORER_DIR", str(base / "explorer"))
+    monkeypatch.setenv("CLOUDZY_EXPLORER_REFRESH", "0")   # never download GFS data in tests
