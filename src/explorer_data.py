@@ -17,6 +17,11 @@ How frames are prepared
 4. `manifest.json` lists the run, valid times, encoding and which frames are ready. The browser
    reads it and fetches only the frames of the layer it is showing.
 
+Ocean waves come from the GFS-Wave model of the same run (`wave/gridded/gfswave.tHHz.global.0p25`):
+significant wave height on a 0.25° grid, of which the points that lie exactly on the 1° grid are kept
+(no averaging, no interpolation; land points stay missing). If a step's wave file is missing, the wave
+layer is reported unavailable for that step and nothing else is affected.
+
 Only instantaneous fields are used (records labelled "N hour fcst" or "anl"), never time averages,
 so every frame is that forecast hour's own data. Only the newest complete run is kept on disk.
 Preparation runs in one background thread; pages never wait for it.
@@ -47,6 +52,7 @@ logger = logging.getLogger(__name__)
 BUCKET = os.environ.get("CLOUDZY_GFS_BUCKET", "https://noaa-gfs-bdp-pds.s3.amazonaws.com")
 SOURCE = "NOAA GFS 1.0° (NOAA Open Data Dissemination on AWS)"
 ATTRIBUTION = "Forecast data: NOAA/NCEP GFS (public domain)"
+WAVE_SOURCE = "NOAA GFS-Wave (WAVEWATCH III) 0.25°, sampled at the 1° grid points"
 FHOURS = tuple(range(0, 73, 3))           # 25 frames, 3-hourly, to +72 h
 RUN_HOURS = (18, 12, 6, 0)
 NLAT, NLON = 181, 360                     # 90 → -90 by 1°, 0 → 359 by 1°
@@ -88,6 +94,11 @@ FIELDS: dict[str, Field] = {
     "gust": Field("GUST", "surface", "m/s", 0.0, 0.005),
     "rh2m": Field("RH", "2 m above ground", "%", 0.0, 0.01),
     "cape": Field("CAPE", "surface", "J/kg", 0.0, 0.25),
+    "snod": Field("SNOD", "surface", "cm", 0.0, 0.05, "m->cm"),
+}
+# GFS-Wave (separate file per step, 0.25° grid): significant height of combined wind waves and swell.
+WAVE_FIELDS: dict[str, Field] = {
+    "swh": Field("HTSGW", "surface", "m", 0.0, 0.001),
 }
 # Stored per frame: the fields above except the four precipitation-type flags, which are combined
 # into one derived field, `ptype` (0 none, 1 rain, 2 snow, 3 mixed/freezing).
@@ -101,8 +112,10 @@ LAYERS = {
     "gusts": {"label": "Wind gusts", "vars": ["gust"], "kind": "forecast"},
     "humidity": {"label": "Humidity", "vars": ["rh2m"], "kind": "forecast"},
     "cape": {"label": "CAPE", "vars": ["cape"], "kind": "forecast"},
+    "snowdepth": {"label": "Snow depth", "vars": ["snod"], "kind": "forecast"},
+    "waves": {"label": "Wave height", "vars": ["swh"], "kind": "forecast"},
 }
-STORED = [k for k in FIELDS if k not in ("crain", "csnow", "cfrzr", "cicep")] + ["ptype"]
+STORED = [k for k in FIELDS if k not in ("crain", "csnow", "cfrzr", "cicep")] + ["ptype"] + list(WAVE_FIELDS)
 
 
 class ExplorerDataError(RuntimeError):
@@ -114,6 +127,11 @@ class ExplorerDataError(RuntimeError):
 def run_url(run: datetime, fhr: int) -> str:
     d, h = run.strftime("%Y%m%d"), run.strftime("%H")
     return f"{BUCKET}/gfs.{d}/{h}/atmos/gfs.t{h}z.pgrb2.1p00.f{fhr:03d}"
+
+
+def wave_url(run: datetime, fhr: int) -> str:
+    d, h = run.strftime("%Y%m%d"), run.strftime("%H")
+    return f"{BUCKET}/gfs.{d}/{h}/wave/gridded/gfswave.t{h}z.global.0p25.f{fhr:03d}.grib2"
 
 
 def run_id(run: datetime) -> str:
@@ -135,7 +153,7 @@ def latest_run(now: datetime, session: requests.Session, last_fhr: int = FHOURS[
     raise ExplorerDataError("No complete GFS run found in the last two days.")
 
 
-def parse_index(text: str, fhr: int) -> dict[str, tuple[int, int | None]]:
+def parse_index(text: str, fhr: int, fields: dict[str, Field] | None = None) -> dict[str, tuple[int, int | None]]:
     """Byte ranges of the instantaneous records we use: {field: (start, end_inclusive or None)}.
 
     Lines look like `588:35317024:d=2026102000:UGRD:10 m above ground:24 hour fcst:`. Averages and
@@ -145,7 +163,7 @@ def parse_index(text: str, fhr: int) -> dict[str, tuple[int, int | None]]:
     step = "anl" if fhr == 0 else f"{fhr} hour fcst"
     out: dict[str, tuple[int, int | None]] = {}
     for i, r in enumerate(rows):
-        for key, f in FIELDS.items():
+        for key, f in (FIELDS if fields is None else fields).items():
             if key not in out and r[3] == f.grib and r[4] == f.level and r[5] == step:
                 end = int(rows[i + 1][1]) - 1 if i + 1 < len(rows) else None
                 out[key] = (int(r[1]), end)
@@ -154,8 +172,11 @@ def parse_index(text: str, fhr: int) -> dict[str, tuple[int, int | None]]:
 
 # --- Decoding and encoding -----------------------------------------------------------------------
 
-def decode(message: bytes) -> np.ndarray:
-    """A GRIB2 message → float array (181, 360), north to south, 0°E eastward. NaN for missing points."""
+def decode(message: bytes, inc_deg: float = 1.0) -> np.ndarray:
+    """A GRIB2 message → float array (181, 360), north to south, 0°E eastward. NaN for missing points.
+
+    `inc_deg` is the expected grid spacing; a finer global grid (0.25° for GFS-Wave) is reduced to the
+    1° grid by keeping only the points that lie exactly on it."""
     import eccodes
     h = eccodes.codes_new_from_message(message)
     try:
@@ -164,13 +185,15 @@ def decode(message: bytes) -> np.ndarray:
         lon0 = eccodes.codes_get(h, "longitudeOfFirstGridPointInDegrees")
         inc = eccodes.codes_get(h, "iDirectionIncrementInDegrees")
         north_first = eccodes.codes_get(h, "jScansPositively") == 0
-        if (ni, nj) != (NLON, NLAT) or abs(lat0 - 90) > 1e-6 or abs(lon0) > 1e-6 or abs(inc - 1) > 1e-6 \
+        k = round(1 / inc_deg)
+        shape = ((NLAT - 1) * k + 1, NLON * k)
+        if (nj, ni) != shape or abs(lat0 - 90) > 1e-6 or abs(lon0) > 1e-6 or abs(inc - inc_deg) > 1e-6 \
                 or not north_first:
             raise ExplorerDataError(f"Unexpected grid {nj}x{ni} from {lat0},{lon0} step {inc}")
         values = eccodes.codes_get_values(h).astype("float64")
         if eccodes.codes_get(h, "bitmapPresent"):
             values[values == eccodes.codes_get(h, "missingValue")] = np.nan
-        return values.reshape(NLAT, NLON)
+        return values.reshape(shape)[::k, ::k].copy()
     finally:
         eccodes.codes_release(h)
 
@@ -182,6 +205,8 @@ def convert(values: np.ndarray, how: str) -> np.ndarray:
         return values / 100.0
     if how == "kg/m2/s->mm/h":
         return values * 3600.0
+    if how == "m->cm":
+        return values * 100.0
     return values
 
 
@@ -229,6 +254,12 @@ def frame_path(directory: Path, rid: str, fhr: int, var: str) -> Path:
     return directory / rid / f"f{fhr:03d}_{var}.bin"
 
 
+def done_path(directory: Path, rid: str, fhr: int) -> Path:
+    """Written after a step is prepared, listing the fields the source didn't have (so a resumed run
+    neither re-downloads the step nor forgets what was missing)."""
+    return directory / rid / f"f{fhr:03d}.done.json"
+
+
 def prepare_frame(run: datetime, fhr: int, session: requests.Session, directory: Path) -> list[str]:
     """Download, decode and store one forecast step. Returns the fields that were not available."""
     rid = run_id(run)
@@ -249,6 +280,7 @@ def prepare_frame(run: datetime, fhr: int, session: requests.Session, directory:
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         decoded = dict(pool.map(fetch, list(ranges)))
+    decoded.update(fetch_waves(run, fhr, session))
     (directory / rid).mkdir(parents=True, exist_ok=True)
     missing = []
     for key in STORED:
@@ -259,20 +291,37 @@ def prepare_frame(run: datetime, fhr: int, session: requests.Session, directory:
                 continue
             values, off, sc = precip_type(flags), 0.0, 1.0
         elif key in decoded:
-            f = FIELDS[key]
+            f = FIELDS.get(key) or WAVE_FIELDS[key]
             values, off, sc = decoded[key], f.offset, f.scale
         else:
             missing.append(key)
             continue
         _write_atomic(frame_path(directory, rid, fhr, key), encode(values, off, sc))
+    _write_atomic(done_path(directory, rid, fhr), json.dumps(missing).encode())
     return missing
 
 
+def fetch_waves(run: datetime, fhr: int, session: requests.Session) -> dict[str, np.ndarray]:
+    """GFS-Wave fields for one step, or {} if the step's wave file isn't published (reported missing)."""
+    url = wave_url(run, fhr)
+    r = session.get(url + ".idx", timeout=20)
+    if r.status_code != 200:
+        return {}
+    out = {}
+    for key, (start, end) in parse_index(r.text, fhr, WAVE_FIELDS).items():
+        resp = session.get(url, headers={"Range": f"bytes={start}-{'' if end is None else end}"}, timeout=30)
+        if resp.status_code not in (200, 206):
+            raise ExplorerDataError(f"{key} +{fhr} h: HTTP {resp.status_code}")
+        out[key] = convert(decode(resp.content, inc_deg=0.25), WAVE_FIELDS[key].convert)
+    return out
+
+
 def manifest_for(run: datetime, frames: list[dict], status: str, error: str | None = None) -> dict:
-    enc = {k: {"offset": f.offset, "scale": f.scale, "units": f.units} for k, f in FIELDS.items() if k in STORED}
+    enc = {k: {"offset": f.offset, "scale": f.scale, "units": f.units}
+           for k, f in {**FIELDS, **WAVE_FIELDS}.items() if k in STORED}
     enc["ptype"] = {"offset": 0.0, "scale": 1.0, "units": "code (0 none, 1 rain, 2 snow, 3 mixed/freezing)"}
     return {
-        "source": SOURCE, "attribution": ATTRIBUTION, "kind": "Numerical weather prediction (model forecast)",
+        "source": SOURCE, "attribution": ATTRIBUTION, "wave_source": WAVE_SOURCE, "kind": "Numerical weather prediction (model forecast)",
         "run_utc": run.strftime("%Y-%m-%dT%H:00Z"), "run_id": run_id(run),
         "grid": {"nlat": NLAT, "nlon": NLON, "lat0": 90.0, "dlat": -1.0, "lon0": 0.0, "dlon": 1.0,
                  "resolution": "1.0°"},
@@ -315,8 +364,9 @@ def prepare_run(run: datetime, session: requests.Session, directory: Path | None
     staging = directory / "staging_manifest.json"
     for fr in frames:
         rid = run_id(run)
-        if all(frame_path(directory, rid, fr["fhr"], v).exists() for v in STORED):
-            fr["ready"] = True                      # resumed: already prepared earlier
+        done = done_path(directory, rid, fr["fhr"])
+        if done.exists():                           # resumed: already prepared earlier
+            fr["ready"], fr["missing"] = True, json.loads(done.read_text())
             continue
         fr["missing"] = prepare_frame(run, fr["fhr"], session, directory)
         fr["ready"] = True
@@ -349,8 +399,9 @@ def _refresh(directory: Path) -> None:
         s = _session()
         run = latest_run(datetime.now(UTC), s)
         current = read_manifest(directory)
-        if current and current.get("run_id") == run_id(run) and current.get("status") == "complete":
-            return
+        if current and current.get("run_id") == run_id(run) and current.get("status") == "complete" \
+                and all(k in current.get("encoding", {}) for k in STORED):
+            return                                   # up to date (a run stored before new fields were added is redone)
         prepare_run(run, s, directory)
         _state["error"] = None
     except (requests.RequestException, ExplorerDataError, OSError, ValueError) as exc:

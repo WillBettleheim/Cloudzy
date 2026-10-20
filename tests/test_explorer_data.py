@@ -14,13 +14,13 @@ from src import explorer_data as E
 RUN = datetime(2026, 10, 20, 0, tzinfo=UTC)
 
 
-def grib(values: np.ndarray, ni: int = 360, nj: int = 181, lat0: float = 90.0) -> bytes:
+def grib(values: np.ndarray, ni: int = 360, nj: int = 181, lat0: float = 90.0, inc: float = 1.0) -> bytes:
     import eccodes
     h = eccodes.codes_grib_new_from_samples("GRIB2")
     for k, v in [("Ni", ni), ("Nj", nj), ("latitudeOfFirstGridPointInDegrees", lat0),
-                 ("longitudeOfFirstGridPointInDegrees", 0.0), ("latitudeOfLastGridPointInDegrees", lat0 - nj + 1),
-                 ("longitudeOfLastGridPointInDegrees", float(ni - 1)), ("iDirectionIncrementInDegrees", 1.0),
-                 ("jDirectionIncrementInDegrees", 1.0), ("jScansPositively", 0)]:
+                 ("longitudeOfFirstGridPointInDegrees", 0.0), ("latitudeOfLastGridPointInDegrees", lat0 - (nj - 1) * inc),
+                 ("longitudeOfLastGridPointInDegrees", (ni - 1) * inc), ("iDirectionIncrementInDegrees", inc),
+                 ("jDirectionIncrementInDegrees", inc), ("jScansPositively", 0)]:
         eccodes.codes_set(h, k, v)
     eccodes.codes_set_values(h, values.ravel())
     msg = eccodes.codes_get_message(h)
@@ -49,7 +49,33 @@ RECORDS = {
     ("GUST", "surface"): field(lambda la, lo: 12.0 + 0 * la + 0 * lo),
     ("RH", "2 m above ground"): field(lambda la, lo: 55.0 + 0 * la + 0 * lo),
     ("CAPE", "surface"): field(lambda la, lo: 100.0 + 0 * la + 0 * lo),
+    ("SNOD", "surface"): field(lambda la, lo: np.where(la > 60, 0.25, 0.0) + 0 * lo),
 }
+
+
+def wave_values() -> np.ndarray:
+    """0.25° wave heights: 1 m + latitude/100 at sea, with land (missing) where 0 <= lon < 10 (and a decoy
+    value of 99 m on the off-grid points, which must never reach the 1° frames)."""
+    lat = np.linspace(90, -90, 721)[:, None]
+    lon = np.arange(1440)[None, :] * 0.25
+    v = np.broadcast_to(1.0 + lat / 100 + 0 * lon, (721, 1440)).copy()
+    v[:, (lon[0] % 1) != 0] = 99.0
+    v[:, lon[0] < 10] = 9999.0                          # the GRIB missing value → land
+    return v
+
+
+def build_wave_file(fhr: int) -> tuple[bytes, str]:
+    import eccodes
+    step = "anl" if fhr == 0 else f"{fhr} hour fcst"
+    h = eccodes.codes_new_from_message(grib(np.zeros((721, 1440)), ni=1440, nj=721, inc=0.25))
+    eccodes.codes_set(h, "bitmapPresent", 1)
+    eccodes.codes_set(h, "missingValue", 9999.0)
+    eccodes.codes_set_values(h, wave_values().ravel())
+    msg = eccodes.codes_get_message(h)
+    eccodes.codes_release(h)
+    other = grib(np.ones((721, 1440)), ni=1440, nj=721, inc=0.25)
+    idx = f"1:0:d=2026102000:WIND:surface:{step}:\n2:{len(other)}:d=2026102000:HTSGW:surface:{step}:\n"
+    return other + msg, idx
 
 
 def build_file(fhr: int, skip=(), extra_avg=True) -> tuple[bytes, str]:
@@ -102,8 +128,11 @@ class FakeS3:
         return self._resp(206, content=blob[start:end + 1])
 
 
-def s3_for(fhours, **kw) -> FakeS3:
-    return FakeS3({E.run_url(RUN, h): build_file(h, **kw) for h in fhours})
+def s3_for(fhours, waves=True, **kw) -> FakeS3:
+    files = {E.run_url(RUN, h): build_file(h, **kw) for h in fhours}
+    if waves:
+        files.update({E.wave_url(RUN, h): build_wave_file(h) for h in fhours})
+    return FakeS3(files)
 
 
 # --- Index, decoding, encoding ---------------------------------------------------------------------
@@ -112,6 +141,7 @@ def test_index_uses_only_instantaneous_records():
     _, idx = build_file(24)
     ranges = E.parse_index(idx, 24)
     assert set(ranges) == set(E.FIELDS)
+    assert set(E.parse_index(build_wave_file(24)[1], 24, E.WAVE_FIELDS)) == {"swh"}
     avg_line = next(ln for ln in idx.splitlines() if "ave fcst" in ln)
     assert ranges["prate"][0] != int(avg_line.split(":")[1])          # the average was skipped
     assert E.parse_index(build_file(0)[1], 0)["t2m"][0] >= 0           # analysis step is "anl"
@@ -165,6 +195,9 @@ def test_prepare_run_writes_frames_units_and_manifest(tmp_path):
     assert E.value_at(m, 3, "prmsl", 10, 10, tmp_path) == pytest.approx(1013.25, abs=0.01)  # Pa → hPa
     assert E.value_at(m, 3, "prate", 30, 10, tmp_path) == pytest.approx(1.0, abs=0.002)     # → mm/h, not the average
     assert E.value_at(m, 3, "ptype", 30, 10, tmp_path) == 1 and E.value_at(m, 3, "ptype", 70, 10, tmp_path) == 3
+    assert E.value_at(m, 3, "snod", 70, 10, tmp_path) == pytest.approx(25.0, abs=0.05)      # m → cm
+    assert E.value_at(m, 3, "swh", 20, 30, tmp_path) == pytest.approx(1.2, abs=0.002)       # 1° points only
+    assert E.value_at(m, 3, "swh", 20, 5, tmp_path) is None                                  # land stays missing
     assert E.read_manifest(tmp_path)["layers"]["wind"]["vars"] == ["u10", "v10"]
     ranged = [c for c in s.calls if c[0] == "GET" and not c[1].endswith(".idx")]
     assert ranged and all(c[2] and c[2].startswith("bytes=") for c in ranged)          # never the whole file
@@ -175,6 +208,24 @@ def test_missing_fields_are_reported_not_invented(tmp_path):
     m = E.prepare_run(RUN, s, tmp_path, fhours=(0,))
     assert set(m["frames"][0]["missing"]) == {"cape", "ptype"}
     assert not E.frame_path(tmp_path, m["run_id"], 0, "cape").exists()
+
+
+def test_wave_layer_missing_is_reported_without_affecting_other_fields(tmp_path):
+    m = E.prepare_run(RUN, s3_for((0,), waves=False), tmp_path, fhours=(0,))
+    assert m["frames"][0]["missing"] == ["swh"] and m["frames"][0]["ready"]
+    assert E.value_at(m, 0, "t2m", 0, 10, tmp_path) == pytest.approx(30.0, abs=0.01)
+    s2 = s3_for((0,), waves=False)
+    m2 = E.prepare_run(RUN, s2, tmp_path, fhours=(0,))                  # resumed: not re-downloaded
+    assert s2.calls == [] and m2["frames"][0]["missing"] == ["swh"]
+
+
+def test_wave_grid_keeps_exact_one_degree_points():
+    blob, idx = build_wave_file(0)
+    start = int(idx.splitlines()[1].split(":")[1])
+    out = E.decode(blob[start:], inc_deg=0.25)
+    assert out.shape == (181, 360)
+    assert np.nanmax(out) < 3                                           # no off-grid decoy values
+    assert np.isnan(out[:, :10]).all() and out[70, 30] == pytest.approx(1.2, abs=1e-4)   # GRIB packing precision
 
 
 def test_only_the_newest_run_is_kept_and_frames_are_not_refetched(tmp_path):
