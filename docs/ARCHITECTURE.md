@@ -37,7 +37,7 @@ request.
    app_pages/lab.py ◄── reads committed reports/lab/ + reports/*.json, model sidecar, tracking aggregates
    app_pages/predictions.py ◄── src/monitoring.py (query, aggregate, evaluate)
    app_pages/history.py ◄── src/history.py (Archive API on demand: hourly, and daily for comparisons)
-   app_pages/settings.py ◄── src/preferences.py
+   app_pages/settings.py, places.py, alerts.py ◄── src/preferences.py (+ src/app_data.py for alerts)
 ```
 
 ## Layers
@@ -47,8 +47,8 @@ request.
 | HTTP | `data_collection.fetch_json` | Every network call goes through this one function, which handles timeouts, retries with backoff, HTTP 429 `Retry-After`, 4xx/5xx handling and user-readable errors. `INTERACTIVE` settings fail within about 25 s. Batch downloads are patient. |
 | Data services | `provider`, `history`, `service`, `data_validation`, `geolocation` | Validate units, time zones, array lengths and physical bounds. Missing values stay missing; optional variables a model lacks are reported as unavailable; wrong units are fatal. |
 | Domain logic | `insights`, `units`, `preferences`, `monitoring` | Pure functions, testable without Streamlit or the network. |
-| Presentation | `weather_view`, `ui`, `lab_ui` | Build HTML and Plotly figures from data and units. They never fetch anything. |
-| Pages | `app_pages/{weather,history,predictions,lab,settings}.py`, `streamlit_app.py` | Lay out the page, cache results, and handle loading, empty and error states. |
+| Presentation | `theme` (design tokens, global CSS, icons, chips), `weather_view`, `ui`, `lab_ui` | Build HTML and Plotly figures from data and units. They never fetch anything. |
+| Pages | `app_pages/{weather,history,alerts,predictions,lab,places,settings}.py`, `streamlit_app.py`, with `app_data` (shared cached calls) and `nav` (safe page links) | Lay out the page, cache results, and handle loading, empty and error states. |
 | ML (offline) | `features`, `splits`, `models`, `train`, `multistep`, `shift`, `compact`, `refit`, `lab_data` | Chronological experiments, the deployed bundle and reproducible Lab data. |
 
 ## Data types are never mixed
@@ -96,7 +96,7 @@ the tests use that mode.
 
 ## Tests
 
-- **Offline suite:** `python -m pytest` runs 459 tests and needs no network.
+- **Offline suite:** `python -m pytest` runs 465 tests and needs no network.
   `tests/conftest.py` points preferences, monitoring and snapshots at temporary
   folders, so tests never touch real user data.
 - **Live checks:** `python -m pytest -m integration` runs 5 tests against the
@@ -165,3 +165,23 @@ structure, feature schema and checksum before the app or the evaluator uses a mo
   - Notifications appear only while a tab is open: there's no service worker or
     push.
   - If notifications are blocked or unsupported, alerts stay on the page.
+
+## Design system
+
+`src/theme.py` holds the tokens, exposed as `--cz-*` CSS custom properties:
+- colours (midnight, navy, sky, cloud, violet, sunshine and status colours);
+- spacing, radii, type sizes, shadows and motion timings.
+
+`streamlit_app.py` injects the global styles once:
+- sidebar styling;
+- metric and container cards;
+- visible keyboard focus;
+- wrapping of long names;
+- a reduced-motion override.
+
+Component styles in `src/weather_view.py` use the same tokens. Surfaces and borders are translucent, so they read well
+on both Streamlit themes. Icons are Material Symbols, which Streamlit already ships:
+- `:material/name:` in widgets;
+- `theme.icon()` in custom HTML, hidden from screen readers unless given a label.
+
+Status is never shown by colour alone: chips carry an icon and text.

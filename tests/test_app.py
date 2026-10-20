@@ -155,7 +155,7 @@ def test_happy_path_delhi_shows_full_app(fake_network):
     assert "No rain expected" in texts(at.success)
     assert len(at.dataframe) == 3  # hourly table + daily details + Cloudzy table
     assert "Cloudzy says" in body and "Daily briefing" in body
-    assert any("data:image/svg+xml;base64," in m.value for m in at.markdown)  # mascot (via markdown)
+    assert "location_on" in body and "Feels like" in body             # hero with its icons (mascot is the sidebar logo)
     assert "not a station reading" in texts(at.caption)
     assert "Open-Meteo" in texts(at.caption)
     assert dict(at.query_params) == {"q": ["New Delhi"], "i": ["0"]} or at.query_params["q"] == "New Delhi"
@@ -281,9 +281,9 @@ def test_unit_override_is_saved_and_reused(fake_network, tmp_path):
 def test_favourite_save_and_pick(fake_network):
     from src import preferences as P
     at = run_app("Paris")
-    next(b for b in at.button if b.label == "☆ Save").click().run()
+    next(b for b in at.button if b.label == "Save").click().run()
     assert [p.label for p in P.load().favourite_places()] == ["Paris, Île-de-France, France"]
-    assert any(b.label == "★ Saved" for b in at.button)
+    assert any(b.label == "Saved" for b in at.button)
     at.text_input[0].set_value("New Delhi").run()
     at.pills[0].set_value("Paris, Île-de-France, France").run()
     assert not at.exception
@@ -299,15 +299,6 @@ def test_alerts_render_with_reason_period_and_uncertainty(fake_network):
     body = html_text(at)
     assert "Very hot" in body and "When:" in body and "Why:" in body and "Uncertainty:" in body
     assert "not an official weather warning" in body
-
-
-def test_alert_thresholds_form_saves(fake_network):
-    from src import preferences as P
-    at = run_app()
-    at.number_input[0].set_value(80)  # rain chance threshold
-    next(b for b in at.button if b.label == "Save thresholds").click().run()
-    assert not at.exception
-    assert P.load().alerts.rain_probability_pct == 80
 
 
 def test_error_state_shows_no_summary_or_alerts(fake_network):

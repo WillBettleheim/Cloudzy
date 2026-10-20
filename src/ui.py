@@ -42,6 +42,27 @@ def palette(theme_type: str | None = None) -> dict[str, str]:
     return dict(SERIES)
 
 
+# Material Symbols names (shipped with Streamlit) for the same WMO groups: crisp vector icons in custom HTML.
+_SYMBOLS = [
+    ({0}, "clear_day", "bedtime"), ({1, 2}, "partly_cloudy_day", "partly_cloudy_night"), ({3}, "cloud", "cloud"),
+    ({45, 48}, "foggy", "foggy"),
+    ({51, 53, 55, 56, 57}, "rainy_light", "rainy_light"),
+    ({61, 63, 66, 80, 81}, "rainy", "rainy"), ({65, 67, 82}, "rainy_heavy", "rainy_heavy"),
+    ({71, 73, 75, 77, 85, 86}, "weather_snowy", "weather_snowy"),
+    ({95, 96, 99}, "thunderstorm", "thunderstorm"),
+]
+
+
+def weather_symbol(code, is_day=1) -> str:
+    """Material Symbols name for a WMO weather code ('help' when unknown, never a guessed condition)."""
+    if code is None or pd.isna(code):
+        return "help"
+    for codes, day, night in _SYMBOLS:
+        if int(code) in codes:
+            return day if (is_day is None or pd.isna(is_day) or int(is_day) == 1) else night
+    return "help"
+
+
 def weather_icon(code, is_day=1) -> str:
     if code is None or pd.isna(code):
         return "❔"

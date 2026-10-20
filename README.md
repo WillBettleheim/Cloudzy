@@ -36,7 +36,10 @@ the UI comes only after the ML pipeline works and has been measured.
 |---|---|
 | **Your location** | "Use my location": a one-time browser location lookup with permission. The weather is fetched for the exact coordinates, and the place name comes from OpenStreetMap. Clear messages for every failure; manual search is always available |
 | **Weather app** | City search with a match picker (same-name places kept apart by coordinates); current conditions; next 24 hours (cards and graph); 7-day forecast; detail cards (UV, humidity and dew point, wind, feels-like, rain, clouds, pressure, visibility, sun) |
-| **Settings** (`/settings`) | °C/°F, km/h, m/s, mph or knots, mm/in (regional by default); home city; favourite places; brief or detailed summary; alert categories and thresholds; optional browser notifications; theme guidance; reset. Saved in each visitor's own browser, so people sharing one Cloudzy server never see or change each other's settings; never synced between devices, never precise device coordinates |
+| **Settings** (`/settings`) | °C/°F, km/h, m/s, mph or knots, mm/in (regional by default); detect location on start; brief or detailed summary; theme guidance; reset. Saved in each visitor's own browser, so people sharing one Cloudzy server never see or change each other's settings; never synced between devices, never precise device coordinates |
+| **Places** (`/places`) | Saved cities as cards: open one on the Weather page, make it your home city (opens first), or remove it |
+| **Alerts** (`/alerts`) | Active and dismissed alerts for the place you're viewing (with each dismissal's expiry and "show again"), alert categories, thresholds and optional browser notifications. Clearly labelled as unofficial |
+| **Design** | Sidebar navigation (Forecast · Cloudzy Core · You), a midnight/sky/sunshine design system (`src/theme.py`: colour, spacing, radius, type, shadow and motion tokens), Material Symbols icons, loading skeletons, visible keyboard focus, reduced-motion support, and layouts checked at phone, tablet and laptop widths |
 | **Weather intelligence** | "Cloudzy says" summary (temperature trend, earlier today, rain timing, wind, clouds, tomorrow; nothing when data is missing or more than 3 h old), unofficial alerts (reason, value, period, uncertainty; dismissable; at most one per kind per day), daily briefing, suggestions with reasons. Rule-based, built from the forecast numbers, with no language model |
 | **Cloudzy Core** | Experimental 1–24 h temperature model for Delhi, kept separate from the provider forecast; refuses to predict on incomplete inputs |
 | **Predictions** (`/predictions`) | Every live Cloudzy Core prediction, recorded once (SQLite, local) with its model version, then evaluated against the reanalysis at the exact target hour once it's published; filters, tracked MAE/RMSE/bias by horizon with sample counts, CSV export |
@@ -56,7 +59,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 streamlit run streamlit_app.py   # the app: weather at http://localhost:8501, Cloudzy Lab at /lab
-python -m pytest                 # 459 offline tests, no network needed
+python -m pytest                 # 465 offline tests, no network needed
 python -m src.pipeline all       # Cloudzy Core: fetch → train → evaluate (Delhi, 2023-2025, ~30 s when cached)
 python -m pytest -m integration   # 5 live checks against the Open-Meteo APIs
 python -m src.data_validation    # download (first run only), validate, write processed CSV
@@ -747,7 +750,7 @@ trained on 2023-01-02 → 2026-08-31.
 
 | Suite | What it covers | How to run |
 |---|---|---|
-| Offline (459) | Everything in phases A–F and Cloudzy 2.0, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
+| Offline (465) | Everything in phases A–F and Cloudzy 2.0, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
 | Integration (5) | Live calls: both archive sources validate, live IFS inputs give 25 complete hours, the provider forecast and geocoding work, and a nonsense search returns nothing | `python -m pytest -m integration` |
 | Lint | Unused imports and names, likely bugs, outdated syntax (ruff; rules and the reasons for each ignored rule are in `pyproject.toml`) | `pip install -r requirements-dev.txt`, then `ruff check .` |
 | Types (advisory) | mypy over `src/`, `app_pages/` and the entry point. It still reports annotation-level errors (loose types around pandas and optional values), so it isn't a pass/fail gate yet | `mypy` |
@@ -1066,13 +1069,19 @@ src/browser_prefs.py     keeps each visitor's settings in their own browser (loc
 src/monitoring.py        prediction tracking (SQLite): idempotent records, exact-hour evaluation, aggregates
 src/history.py           historical weather (archive API): daily, monthly, same dates in earlier years
 src/notify.py            optional browser notifications for alerts (permission only on click)
+src/theme.py             design tokens, global styles, icons, chips, section headers, skeletons
+src/app_data.py          cached forecast/search/Cloudzy calls shared by pages; the place being viewed
+src/nav.py               page links that degrade gracefully when a page runs on its own
+assets/                  Cloudzy logo and mascot (sidebar logo)
 src/geolocation.py       one-time browser location, request handling, reverse geocoding (Nominatim)
 src/pipeline.py          one command for Cloudzy Core: fetch → train → evaluate, any location and period
 src/artifacts.py         verified model loading, schema/checksum checks, metadata sidecars
 docs/ARCHITECTURE.md     architecture diagram, layers, data types, local state
-streamlit_app.py         entry point: navigation (Weather, History, Predictions, Cloudzy Lab, Settings)
+streamlit_app.py         entry point: sidebar navigation, logo, global theme, per-visitor settings
 app_pages/weather.py     the weather app
-app_pages/history.py     weather history
+app_pages/history.py     history & trends (reanalysis)
+app_pages/alerts.py      alerts, categories, thresholds, notifications
+app_pages/places.py      saved places and home city
 app_pages/predictions.py prediction tracking
 app_pages/lab.py         Cloudzy Lab
 app_pages/settings.py    settings
@@ -1085,7 +1094,7 @@ DEPLOYMENT.md            deployment and maintenance guide
 .github/workflows/       CI: offline tests on push, live API checks weekly
 reports/lab/             the Lab's committed data (~600 KB)
 .streamlit/config.toml   brand theme: light and dark palettes
-tests/                   459 offline tests + 5 live integration tests
+tests/                   465 offline tests + 5 live integration tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
 ```

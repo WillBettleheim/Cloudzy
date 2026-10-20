@@ -1,66 +1,45 @@
 """Cloudzy weather page. Opened through streamlit_app.py.
 
-A phone-style weather app built on real Open-Meteo data:
-favourites → search → current conditions (hero) → "Cloudzy says" summary →
-unofficial alerts → rain banner → next 24 hours (cards and graph) → 7-day
-forecast → weather details → daily briefing and suggestions → Cloudzy Core
-(experimental, Delhi only) → attribution.
+Layout, most important first:
+1. Search row: city search, "Use my location" and units, with saved places as quick switches.
+2. Above the fold: current conditions (hero) beside "Cloudzy says" and active alerts.
+3. Next 24 hours (cards, then temperature and rain charts), the 7-day forecast beside the
+   current measurements, today's briefing and suggestions.
+4. Cloudzy Core preview (experimental, Delhi only), clearly separate from the provider forecast.
 
-- Values are fetched in metric units and converted for display (src.units).
-  Units default to the selected place's region, and the viewer can override
-  them. Overrides, favourites and alert thresholds are saved locally
-  (src.preferences).
-- Every network call is cached for 10 minutes per place, to stay well inside
-  Open-Meteo's free limits.
-- The location is kept in the URL (?q=…&i=…).
-- On any failure the page shows the reason and a retry button, never stale or
-  invented numbers.
+- Values are fetched in metric units and converted for display (src.units). Units default to the
+  place's region; the viewer can override them.
+- Every network call is cached for 10 minutes per place (src.app_data).
+- The location is kept in the URL (?q=…&i=…), never device coordinates.
+- On any failure the page shows the reason and a retry button, never stale or invented numbers.
 """
 
 from __future__ import annotations
 
-import os
-
 import pandas as pd
 import streamlit as st
 
+from src import app_data
 from src import geolocation as G
 from src import insights as I
+from src import nav
 from src import preferences as P
+from src import theme as T
 from src import ui
 from src import units as U
 from src import weather_view as V
-from src.briefing import CLOUDZY_RADIUS_KM, cloudzy_block, distance_km
+from src.briefing import CLOUDZY_RADIUS_KM, distance_km
 from src.config import DELHI
 from src.data_collection import DataCollectionError
-from src.provider import ATTRIBUTION, ProviderError, fetch_forecast, rain_outlook, search_locations, upcoming
+from src.provider import ATTRIBUTION, ProviderError, rain_outlook, upcoming
 
-CACHE_SECONDS = 600
 DEFAULT_QUERY = "New Delhi"
 HOURS_AHEAD = 24
-SAVE_SNAPSHOTS = os.environ.get("CLOUDZY_SNAPSHOTS", "1") == "1"
 UNIT_KEYS = {"temperature": "unit_temp", "wind": "unit_wind", "precipitation": "unit_rain"}
 
 
-# --- Cached data access -----------------------------------------------------------
-
-@st.cache_data(ttl=CACHE_SECONDS, show_spinner=False)
-def cached_search(query: str):
-    return search_locations(query, count=8)
-
-
-@st.cache_data(ttl=CACHE_SECONDS, show_spinner=False)
-def cached_forecast(place):
-    return fetch_forecast(place)
-
-
-@st.cache_data(ttl=CACHE_SECONDS, show_spinner=False)
-def cached_cloudzy(place):
-    return cloudzy_block(place, snapshot=SAVE_SNAPSHOTS)
-
-
 def retry_button(key: str) -> None:
-    if st.button("Try again", key=key, icon="🔄"):
+    if st.button("Try again", key=key, icon=":material/refresh:"):
         st.cache_data.clear()
         st.rerun()
 
@@ -98,8 +77,6 @@ def pick_favourite() -> None:
     st.session_state["fav_pick"] = None
 
 
-# --- Header and location (device or manual) --------------------------------------------
-
 def request_location() -> None:
     G.start(G.state(st.session_state))
 
@@ -112,18 +89,22 @@ def search_instead() -> None:
     G.use_manual(G.state(st.session_state))
 
 
-def toggle_auto_locate() -> None:
-    prefs_now = P.load()
-    prefs_now.auto_locate = bool(st.session_state.get("auto_locate"))
-    P.save(prefs_now)
-
+# --- Location: device or manual ------------------------------------------------------------
 
 st.html(V.CSS)
-# st.html's browser-side sanitiser drops <svg> and data-URI images; markdown keeps the mascot.
-st.markdown(V.brand_html(), unsafe_allow_html=True)
 prefs = P.load()
 params = st.query_params
 geo = G.state(st.session_state)
+
+# A place opened from the Places page shows here (a manual choice, so it wins over device location).
+opened = st.session_state.pop("_open_place", None)
+if opened is not None:
+    G.use_manual(geo)
+    st.session_state["search"] = opened.name
+    st.session_state["_fav_target"] = (opened.latitude, opened.longitude)
+    for k in ("q", "i"):
+        if k in params:
+            del params[k]
 
 # Opt-in: look up the location once when a session opens, unless the link names a city.
 if prefs.auto_locate and not geo["auto_tried"] and "q" not in params:
@@ -134,27 +115,16 @@ if prefs.auto_locate and not geo["auto_tried"] and "q" not in params:
 # matches the request still pending, so late answers can't override a newer choice.
 G.handle(geo, G.browser_location(geo["pending"] or 0))
 
-show_panel = geo["pending"] is not None or geo["mode"] != "device" or geo["error"] is not None
-with st.container(border=True) if show_panel else st.empty():
-    if geo["pending"] is not None:
-        msg_col, cancel_col = st.columns([4, 1], vertical_alignment="center")
-        msg_col.info("**Finding your location…** If your browser asks, choose *Allow*. Cloudzy looks your "
-                     "position up once and doesn't track you.", icon="📍")
-        cancel_col.button("Cancel", on_click=cancel_location, width="stretch")
-    elif geo["mode"] != "device":
-        btn_col, text_col = st.columns([1.3, 3], vertical_alignment="center")
-        btn_col.button("Use my location", icon="📍", type="primary", on_click=request_location, width="stretch",
-                       help="Your browser will ask for permission. Cloudzy uses the position once to load the weather.")
-        text_col.caption("Uses your browser's location, with your permission. The position is used once for "
-                         "the weather and a place name, and isn't saved or tracked. Or search for a city below.")
-        st.toggle("Detect my location when Cloudzy opens", key="auto_locate", value=prefs.auto_locate,
-                  on_change=toggle_auto_locate, help="Saved on this computer as a yes/no choice. Your location "
-                  "itself is never saved.")
-    err = geo["error"]
-    if err is not None and geo["pending"] is None:
-        st.warning(f"**{err.title}** {err.detail}", icon="📍")
-        if err.retry:
-            st.button("Try again", icon="🔄", key="geo-retry", on_click=request_location)
+if geo["pending"] is not None:
+    msg_col, cancel_col = st.columns([4, 1], vertical_alignment="center")
+    msg_col.info("**Finding your location…** If your browser asks, choose *Allow*. Cloudzy looks your "
+                 "position up once and doesn't track you.", icon=":material/my_location:")
+    cancel_col.button("Cancel", on_click=cancel_location, width="stretch")
+err = geo["error"]
+if err is not None and geo["pending"] is None:
+    st.warning(f"**{err.title}** {err.detail}", icon=":material/location_off:")
+    if err.retry:
+        st.button("Try again", icon=":material/refresh:", key="geo-retry", on_click=request_location)
 
 detected_slot = None
 if geo["mode"] == "device" and geo["fix"] is not None:
@@ -165,47 +135,54 @@ if geo["mode"] == "device" and geo["fix"] is not None:
     for k in ("q", "i"):  # the URL must not name a different place, and never carries coordinates
         if k in params:
             del params[k]
-    loc_col, unit_col = st.columns([5, 1.7], vertical_alignment="bottom")
+    loc_col, unit_col = st.columns([5, 1.4], vertical_alignment="bottom")
     with loc_col:
-        st.markdown(f"**📍 {place.label}** · your device location")
+        st.markdown(f"**:material/my_location: {place.label}** · your device location")
         detected_slot = st.empty()
         a, b = st.columns(2)
-        a.button("Refresh location", icon="🔄", on_click=request_location, width="stretch",
+        a.button("Refresh location", icon=":material/refresh:", on_click=request_location, width="stretch",
                  disabled=geo["pending"] is not None)
-        b.button("Search for a city instead", icon="🔎", on_click=search_instead, width="stretch")
+        b.button("Search for a city instead", icon=":material/search:", on_click=search_instead, width="stretch")
 else:
-    favs = prefs.favourite_places()
-    if favs:
-        st.pills("Favourite places", [f.label for f in favs], key="fav_pick", on_change=pick_favourite,
-                 help="Saved on this computer only.")
     if "search" not in st.session_state:
         # Streamlit drops a widget's value while it's hidden (device mode), so restore the last manual city.
         home = prefs.home_place()
         if params.get("q") or st.session_state.get("_last_query") or home is None:
             st.session_state["search"] = params.get("q") or st.session_state.get("_last_query", DEFAULT_QUERY)
-        else:  # first visit with a saved home city (set in Settings)
+        else:  # first visit with a saved home city (set on the Places page)
             st.session_state["search"] = home.name
             st.session_state["_fav_target"] = (home.latitude, home.longitude)
-    query = st.text_input("Search for a city or town", key="search", placeholder="e.g. Mumbai, Reykjavik, Lagos",
-                          max_chars=80, help="Press Enter to search. Results use Open-Meteo's geocoding service.").strip()
+    search_col, loc_col, unit_col = st.columns([3.2, 2, 1.3], vertical_alignment="bottom")
+    query = search_col.text_input(
+        "Search for a city or town", key="search", placeholder="e.g. Mumbai, Reykjavik, Lagos", max_chars=80,
+        icon=":material/search:", help="Press Enter to search. Results use Open-Meteo's geocoding service.").strip()
+    loc_col.button("Use my location", icon=":material/my_location:", type="primary", on_click=request_location,
+                   width="stretch", disabled=geo["pending"] is not None,
+                   help="Your browser asks for permission. The position is used once for the weather and a place "
+                        "name, and isn't saved or tracked.")
+    favs = prefs.favourite_places()
+    if favs:
+        st.pills("Saved places", [f.label for f in favs], key="fav_pick", on_change=pick_favourite,
+                 label_visibility="collapsed", help="Your saved places (manage them on the Places page).")
     if len(query) < 2:
-        st.info("Type at least two letters to search for a place.", icon="🔎")
+        st.info("Type at least two letters to search for a place.", icon=":material/search:")
         st.stop()
 
     try:
         with st.spinner("Looking for that place…"):
-            places = cached_search(query)
+            places = app_data.search(query)
     except (ProviderError, DataCollectionError) as exc:
-        st.error(f"Location search is unavailable right now. {exc}", icon="⚠️")
+        st.error(f"Location search is unavailable right now. {exc}", icon=":material/error:")
         retry_button("retry-search")
         st.stop()
 
     if not places:
-        st.warning(f"No places match “{query}”. Check the spelling, or try a nearby larger town.", icon="🗺️")
+        st.warning(f"No places match “{query}”. Check the spelling, or try a nearby larger town.",
+                   icon=":material/travel_explore:")
         st.stop()
 
     target = st.session_state.pop("_fav_target", None)
-    if target:  # a favourite was picked: choose the result with its exact coordinates
+    if target:  # a saved place was picked: choose the result with its exact coordinates
         start_index = next((i for i, p in enumerate(places)
                             if abs(p.latitude - target[0]) < 0.01 and abs(p.longitude - target[1]) < 0.01), 0)
     else:
@@ -214,7 +191,7 @@ else:
                 if params.get("q", st.session_state.get("_last_query")) == query else 0
         except ValueError:
             start_index = 0
-    pick_col, fav_col, unit_col = st.columns([5, 1.5, 1.7], vertical_alignment="bottom")
+    pick_col, fav_col = st.columns([5, 1.2], vertical_alignment="bottom")
     with pick_col:
         place = st.selectbox("Choose the right match", places, index=min(max(start_index, 0), len(places) - 1),
                              format_func=place_label, help="Several places can share a name. Pick the one you mean.")
@@ -223,14 +200,17 @@ else:
 
     with fav_col:
         saved = prefs.is_favourite(place)
-        if st.button("★ Saved" if saved else "☆ Save", width="stretch",
-                     help="Remove from favourites" if saved else "Save as a favourite place"):
+        if st.button("Saved" if saved else "Save",
+                     icon=":material/bookmark_added:" if saved else ":material/bookmark_add:",
+                     width="stretch", help="Remove from saved places" if saved else "Save this place"):
             try:
                 prefs.toggle_favourite(place)
                 P.save(prefs)
             except ValueError as exc:
                 st.toast(str(exc))
             st.rerun()
+
+app_data.remember_place(place)
 
 # Units: the saved override if any, else the place's regional default.
 regional = U.default_for_country(place.country_code)
@@ -241,7 +221,7 @@ if st.session_state.get("_units_for") != units_for:
     for name, key in UNIT_KEYS.items():
         st.session_state[key] = getattr(effective, name)
     st.session_state["_units_for"] = units_for
-with unit_col, st.popover("Units", icon="⚙️", width="stretch"):
+with unit_col, st.popover("Units", icon=":material/straighten:", width="stretch"):
     st.segmented_control("Temperature", U.TEMPERATURE, key="unit_temp", on_change=save_unit_override)
     st.segmented_control("Wind", U.WIND, key="unit_wind", on_change=save_unit_override)
     st.segmented_control("Rain", U.PRECIPITATION, key="unit_rain", on_change=save_unit_override)
@@ -253,15 +233,18 @@ units = U.Units(st.session_state.get("unit_temp") or effective.temperature,
                 st.session_state.get("unit_wind") or effective.wind,
                 st.session_state.get("unit_rain") or effective.precipitation)
 
-# --- Provider forecast ------------------------------------------------------------
+# --- Provider forecast (a skeleton shows while it loads) ------------------------------------
 
+loading = st.empty()
+loading.html(T.skeleton(260) + T.skeleton(90))
 try:
-    with st.spinner(f"Checking the sky over {place.name}…"):
-        forecast = cached_forecast(place)
+    forecast = app_data.forecast(place)
 except (ProviderError, DataCollectionError) as exc:
-    st.error(f"We couldn't get the forecast for {place.label}. {exc}", icon="⚠️")
+    loading.empty()
+    st.error(f"We couldn't get the forecast for {place.label}. {exc}", icon=":material/cloud_off:")
     retry_button("retry-forecast")
     st.stop()
+loading.empty()
 
 colors = ui.palette()
 now = pd.Timestamp.now(tz="UTC")
@@ -279,143 +262,129 @@ if detected_slot is not None:
     detected_slot.caption(f"Location detected {pd.Timestamp(fix.detected_at_utc).tz_convert(tz):%H:%M} local time"
                           f"{acc} · one-time lookup, not tracking{name_note}"
                           + ("" if place.name == G.NEUTRAL_LABEL else f" · {G.OSM_ATTRIBUTION}"))
-st.html(V.hero_html(place.label, cur, today, units, local_now.tzname() or str(tz)))
-st.caption(f"{forecast.source_label} · {V.updated_label(forecast.retrieved_at_utc, tz)}, refreshed at most every "
-           "10 minutes · current values are model estimates for this location, not a station reading")
 
-# --- Cloudzy says (summary) and alerts --------------------------------------------------
+# --- Above the fold: conditions, Cloudzy says, alerts --------------------------------------------
 
-st.html(V.summary_html(I.summary(forecast, now, units, style=prefs.summary_style)))
+hero_col, side_col = st.columns([1.55, 1], gap="medium")
+with hero_col:
+    st.html(V.hero_html(place.label, cur, today, units, local_now.tzname() or str(tz)))
+    st.caption(f"{forecast.source_label} · {V.updated_label(forecast.retrieved_at_utc, tz)}, refreshed at most "
+               "every 10 minutes · model estimates for this location, not a station reading")
 
 found = I.alerts(forecast, now, prefs.alerts, units, enabled=prefs.enabled_alert_kinds())
 dismissed = prefs.active_dismissals(now)
 shown = [a for a in found if a.key not in dismissed]
-for i, a in enumerate(shown):
-    st.html(V.alerts_html([a]))
-    if st.button("Dismiss for 24 hours", key=f"dismiss_{i}_{a.kind}", icon="✖️",
-                 help="Hide this alert for this time window. A new or changed alert still shows."):
-        prefs.dismiss(a.key, (now + pd.Timedelta(hours=24)).isoformat())
-        P.save(prefs)
-        st.rerun()
-if not found:
-    st.caption("No Cloudzy alerts for the next 24 hours with your thresholds and alert categories.")
-elif not shown:
-    st.caption(f"{len(found)} alert(s) dismissed for now.")
+with side_col:
+    st.html(V.summary_html(I.summary(forecast, now, units, style=prefs.summary_style)))
+    for i, alert in enumerate(shown):
+        st.html(V.alerts_html([alert]))
+        if st.button("Dismiss for 24 hours", key=f"dismiss_{i}_{alert.kind}", icon=":material/close:",
+                     help="Hide this alert for this time window. A new or changed alert still shows."):
+            prefs.dismiss(alert.key, (now + pd.Timedelta(hours=24)).isoformat())
+            P.save(prefs)
+            st.rerun()
+    if not found:
+        st.caption("No Cloudzy alerts for the next 24 hours with your thresholds and alert categories.")
+    elif not shown:
+        st.caption(f"{len(found)} alert(s) dismissed for now.")
+    nav.page_link("app_pages/alerts.py", "Alert settings and dismissed alerts", ":material/tune:")
 if shown and prefs.notifications:
     from src.notify import browser_notifications
     browser_notifications(shown)
-with st.expander("Alert thresholds"):
-    st.caption("Cloudzy's alerts are simple threshold checks on the forecast. They are not official warnings; "
-               "follow your national weather service for those.")
-    with st.form("thresholds"):
-        th = prefs.alerts
-        c1, c2 = st.columns(2)
-        rain_pct = c1.number_input("Chance of rain at least (%)", 10, 100, int(th.rain_probability_pct), step=5)
-        uv_val = c2.number_input("UV index at least", 3, 15, int(th.uv_index))
-        heat = c1.number_input(f"Feels-like at least ({units.temperature})",
-                               value=round(U.temperature(th.heat_feels_like_c, units.temperature)))
-        cold = c2.number_input(f"Feels-like at most ({units.temperature})",
-                               value=round(U.temperature(th.cold_feels_like_c, units.temperature)))
-        gust = c1.number_input(f"Gusts at least ({units.wind})", value=round(U.wind(th.wind_gust_kmh, units.wind)))
-        change = c2.number_input(f"Day-to-day high change ({units.temperature})",
-                                 value=round(U.temperature_delta(th.day_to_day_change_c, units.temperature)))
-        if st.form_submit_button("Save thresholds"):
-            new = P.AlertThresholds(
-                rain_probability_pct=float(rain_pct), uv_index=float(uv_val),
-                heat_feels_like_c=U.to_celsius(heat, units.temperature),
-                cold_feels_like_c=U.to_celsius(cold, units.temperature),
-                wind_gust_kmh=U.to_kmh(gust, units.wind),
-                day_to_day_change_c=change / 1.8 if units.temperature == "°F" else float(change))
-            bad = [k for k, (lo, hi) in P.AlertThresholds.LIMITS.items() if not lo <= getattr(new, k) <= hi]
-            if bad:
-                st.error("Some values are outside the allowed range: " + ", ".join(bad))
-            else:
-                prefs.alerts = new
-                P.save(prefs)
-                st.rerun()
 
-# --- Rain banner -------------------------------------------------------------------
+# --- Rain outlook -------------------------------------------------------------------
 
 rain = rain_outlook(forecast, now)
 if rain["hours_checked"] == 0:
-    st.info("No upcoming hourly data to check for rain.", icon="❔")
+    st.info("No upcoming hourly data to check for rain.", icon=":material/help:")
 elif rain["rain_expected"]:
     first = pd.Timestamp(rain["first_rain_hour_local"])
     total = U.precipitation(rain["total_precipitation_mm"], units.precipitation)
     st.warning(f"**Rain likely from {first:%a %H:%M}**: {rain['rainy_hours']} of the next {rain['hours_checked']} "
                f"hours, up to {rain['max_probability_pct']:.0f}% chance, about "
-               f"{total:.{U.precipitation_digits(units.precipitation)}f} {units.precipitation} in total.", icon="🌧️")
+               f"{total:.{U.precipitation_digits(units.precipitation)}f} {units.precipitation} in total.",
+               icon=":material/rainy:")
 else:
     st.success(f"No rain expected in the next {rain['hours_checked']} hours "
-               f"(highest chance {ui.fmt(rain['max_probability_pct'], '%')}).", icon="🌂")
+               f"(highest chance {ui.fmt(rain['max_probability_pct'], '%')}).", icon=":material/umbrella:")
 st.caption(f"Rain indicator: {rain['rule']}. {rain['label']}")
 
 # --- Next 24 hours -------------------------------------------------------------------
 
-st.markdown("#### Next 24 hours")
+st.html(T.section("Next 24 hours", "schedule", "Scroll the cards sideways"))
 hours = upcoming(forecast, now, HOURS_AHEAD)
 if hours.empty:
-    st.info("The provider returned no upcoming hours for this place.", icon="❔")
+    st.info("The provider returned no upcoming hours for this place.", icon=":material/help:")
 else:
     st.html(V.hourly_strip_html(hours, units))
-    shown = U.convert_frame(hours, units)
-    st.plotly_chart(ui.temperature_chart(shown, colors, units.temperature, "Temperature and feels-like"),
-                    width="stretch", theme="streamlit", config=ui.CHART_CONFIG)
-    if shown["precipitation_probability"].fillna(0).max() > 0 or shown["precipitation"].fillna(0).max() > 0:
-        st.plotly_chart(ui.rain_chart(shown, colors, units.precipitation), width="stretch",
-                        theme="streamlit", config=ui.CHART_CONFIG)
-    with st.expander("Hour-by-hour table"):
-        hourly_tbl = ui.hourly_table(shown, units.temperature, units.wind, units.precipitation)
+    shown_hours = U.convert_frame(hours, units)
+    has_rain = (shown_hours["precipitation_probability"].fillna(0).max() > 0
+                or shown_hours["precipitation"].fillna(0).max() > 0)
+    t_tab, r_tab, tbl_tab = st.tabs(["Temperature", "Rain", "Table"])
+    with t_tab:
+        st.plotly_chart(ui.temperature_chart(shown_hours, colors, units.temperature, "Temperature and feels-like"),
+                        width="stretch", theme="streamlit", config=ui.CHART_CONFIG)
+    with r_tab:
+        if has_rain:
+            st.plotly_chart(ui.rain_chart(shown_hours, colors, units.precipitation), width="stretch",
+                            theme="streamlit", config=ui.CHART_CONFIG)
+        else:
+            st.caption("No rain chance or amount in the next 24 hours, so there's nothing to chart.")
+    with tbl_tab:
+        hourly_tbl = ui.hourly_table(shown_hours, units.temperature, units.wind, units.precipitation)
         st.dataframe(hourly_tbl, hide_index=True, width="stretch", column_config={
             c: st.column_config.NumberColumn(format="%.2f" if c == "Rain in" else "%.1f")
             for c in hourly_tbl.columns if c.startswith(("Temp", "Feels", "Rain mm", "Rain in", "UV"))})
 
-# --- 7-day forecast ----------------------------------------------------------------
+# --- Daily forecast and current details ----------------------------------------------
 
-st.markdown("#### 7-day forecast")
-if daily.empty:
-    st.info("The provider returned no daily forecast for this place.", icon="❔")
-else:
-    st.html(V.daily_list_html(daily, units, today_key))
-    with st.expander("Daily details"):
-        st.dataframe(V.daily_table(daily, units), hide_index=True, width="stretch")
-
-# --- Details -------------------------------------------------------------------------
-
-st.markdown("#### Right now")
-st.html(V.detail_cards_html(cur, today, units))
+days_col, now_col = st.columns([1.15, 1], gap="medium")
+with days_col:
+    st.html(T.section(f"{len(daily)}-day forecast" if len(daily) else "Daily forecast", "calendar_month"))
+    if daily.empty:
+        st.info("The provider returned no daily forecast for this place.", icon=":material/help:")
+    else:
+        st.html(V.daily_list_html(daily, units, today_key))
+        with st.expander("Daily details"):
+            st.dataframe(V.daily_table(daily, units), hide_index=True, width="stretch")
+with now_col:
+    st.html(T.section("Right now", "sensors"))
+    st.html(V.detail_cards_html(cur, today, units))
 
 # --- Daily briefing and suggestions ----------------------------------------------------
 
-st.markdown("#### Today's briefing")
+st.html(T.section("Today's briefing", "event_note"))
 brief = I.briefing(forecast, now, prefs.alerts, units)
 if brief is None:
-    st.info("Today's data isn't in this forecast, so there's no briefing.", icon="❔")
+    st.info("Today's data isn't in this forecast, so there's no briefing.", icon=":material/help:")
 else:
-    st.html(V.briefing_html(brief, units))
-    if brief.recommendations:
-        st.markdown("##### Suggestions")
-        st.html(V.recommendations_html(brief.recommendations))
-        st.caption("Suggestions come from simple, transparent rules applied to the forecast above. Each one says "
-                   "why it was made. They are not guarantees.")
+    b_col, s_col = st.columns([1, 1], gap="medium")
+    with b_col:
+        st.html(V.briefing_html(brief, units))
+    with s_col:
+        if brief.recommendations:
+            st.markdown("##### Suggestions")
+            st.html(V.recommendations_html(brief.recommendations))
+            st.caption("Suggestions come from simple, transparent rules applied to the forecast above. Each one "
+                       "says why it was made. They are not guarantees.")
+        else:
+            st.caption("No suggestions for today.")
 
-# --- Cloudzy Core (experimental) ------------------------------------------------------
+# --- Cloudzy Core preview (experimental) ------------------------------------------------
 
-st.markdown("#### 🧪 Cloudzy Core · experimental")
+st.html(T.section("Cloudzy Core · experimental", "science", "Separate from the forecast above"))
 d_km = distance_km(place.latitude, place.longitude, DELHI.latitude, DELHI.longitude)
 with st.container(border=True):
-    st.markdown("Cloudzy Core is this project's own machine-learning model. It is **separate from the forecast "
-                "above**, which comes from Open-Meteo.")
     if d_km > CLOUDZY_RADIUS_KM:
         st.info(f"Cloudzy Core was trained and tested only for **{DELHI.name}**. It isn't shown for "
                 f"{place.label} ({d_km:,.0f} km away), because it has never been validated there. "
-                "Search for New Delhi to see it.", icon="📍")
+                "Search for New Delhi to see it.", icon=":material/location_on:")
     else:
         with st.spinner("Asking Cloudzy Core…"):
-            block = cached_cloudzy(place)
+            block = app_data.cloudzy(place)
         if not block["available"]:
             st.warning(f"No Cloudzy prediction right now. {block['reason']} Cloudzy only predicts when all "
-                       "of its inputs (the last 25 hours of live data) are complete.", icon="🧪")
+                       "of its inputs (the last 25 hours of live data) are complete.", icon=":material/science:")
             retry_button("retry-cloudzy")
         else:
             tu = units.temperature
@@ -424,16 +393,27 @@ with st.container(border=True):
                      for p in block["cloudzy"]["predictions"]]
             prov = [{**p, "temperature_2m_c": U.temperature(p["temperature_2m_c"], tu)}
                     for p in block["provider"]["forecasts"]]
+            ifs_by_h = {p["horizon_h"]: p["temperature_2m_c"] for p in prov}
+            first_p = preds[0]
+            m1, m2, m3 = st.columns(3)
+            m1.metric(f"Cloudzy Core, +{first_p['horizon_h']} h", f"{first_p['temperature_2m_c']:.1f} {tu}",
+                      help="Cloudzy's own model, predicting the reanalysis temperature for its Delhi grid cell.")
+            ifs = ifs_by_h.get(first_p["horizon_h"])
+            m2.metric(f"ECMWF IFS, +{first_p['horizon_h']} h", "Not available" if ifs is None else f"{ifs:.1f} {tu}",
+                      help="The forecast model Cloudzy takes its inputs from, for the same hour.")
+            m3.metric("Average error (2025 test)", f"±{first_p['typical_error_c']:.2f} {tu}",
+                      help="Mean absolute error on a 2025 replay. Not a promise about today, not a confidence "
+                           "interval.")
             st.caption(f"Prediction point: {block['prediction_point']}, {block['distance_km_from_place']} km from "
                        f"{place.name}. Issued {pd.Timestamp(block['issue_time_local']):%H:%M} local time from "
-                       "live ECMWF IFS inputs.")
-            st.plotly_chart(ui.cloudzy_chart(preds, prov, colors, tu), width="stretch", theme="streamlit",
-                            config=ui.CHART_CONFIG)
-            table = ui.cloudzy_table(preds, prov, tu)
-            st.dataframe(table, hide_index=True, width="stretch", column_config={
-                c: st.column_config.NumberColumn(format="%.2f" if "error" in c else "%.1f")
-                for c in table.columns if c.endswith(tu)})
-            with st.expander("How to read this"):
+                       "live ECMWF IFS inputs. For decisions, use the forecast above.")
+            with st.expander("All horizons, chart and how to read this"):
+                st.plotly_chart(ui.cloudzy_chart(preds, prov, colors, tu), width="stretch", theme="streamlit",
+                                config=ui.CHART_CONFIG)
+                table = ui.cloudzy_table(preds, prov, tu)
+                st.dataframe(table, hide_index=True, width="stretch", column_config={
+                    c: st.column_config.NumberColumn(format="%.2f" if "error" in c else "%.1f")
+                    for c in table.columns if c.endswith(tu)})
                 st.markdown(
                     "- **What it predicts:** the ERA5-Land *reanalysis* temperature for one ~9 km grid cell, 1 to "
                     "24 hours ahead, starting from live ECMWF IFS model inputs. It isn't a thermometer reading.\n"
@@ -445,6 +425,12 @@ with st.container(border=True):
                     "shows a bias correction toward the reanalysis. That **doesn't** make Cloudzy a better "
                     "weather forecast than the provider.\n"
                     "- **For decisions, use the forecast above.** Details are in Cloudzy Lab and the model card.")
+            l1, l2 = st.columns(2)
+            with l1:
+                nav.page_link("app_pages/predictions.py", "Live tracking of these predictions",
+                              ":material/query_stats:")
+            with l2:
+                nav.page_link("app_pages/lab.py", "How Cloudzy Core was tested", ":material/science:")
 
 # --- Data notes and footer ------------------------------------------------------------
 
@@ -457,5 +443,5 @@ if forecast.warnings:
 
 st.divider()
 st.caption(f"{ATTRIBUTION}. Reanalysis: Copernicus Climate Change Service (ERA5, ERA5-Land). Weather icons follow "
-           "the WMO weather codes in the forecast. Favourites and settings are stored only on this computer. "
-           "Cloudzy is an experimental student project, not an operational weather service.")
+           "the WMO weather codes in the forecast. Cloudzy is an experimental student project, not an operational "
+           "weather service, and its alerts are not official warnings.")

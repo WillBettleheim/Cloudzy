@@ -54,7 +54,7 @@ def chart(fig) -> None:
             st.caption(f"Showing the first {len(df):,} rows only.")
 
 
-st.markdown("## 🧪 Cloudzy Lab")
+st.markdown("## :material/science: Cloudzy Lab")
 st.caption("How good is Cloudzy Core, really? Every number here comes from the untouched 2025 test year.")
 
 try:
@@ -62,7 +62,7 @@ try:
         lab = load_lab()
 except FileNotFoundError as exc:
     st.error(f"Lab data is missing ({exc.filename}). Build it with `python -m src.lab_data` "
-             "after running the Phase A and B experiments.", icon="🧪")
+             "after running the Phase A and B experiments.", icon=":material/science:")
     st.stop()
 
 colors = lab_ui.lab_palette()
@@ -95,12 +95,30 @@ with tabs[0]:
         st.info(f"**Model in the live app:** `{serving_meta['artifact_version']}` · horizons "
                 f"{', '.join(f'+{h} h' for h in serving_meta['horizons_h'])} · trained on {trained[2]:,} hours "
                 f"({trained[0][:10]} → {trained[1][:10]}) · target: {serving_meta['target']}. Its live record is on "
-                "the **Predictions** page.", icon="🚀")
+                "the **Predictions** page.", icon=":material/rocket_launch:")
     else:
         st.warning("The live model's metadata file (`models/cloudzy_core_delhi_serving_compact.json`) is missing, "
-                   "so its version can't be shown. The app won't serve a model it can't verify.", icon="🧪")
+                   "so its version can't be shown. The app won't serve a model it can't verify.",
+                   icon=":material/warning:")
     main_report = lab["evaluations"].get(f"evaluation_{config.RUN_TAG}_h1.json")
     if main_report:
+        # Headline: the selected model against persistence, straight from the saved report (offline test only).
+        sel = main_report["selected"]["family"]
+        tm = main_report["test_metrics"]
+        test_split = main_report["splits"]["test"]
+        st.markdown(f"**Offline test · {test_split['first_issue_time_utc'][:10]} → "
+                    f"{test_split['last_issue_time_utc'][:10]} · {tm[sel]['n']:,} hourly predictions, 1 hour ahead**")
+        h1, h2, h3, h4 = st.columns(4)
+        h1.metric("Selected model", lab_ui.MODEL_NAMES.get(sel, sel),
+                  help=main_report["selected"]["reason"])
+        h2.metric("Test MAE", f"{tm[sel]['mae_c']:.3f} °C",
+                  delta=f"{tm[sel]['mae_c'] - tm['persistence']['mae_c']:+.3f} °C vs persistence",
+                  delta_color="inverse", help="Mean absolute error: the typical size of a miss. Lower is better.")
+        h3.metric("Test RMSE", f"{tm[sel]['rmse_c']:.3f} °C",
+                  delta=f"{tm[sel]['rmse_c'] - tm['persistence']['rmse_c']:+.3f} °C vs persistence",
+                  delta_color="inverse", help="Root mean squared error: like MAE, but large misses count more.")
+        h4.metric("Persistence baseline MAE", f"{tm['persistence']['mae_c']:.3f} °C",
+                  help="\"The next hour equals this hour.\" The bar every model must clear.")
         with st.container(border=True):
             st.markdown("**Model card · Cloudzy Core 1-hour model (Delhi)**")
             card = lab_ui.model_card(main_report)
@@ -141,13 +159,13 @@ with tabs[1]:
     picked = st.date_input("Period (local dates, 2025)", value=(dt.date(2025, 5, 18), dt.date(2025, 5, 24)),
                            min_value=first, max_value=last, format="YYYY-MM-DD")
     if not isinstance(picked, tuple) or len(picked) != 2:
-        st.info("Pick an end date to show the period.", icon="📅")
+        st.info("Pick an end date to show the period.", icon=":material/calendar_month:")
     else:
         start, end = picked
         local = a.index.tz_convert(TZ)
         window = a[(local.date >= start) & (local.date <= end)]
         if window.empty:
-            st.info("No test hours in that period.", icon="📅")
+            st.info("No test hours in that period.", icon=":material/calendar_month:")
         else:
             chart(lab_ui.timeseries_chart(window, compare, colors, TZ))
             s = lab_ui.summary(window, [compare, lab_ui.CLOUDZY])
@@ -253,7 +271,8 @@ with tabs[4]:
 with tabs[5]:
     imp = lab["importance"]
     if imp is None:
-        st.info("Feature importance hasn't been computed yet. Run `python -m src.lab_data`.", icon="🧪")
+        st.info("Feature importance hasn't been computed yet. Run `python -m src.lab_data`.",
+                icon=":material/science:")
     else:
         st.markdown(
             "**Which inputs does the 1-hour model lean on?** *Permutation importance* shuffles one input's values "
@@ -296,7 +315,7 @@ with tabs[6]:
                f"{waiting} waiting normally for their target hour or the reference data.")
     if tracked["n"] == 0:
         st.info("No live predictions from this model have been evaluated yet. The reference data arrives about "
-                f"{config.REANALYSIS.lag_days} days after each prediction's target hour.", icon="⏳")
+                f"{config.REANALYSIS.lag_days} days after each prediction's target hour.", icon=":material/hourglass_top:")
     else:
         st.markdown(f"**{tracked['n']} evaluated predictions** from {tracked['issue_times']} issue times "
                     f"({tracked['target_from_utc'][:10]} → {tracked['target_to_utc'][:10]}, UTC)."

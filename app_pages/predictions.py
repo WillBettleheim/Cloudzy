@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from src import config, monitoring
+from src import theme as T
 from src import preferences as P
 from src import units as U
 from src.ui import CHART_CONFIG, palette
@@ -13,7 +14,7 @@ from src.ui import CHART_CONFIG, palette
 TZ = config.DELHI.local_timezone
 M = monitoring
 
-st.markdown("## 📈 Prediction tracking")
+st.markdown("## :material/query_stats: Prediction tracking")
 st.caption("Every Cloudzy Core prediction the app actually makes is recorded, then checked once the reference data "
            "for its target hour exists.")
 
@@ -42,19 +43,19 @@ def ist(ts) -> str:
 
 # --- Check now, and the last check (stored, so it survives reloads) ------------------------------------
 c1, c2 = st.columns([1, 3], vertical_alignment="center")
-if c1.button("Check matured predictions", icon="🔎", help="Fetch the reference data for predictions whose "
+if c1.button("Check matured predictions", icon=":material/search:", help="Fetch the reference data for predictions whose "
              "target hour is old enough, and evaluate them. Safe to press again: nothing is evaluated twice."):
     try:
         with st.spinner("Fetching reference data…"):
             M.evaluate()
     except Exception as exc:  # stored as the last check; no record was changed
         st.error(f"Couldn't fetch reference data right now ({type(exc).__name__}). Nothing was changed; "
-                 "try again later.", icon="⚠️")
+                 "try again later.", icon=":material/warning:")
 last = M.last_check()
 if last:
     when = ist(last["evaluated_at_utc"])
     if last.get("outcome") == "failed":
-        c2.warning(f"Last check {when} failed: {last.get('error')}. No record was changed.", icon="⚠️")
+        c2.warning(f"Last check {when} failed: {last.get('error')}. No record was changed.", icon=":material/warning:")
     elif last.get("outcome") == "nothing due":
         c2.caption(f"Last check {when}: no prediction was old enough to check, so no request was made.")
     else:
@@ -68,7 +69,7 @@ else:
 all_records = M.query()
 if all_records.empty:
     st.info("No predictions recorded yet. Open the **Weather** page for New Delhi: Cloudzy Core records its "
-            "predictions there automatically. Other places don't get Cloudzy predictions.", icon="📭")
+            "predictions there automatically. Other places don't get Cloudzy predictions.", icon=":material/inbox:")
     st.stop()
 
 # --- Filters -----------------------------------------------------------------------------------
@@ -82,7 +83,7 @@ last_day = all_records["target_time_utc"].max().tz_convert(TZ).date()
 picked = f4.date_input("Target dates (IST)", value=(first, last_day), min_value=first, max_value=last_day,
                        format="YYYY-MM-DD")
 if not isinstance(picked, tuple) or len(picked) != 2:
-    st.info("Pick an end date.", icon="📅")
+    st.info("Pick an end date.", icon=":material/calendar_month:")
     st.stop()
 start = pd.Timestamp(picked[0], tz=TZ)
 end = pd.Timestamp(picked[1], tz=TZ) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
@@ -102,6 +103,12 @@ m4.metric("Due or needs attention", attention, help="Old enough to check: due on
           "with the reference value still missing, or given up on.")
 m5.metric("Refusals (incomplete inputs)", len(M.refusals()))
 
+# Every status has an icon and a text label (never colour alone).
+STATUS_STYLE = {
+    M.EVALUATED: ("ok", "check_circle", "✔"), M.WAIT_TARGET: ("wait", "schedule", "◷"),
+    M.WAIT_REFERENCE: ("wait", "hourglass_top", "◷"), M.DUE: ("warn", "update", "↻"),
+    M.CHECKED_MISSING: ("warn", "report", "⚠"), M.UNAVAILABLE: ("risk", "block", "✕"),
+}
 explain = {
     M.EVALUATED: "Compared with the reference value.",
     M.WAIT_TARGET: "The predicted hour hasn't happened yet.",
@@ -113,6 +120,9 @@ explain = {
 }
 breakdown = pd.DataFrame({"Status": list(counts), "Records": list(counts.values()),
                           "What it means": [explain[k] for k in counts]})
+st.html('<div style="display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 8px">' + "".join(
+    T.chip(f"{k} · {v}", STATUS_STYLE[k][0], STATUS_STYLE[k][1], explain[k]) for k, v in counts.items() if v)
+    + "</div>")
 with st.expander("Why records are pending (status breakdown)", expanded=attention > 0):
     st.dataframe(breakdown, hide_index=True, width="stretch")
     pending = df[df["status"] == "pending"]
@@ -121,13 +131,13 @@ with st.expander("Why records are pending (status breakdown)", expanded=attentio
                    f"(UTC dates) onward; the newest from {pending['checkable_from_utc'].max():%d %b %Y}.")
 
 # --- Tracked accuracy: evaluated records only, one model version at a time ------------------------------
-st.markdown("#### Tracked accuracy (live predictions)")
+st.html(T.section("Tracked accuracy (live predictions)", "monitoring"))
 st.caption("Kept separate from the offline test results in **Cloudzy Lab** (the 2025 test year). Model versions "
            "are never pooled: each has its own numbers.")
 evaluated = df[df["status"] == "evaluated"]
 if evaluated.empty:
     st.info("No evaluated predictions in this selection yet, so there's no tracked accuracy to show. Until there "
-            "is, see the historical test results in **Cloudzy Lab**.", icon="⏳")
+            "is, see the historical test results in **Cloudzy Lab**.", icon=":material/hourglass_top:")
 else:
     import plotly.graph_objects as go
 
@@ -143,7 +153,7 @@ else:
         if not agg["conclusive"]:
             st.warning(f"Only {agg['issue_times']} issue times so far. Errors from consecutive hours are strongly "
                        f"related, so this is far too little to judge the model; at least "
-                       f"{M.CONCLUSIVE_MIN_ISSUES} issue times are needed before this says much.", icon="🔬")
+                       f"{M.CONCLUSIVE_MIN_ISSUES} issue times are needed before this says much.", icon=":material/biotech:")
         rows = pd.DataFrame(agg["by_horizon"])
         shown = pd.DataFrame({
             "Ahead": [f"+{h} h" for h in rows["horizon_h"]], "Evaluated": rows["n"],
@@ -175,9 +185,9 @@ else:
                "prediction; dots on the dashed line were exact. The same values are in the records table below.")
 
 # --- Records ---------------------------------------------------------------------------------
-st.markdown("#### Records")
+st.html(T.section("Records", "table_rows"))
 if df.empty:
-    st.info("No records match these filters.", icon="🔎")
+    st.info("No records match these filters.", icon=":material/search:")
 else:
     table = pd.DataFrame({
         "Target (IST)": df["target_time_utc"].dt.tz_convert(TZ).dt.strftime("%d %b %H:%M"),
@@ -185,7 +195,7 @@ else:
         "Ahead": [f"+{h} h" for h in df["horizon_h"]],
         f"Cloudzy {tu}": [U.temperature(v, tu) for v in df["predicted"]],
         f"IFS forecast {tu}": [U.temperature(v, tu) for v in df["provider_value"]],
-        "Status": df["detail"],
+        "Status": [f"{STATUS_STYLE[d][2]} {d}" for d in df["detail"]],
         "Checkable from (UTC)": [f"{d:%d %b}" for d in df["checkable_from_utc"]],
         f"Reference {tu}": [U.temperature(v, tu) for v in df["observed"]],
         f"Error {tu}": [U.temperature_delta(v, tu) for v in df["abs_error"]],
@@ -193,9 +203,14 @@ else:
         "Model version": df["model_version"],
     })
     st.dataframe(table, hide_index=True, width="stretch", column_config={
-        c: st.column_config.NumberColumn(format="%.1f") for c in table.columns if c.endswith(tu)})
+        **{c: st.column_config.NumberColumn(format="%.1f") for c in table.columns if c.endswith(tu)},
+        "Status": st.column_config.TextColumn(help="✔ evaluated · ◷ waiting (normal) · ↻ due on the next check · "
+                                              "⚠ checked, reference still missing · ✕ unavailable"),
+        f"Reference {tu}": st.column_config.NumberColumn(format="%.1f", help="Empty until the record is evaluated: "
+                                                         "missing values are never filled in."),
+    })
     st.download_button("Download these records (CSV)", table.to_csv(index=False).encode(), "cloudzy_predictions.csv",
-                       "text/csv", icon="⬇️")
+                       "text/csv", icon=":material/download:")
 
 ref = M.refusals()
 if len(ref):

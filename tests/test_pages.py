@@ -1,4 +1,4 @@
-"""Page-level tests for Settings, Predictions and the navigation entry point (Streamlit AppTest)."""
+"""Page-level tests for Settings, Places, Predictions and the navigation entry point (Streamlit AppTest)."""
 
 import json
 
@@ -22,34 +22,49 @@ def run(page):
 def test_settings_empty_state_and_device_note():
     at = run("settings")
     assert any("settings file on the computer running Cloudzy" in c.value for c in at.caption)  # file mode in tests
-    assert any("No favourite places yet" in i.value for i in at.info)
-    assert any("no background or push" in c.value for c in at.caption)
+    assert any("alert categories on" in c.value for c in at.caption)
+    assert not at.checkbox                       # alert categories live on the Alerts page now, not duplicated
 
 
-def test_settings_save_style_categories_and_home(tmp_path):
-    prefs = P.load()
-    prefs.toggle_favourite(PARIS)
-    P.save(prefs)
+def test_settings_saves_summary_style_and_location_choice():
     at = run("settings")
     at.radio[0].set_value("brief").run()
-    at.checkbox(key="cat_uv").uncheck().run()
-    at.selectbox[0].set_value(PARIS.label).run()
+    next(t for t in at.toggle if t.label.startswith("Detect my location")).set_value(True).run()
     assert not at.exception
     saved = P.load()
-    assert saved.summary_style == "brief" and "uv" not in saved.enabled_alert_kinds()
-    assert saved.home_place() == PARIS
+    assert saved.summary_style == "brief" and saved.auto_locate is True
     raw = json.loads(P.prefs_path().read_text())
-    assert set(raw) >= {"summary_style", "alert_categories", "home"}
+    assert set(raw) >= {"summary_style", "auto_locate"} and "latitude" not in json.dumps(raw)
 
 
-def test_settings_remove_favourite_clears_home():
+# --- Places -----------------------------------------------------------------------------------------
+
+def test_places_empty_state():
+    at = run("places")
+    assert any("No saved places yet" in i.value for i in at.info)
+
+
+def test_places_home_city_and_removal():
     prefs = P.load()
     prefs.toggle_favourite(PARIS)
-    prefs.home = {k: getattr(PARIS, k) for k in PARIS.__dataclass_fields__}
     P.save(prefs)
-    at = run("settings")
+    at = run("places")
+    assert "Paris" in " ".join(h.proto.body for h in at.html)
+    next(b for b in at.button if b.label == "Make home").click().run()
+    assert P.load().home_place() == PARIS
+    assert any(b.label == "Unset home" for b in at.button)
     next(b for b in at.button if b.label == "Remove").click().run()
-    assert P.load().favourites == [] and P.load().home is None
+    assert P.load().favourites == [] and P.load().home is None      # removing the home city clears it
+
+
+def test_places_open_hands_the_place_to_the_weather_page():
+    prefs = P.load()
+    prefs.toggle_favourite(PARIS)
+    P.save(prefs)
+    at = run("places")
+    next(b for b in at.button if b.label == "Open").click().run()
+    assert not at.exception
+    assert at.session_state["_open_place"] == PARIS                # the Weather page opens it next
 
 
 def test_predictions_page_empty_state():
@@ -72,7 +87,7 @@ def test_predictions_page_with_records_never_claims_accuracy_without_evaluations
 def test_navigation_lists_every_page():
     with open("streamlit_app.py") as f:
         src = f.read()
-    for page in ("weather", "history", "predictions", "lab", "settings"):
+    for page in ("weather", "history", "alerts", "predictions", "lab", "places", "settings"):
         assert f"app_pages/{page}.py" in src
 
 

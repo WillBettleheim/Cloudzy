@@ -13,7 +13,8 @@ import datetime as dt
 import pandas as pd
 import streamlit as st
 
-from src import history, lab_ui
+from src import app_data, history, lab_ui
+from src import theme as T
 from src import preferences as P
 from src import units as U
 from src.data_collection import DataCollectionError
@@ -40,31 +41,43 @@ def chart(fig) -> None:
     st.plotly_chart(fig, width="stretch", theme="streamlit", config=CHART_CONFIG)
 
 
-st.markdown("## 🕰️ Weather history")
+st.markdown("## :material/history: History & Trends")
 st.caption(f"Past weather anywhere since 1940. **Data type:** {history.LABEL}. Grid cells are roughly 9–25 km "
-           "across, so values can differ from a nearby weather station.")
+           "across, so values can differ from a nearby weather station. This is not a forecast.")
 
 colors = palette()
-h_query = st.text_input("Place", value="New Delhi", key="hist_query").strip()
+viewing = app_data.current_place()   # the place on the Weather page, if any
+q_col, r_col = st.columns([2, 3], vertical_alignment="bottom")
+h_query = q_col.text_input("Place", value=viewing.name if viewing else "New Delhi", key="hist_query",
+                           icon=":material/search:").strip()
+RANGES = {"Last 30 days": 30, "Last 90 days": 90, "Last 12 months": 365, "Custom": None}
+range_pick = r_col.segmented_control("Time range", list(RANGES), default="Last 30 days", key="hist_range",
+                                     help="Presets end a week ago, when the reanalysis is complete.")
 today = dt.date.today()
 if len(h_query) < 2:
-    st.info("Type at least two letters to search for a place.", icon="🔎")
+    st.info("Type at least two letters to search for a place.", icon=":material/search:")
     st.stop()
 try:
     with st.spinner("Looking for that place…"):
         h_places = cached_places(h_query)
 except (ProviderError, DataCollectionError) as exc:
-    st.error(f"Location search is unavailable right now. {exc}", icon="⚠️")
+    st.error(f"Location search is unavailable right now. {exc}", icon=":material/warning:")
     st.stop()
 if not h_places:
-    st.warning(f"No places match “{h_query}”.", icon="🗺️")
+    st.warning(f"No places match “{h_query}”.", icon=":material/travel_explore:")
     st.stop()
 
 h_place = st.selectbox("Choose the right match", h_places, format_func=lambda p: p.label, key="hist_place")
-picked = st.date_input("Dates (local)", value=(today - dt.timedelta(days=37), today - dt.timedelta(days=7)),
-                       min_value=history.MIN_DATE, max_value=today, key="hist_dates", format="YYYY-MM-DD")
+span_days = RANGES.get(range_pick or "Last 30 days")
+if span_days is None:
+    picked = st.date_input("Dates (local)", value=(today - dt.timedelta(days=37), today - dt.timedelta(days=7)),
+                           min_value=history.MIN_DATE, max_value=today, key="hist_dates", format="YYYY-MM-DD",
+                           help=f"Up to {history.MAX_SPAN_DAYS} days, from {history.MIN_DATE:%Y} onward.")
+else:
+    end_default = today - dt.timedelta(days=7)
+    picked = (end_default - dt.timedelta(days=span_days - 1), end_default)
 if not isinstance(picked, tuple) or len(picked) != 2:
-    st.info("Pick an end date.", icon="📅")
+    st.info("Pick an end date.", icon=":material/calendar_month:")
     st.stop()
 start, end = picked
 try:
@@ -72,10 +85,10 @@ try:
     with st.spinner(f"Loading {(end - start).days + 1} days for {h_place.name}…"):
         hist = cached_history(h_place, start, end)
 except ValueError as exc:
-    st.warning(str(exc), icon="📅")
+    st.warning(str(exc), icon=":material/calendar_month:")
     st.stop()
 except ProviderError as exc:
-    st.error(str(exc), icon="⚠️")
+    st.error(str(exc), icon=":material/warning:")
     st.stop()
 
 hunits = P.load().unit_override() or U.default_for_country(h_place.country_code)
@@ -85,11 +98,12 @@ rconv = lambda v: U.precipitation(v, hunits.precipitation)  # noqa: E731
 rdig = U.precipitation_digits(hunits.precipitation)
 daily = history.daily_summary(hist)
 if daily.empty:
-    st.info("The archive has no data for these dates.", icon="📭")
+    st.info("The archive has no data for these dates.", icon=":material/inbox:")
     st.stop()
 ov = history.overview(daily)
 
-st.markdown(f"#### {h_place.label} · {start:%d %b %Y} – {end:%d %b %Y}")
+st.html(T.section(f"{h_place.label} · {start:%d %b %Y} – {end:%d %b %Y}", "location_on",
+                  f"{(end - start).days + 1} days · reanalysis"))
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Mean temperature", f"{tconv(ov['mean_c']):.1f} {tu}")
 c2.metric("Hottest day", f"{tconv(ov['hottest'][1]):.0f}{tu[0]}", help=f"{ov['hottest'][0]:%d %b %Y}")
@@ -129,7 +143,7 @@ with daily_tab:
 with monthly_tab:
     monthly = history.monthly_summary(daily)
     if len(monthly) < 2:
-        st.info("Choose dates that cover at least two calendar months to compare months.", icon="🗓️")
+        st.info("Choose dates that cover at least two calendar months to compare months.", icon=":material/date_range:")
     else:
         st.dataframe(pd.DataFrame({
             "Month": [p.strftime("%b %Y") for p in monthly.index],
@@ -157,10 +171,10 @@ with compare_tab:
                 ref_daily = cached_reference(h_place, start, end, years)
             cmp = history.reference_comparison(ref_daily, start, end, years)
         except ProviderError as exc:
-            st.error(str(exc), icon="⚠️")
+            st.error(str(exc), icon=":material/warning:")
             cmp = None
         if cmp is not None and not cmp["valid"]:
-            st.info(cmp["reason"], icon="ℹ️")
+            st.info(cmp["reason"], icon=":material/info:")
         elif cmp is not None:
             span = f"{cmp['years'][0]}–{cmp['years'][-1]}"
             diff = U.temperature_delta(abs(cmp["difference_c"]), tu)
