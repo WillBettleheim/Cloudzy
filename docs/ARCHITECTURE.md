@@ -96,7 +96,7 @@ the tests use that mode.
 
 ## Tests
 
-- **Offline suite:** `python -m pytest` runs 448 tests and needs no network.
+- **Offline suite:** `python -m pytest` runs 459 tests and needs no network.
   `tests/conftest.py` points preferences, monitoring and snapshots at temporary
   folders, so tests never touch real user data.
 - **Live checks:** `python -m pytest -m integration` runs 5 tests against the
@@ -124,16 +124,33 @@ structure, feature schema and checksum before the app or the evaluator uses a mo
 ## Prediction tracking
 
 - **Record:** `monitoring.record_prediction` stores one row per (model version,
-  location, issue time, horizon, variable). The row ID is a SHA-256 of those
-  fields, so re-renders and retries can't duplicate a record (`INSERT OR IGNORE`).
-  Non-finite values, or target times that aren't issue + horizon, are rejected.
-- **Evaluate:** `monitoring.evaluate` only touches pending records whose target
-  hour is older than the reanalysis lag. It matches the exact UTC hour and checks
-  the reference is in UTC and °C. A failed request changes nothing; after 30 days
-  without reference data a record becomes `unavailable`. Provider forecasts are
-  never used as observations.
-- **Aggregate:** only `evaluated` rows count. Results carry sample counts, issue
-  times and the date range, and are flagged as not conclusive below 30 issue times.
+  location, issue time, horizon, variable). Times are converted to UTC first and
+  must carry a time zone, so the same prediction written with another offset is
+  still one record. The row ID is a SHA-256 of those fields, so re-renders and
+  retries can't duplicate a record (`INSERT OR IGNORE`). Non-finite values, or
+  target times that aren't issue + horizon, are rejected.
+- **Evaluate:** `monitoring.evaluate` only requests reference data for pending
+  records whose target date is more than the reanalysis lag (6 days, by the UTC
+  date) in the past; newer records cost no request. It matches the exact UTC
+  hour and checks the reference is in UTC and °C. Updates apply only while a
+  record is still pending, so repeated or overlapping runs can't double-count.
+  - Reference value missing for that hour: the record stays pending with a
+    note, and is retried on every later check.
+  - Still missing 30 days after the target hour: `unavailable`, with the reason.
+  - Request failed: no record changes; the failure is stored.
+  Every run, successful or not, is stored as `meta.last_check` (time, counts,
+  how far the reference data reached, error).
+- **Status breakdown:** `monitoring.classify` explains each record: evaluated;
+  waiting for the target hour; waiting for publication; due on the next run;
+  checked with the value still missing; unavailable. Each record also gets the
+  first date it's checkable.
+- **Aggregate:** only `evaluated` rows count, one model version at a time.
+  Results carry sample counts, issue times and the date range, and are flagged
+  as not conclusive below 30 issue times. Reference values are reanalysis (a
+  model reconstruction), not station readings; the most recent ones are
+  preliminary (ERA5T) and may be revised slightly later.
+- **Scheduling:** `python -m src.monitoring` exits with status 1 when the
+  reference request fails, so cron or launchd can run it daily (see README).
 
 ## Alerts and notifications
 

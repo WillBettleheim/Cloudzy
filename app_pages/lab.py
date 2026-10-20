@@ -285,11 +285,17 @@ with tabs[5]:
 # --- Live tracking ------------------------------------------------------------------------
 with tabs[6]:
     st.markdown("Live predictions are recorded and later checked against the reanalysis on the **Predictions** "
-                "page. This tab shows only the overall result, which is kept separate from the historical test "
-                "evaluation above.")
-    tracked = monitoring.aggregate(monitoring.query())
+                "page. This tab shows the result for the model the app serves now, kept separate from the "
+                "historical test evaluation above; other model versions are on the Predictions page.")
+    live_version = serving_meta["artifact_version"] if serving_meta else None
+    live_records = monitoring.query(model_version=live_version) if live_version else monitoring.query().iloc[0:0]
+    tracked = monitoring.aggregate(live_records)
+    live_counts = monitoring.status_counts(live_records)
+    waiting = live_counts[monitoring.WAIT_TARGET] + live_counts[monitoring.WAIT_REFERENCE]
+    st.caption(f"Model `{live_version or 'unknown'}`: {len(live_records)} records, {tracked['n']} evaluated, "
+               f"{waiting} waiting normally for their target hour or the reference data.")
     if tracked["n"] == 0:
-        st.info("No live predictions have been evaluated yet. The reference data arrives about "
+        st.info("No live predictions from this model have been evaluated yet. The reference data arrives about "
                 f"{config.REANALYSIS.lag_days} days after each prediction's target hour.", icon="⏳")
     else:
         st.markdown(f"**{tracked['n']} evaluated predictions** from {tracked['issue_times']} issue times "

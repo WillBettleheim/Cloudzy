@@ -61,7 +61,10 @@ def test_predictions_page_with_records_never_claims_accuracy_without_evaluations
     from tests.test_monitoring import result
     monitoring.record_prediction(result())
     at = run("predictions")
-    assert [m.value for m in at.metric][:3] == ["2", "0", "2"]
+    # Targets on 1-2 Oct 2026: long past and past the publication delay, so due rather than waiting.
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics["Records"] == "2" and metrics["Evaluated"] == "0"
+    assert metrics["Waiting (normal)"] == "0" and metrics["Due or needs attention"] == "2"
     assert any("No evaluated predictions in this selection yet" in i.value for i in at.info)
     assert len(at.dataframe) >= 1
 
@@ -88,3 +91,17 @@ def test_lab_shows_deployed_model_version():
     at = run("lab")
     assert any("Model in the live app" in i.value and "@" in i.value for i in at.info)
     assert any(e.label.startswith("Chart data as a table") for e in at.expander)
+
+
+def test_predictions_page_keeps_model_versions_separate():
+    from datetime import date
+
+    from tests.test_monitoring import Session, archive_payload, result
+    monitoring.record_prediction(result())                                   # version ...abc123def456
+    monitoring.record_prediction(result(version="cloudzy_core_delhi_serving_compact@999999999999"))
+    monitoring.evaluate(date(2026, 10, 19), session=Session(archive_payload(temp=lambda i: 30.5)))
+    at = run("predictions")
+    headings = [m.value for m in at.markdown if m.value.startswith("##### Model")]
+    assert len(headings) == 2 and all("evaluated" not in h for h in headings)
+    assert sum("**2 evaluated predictions**" in m.value for m in at.markdown) == 2   # 2 each, never 4 pooled
+    assert any("Last check" in c.value for c in at.caption)

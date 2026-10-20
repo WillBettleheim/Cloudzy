@@ -56,7 +56,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 streamlit run streamlit_app.py   # the app: weather at http://localhost:8501, Cloudzy Lab at /lab
-python -m pytest                 # 448 offline tests, no network needed
+python -m pytest                 # 459 offline tests, no network needed
 python -m src.pipeline all       # Cloudzy Core: fetch → train → evaluate (Delhi, 2023-2025, ~30 s when cached)
 python -m pytest -m integration   # 5 live checks against the Open-Meteo APIs
 python -m src.data_validation    # download (first run only), validate, write processed CSV
@@ -747,7 +747,7 @@ trained on 2023-01-02 → 2026-08-31.
 
 | Suite | What it covers | How to run |
 |---|---|---|
-| Offline (448) | Everything in phases A–F and Cloudzy 2.0, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
+| Offline (459) | Everything in phases A–F and Cloudzy 2.0, plus deployment readiness. The committed bundle loads and predicts, is under the size limit and has the keys refit expects; the service defaults to it; requirements cover every runtime import; the app's entry point, pages and Lab data exist | `python -m pytest` |
 | Integration (5) | Live calls: both archive sources validate, live IFS inputs give 25 complete hours, the provider forecast and geocoding work, and a nonsense search returns nothing | `python -m pytest -m integration` |
 | Lint | Unused imports and names, likely bugs, outdated syntax (ruff; rules and the reasons for each ignored rule are in `pyproject.toml`) | `pip install -r requirements-dev.txt`, then `ruff check .` |
 | Types (advisory) | mypy over `src/`, `app_pages/` and the entry point. It still reports annotation-level errors (loose types around pandas and optional values), so it isn't a pass/fail gate yet | `mypy` |
@@ -818,16 +818,33 @@ are written in plain language ("the weather service didn't respond within
 **Prediction tracking** (`src/monitoring.py`, Predictions page):
 - **Recording:** every live Cloudzy prediction is stored once in a local SQLite
   file (`data/monitoring/cloudzy_predictions.sqlite`), with its model version,
-  issue and target times and the IFS value for the same hour. Refusals
+  issue and target times (UTC) and the IFS value for the same hour. Refusals
   (incomplete inputs) are stored separately.
-- **Checking:** the target reanalysis is published about 6 days late, so only
-  predictions whose target hour has matured are checked, at the exact UTC hour.
-  Run `python -m src.monitoring` or use the Predictions page button; nothing
-  runs automatically. It reports MAE, RMSE and bias by horizon (next to the 2025
-  test MAE the app shows), with sample counts.
-- **Current state:** as of this writing no prediction has matured yet, so there
-  is no measured live accuracy. The Predictions page and the Lab say so instead
-  of showing numbers.
+- **Checking:** the target reanalysis is published about 6 days late, so a
+  prediction is checked from 7 days after its target date, at the exact UTC
+  hour. Newer ones cost no request. If the value for that hour is still
+  missing, the record stays pending and is retried on every later check. A
+  failed request changes nothing and is shown as the last check.
+- **Status breakdown:** the Predictions page says why each record is pending:
+  - waiting for its target hour;
+  - waiting for the reference data to be published;
+  - due on the next check;
+  - checked, with the reference value still missing.
+
+  Accuracy (MAE, RMSE and bias by horizon, with sample counts and dates) comes
+  only from evaluated records, one model version at a time, kept apart from
+  the 2025 offline test results.
+- **Running the check:** press **Check matured predictions**, or run
+  `python -m src.monitoring`. Nothing runs by itself. To check daily on a Mac
+  or Linux machine that keeps the tracking file, add a cron entry such as:
+
+  ```bash
+  0 9 * * * cd /path/to/Cloudzy && .venv/bin/python -m src.monitoring >> data/monitoring/check.log 2>&1
+  ```
+
+- **Current state:** as of this writing no prediction has matured yet (the
+  first become checkable on 26 October 2026), so there is no measured live
+  accuracy. The Predictions page and the Lab say so instead of showing numbers.
 
 **Cloudzy Lab additions:**
 - **Error breakdown:** Cloudzy's 2025 error is 1.5× higher in hours that start
@@ -1068,7 +1085,7 @@ DEPLOYMENT.md            deployment and maintenance guide
 .github/workflows/       CI: offline tests on push, live API checks weekly
 reports/lab/             the Lab's committed data (~600 KB)
 .streamlit/config.toml   brand theme: light and dark palettes
-tests/                   448 offline tests + 5 live integration tests
+tests/                   459 offline tests + 5 live integration tests
 reports/                 data-quality, feature and evaluation reports (JSON) and figures
 data/, models/           generated by the pipeline and ignored by git
 ```

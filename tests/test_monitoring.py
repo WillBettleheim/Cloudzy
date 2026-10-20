@@ -219,3 +219,127 @@ def test_tracking_can_be_disabled(monkeypatch, tmp_path):
     monkeypatch.setattr(src.service, "forecast_now", lambda snapshot=True, session=None: result())
     briefing.cloudzy_block(DELHI)
     assert not (tmp_path / M.DB_NAME).exists()
+
+
+# --- Timestamps: one instant, one record, always UTC ----------------------------------------------
+
+def ist_result(issue_ist="2026-10-01T11:30:00+05:30", **kw):
+    """The same predictions as result(), written with an IST offset instead of UTC."""
+    r = result(**kw)
+    t0 = pd.Timestamp(issue_ist)
+    r["issue_time_utc"] = issue_ist
+    for p in r["cloudzy"]["predictions"]:
+        p["valid_time_utc"] = (t0 + pd.Timedelta(hours=p["horizon_h"])).isoformat()
+    return r
+
+
+def test_offsets_are_normalised_to_utc_and_never_duplicate(tmp_path):
+    assert M.record_prediction(result(), tmp_path)["inserted"] == 2
+    again = M.record_prediction(ist_result(), tmp_path)        # 11:30 IST == 06:00 UTC: the same predictions
+    assert again == {"inserted": 0, "duplicates": 2, "rejected": 0}
+    import sqlite3
+    rows = sqlite3.connect(tmp_path / M.DB_NAME).execute("SELECT issue_time_utc, target_time_utc FROM predictions").fetchall()
+    assert all(i.endswith("+00:00") and t.endswith("+00:00") for i, t in rows)
+
+
+def test_ist_written_prediction_is_stored_in_utc_and_filters_correctly(tmp_path):
+    M.record_prediction(ist_result(), tmp_path)
+    df = M.query(tmp_path, start=pd.Timestamp("2026-10-01T07:00Z"), end=pd.Timestamp("2026-10-01T07:00Z"))
+    assert list(df["horizon_h"]) == [1]                        # target 07:00 UTC, found by a UTC filter
+
+
+def test_timestamps_without_a_time_zone_are_rejected(tmp_path):
+    r = result()
+    r["cloudzy"]["predictions"][0]["valid_time_utc"] = "2026-10-01T07:00:00"     # naive
+    assert M.record_prediction(r, tmp_path)["rejected"] == 1
+    r = result(issue="2026-10-01T06:00:00")
+    with pytest.raises(ValueError, match="timezone-aware"):
+        M.record_prediction(r, tmp_path)
+
+
+# --- Delayed reference data, retries and repeated runs ------------------------------------------------
+
+def test_delayed_reference_is_retried_then_evaluated(tmp_path):
+    M.record_prediction(result(), tmp_path)
+    nulls = archive_payload(temp=lambda i: None)               # hours present, values not published yet
+    out = M.evaluate(date(2026, 10, 19), tmp_path, session=Session(nulls))
+    assert out["newly_evaluated"] == 0 and out["still_pending"] == 2
+    df = M.classify(M.query(tmp_path), now=pd.Timestamp("2026-10-19T12:00Z"))
+    assert set(df["status"]) == {"pending"} and df["observed"].isna().all()      # never a fabricated value
+    assert set(df["detail"]) == {M.CHECKED_MISSING}
+    out = M.evaluate(date(2026, 10, 20), tmp_path, session=Session(archive_payload(temp=lambda i: 30.0)))
+    df = M.query(tmp_path)
+    assert out["newly_evaluated"] == 2 and set(df["status"]) == {"evaluated"} and df["status_note"].isna().all()
+
+
+def test_repeated_evaluation_never_double_counts(tmp_path):
+    M.record_prediction(result(), tmp_path)
+    first = M.evaluate(date(2026, 10, 19), tmp_path, session=Session(archive_payload()))
+    s = Session(archive_payload())
+    second = M.evaluate(date(2026, 10, 19), tmp_path, session=s)
+    assert first["newly_evaluated"] == 2 and second["newly_evaluated"] == 0 and s.calls == 0
+    assert len(M.query(tmp_path)) == 2 and M.aggregate(M.query(tmp_path))["n"] == 2
+
+
+def test_last_check_is_stored_for_success_nothing_due_and_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.data_collection.time.sleep", lambda s: None)
+    assert M.last_check(tmp_path) is None
+    M.record_prediction(result(issue="2026-10-18T06:00:00+00:00"), tmp_path)
+    M.evaluate(date(2026, 10, 19), tmp_path, session=Session(archive_payload()))
+    assert M.last_check(tmp_path)["outcome"] == "nothing due"
+    M.record_prediction(result(), tmp_path)
+    with pytest.raises(DataCollectionError):
+        M.evaluate(date(2026, 10, 19), tmp_path, session=Session(fail=True))
+    failed = M.last_check(tmp_path)
+    assert failed["outcome"] == "failed" and failed["error"].startswith("DataCollectionError")
+    assert set(M.query(tmp_path)["status"]) == {"pending"}                       # nothing changed
+    ok = M.evaluate(date(2026, 10, 19), tmp_path, session=Session(archive_payload()))
+    stored = M.last_check(tmp_path)
+    assert stored["outcome"] == "ok" and stored["newly_evaluated"] == ok["newly_evaluated"] == 2
+    assert stored["reference_until_utc"].startswith("2026-10-02T23:00")
+
+
+def test_unavailable_records_keep_a_reason(tmp_path):
+    M.record_prediction(result(), tmp_path)
+    M.evaluate(date(2026, 11, 15), tmp_path, session=Session(archive_payload(start="2026-09-01", hours=24)))
+    df = M.classify(M.query(tmp_path))
+    assert set(df["status"]) == {"unavailable"} and set(df["detail"]) == {M.UNAVAILABLE}
+    assert df["status_note"].str.contains("No reference value within 30 days").all()
+    assert M.aggregate(df) == {"n": 0}                                           # excluded from accuracy
+
+
+# --- Status breakdown -----------------------------------------------------------------------------
+
+def test_pending_records_are_classified_by_what_they_wait_for(tmp_path):
+    now = pd.Timestamp("2026-10-20T04:00Z")
+    M.record_prediction(result(issue="2026-10-20T03:00:00+00:00", horizons=(1, 24)), tmp_path)   # 04:00, +1 day
+    M.record_prediction(result(issue="2026-10-18T06:00:00+00:00", horizons=(1, 2)), tmp_path)    # past, recent
+    M.record_prediction(result(issue="2026-10-01T06:00:00+00:00", horizons=(1, 2)), tmp_path)    # old enough
+    df = M.classify(M.query(tmp_path), now=now)
+    by = dict(zip(df["target_time_utc"].dt.strftime("%m-%d %H"), df["detail"], strict=True))
+    assert by["10-21 03"] == M.WAIT_TARGET
+    assert by["10-18 07"] == M.WAIT_REFERENCE and by["10-18 08"] == M.WAIT_REFERENCE
+    assert by["10-01 07"] == M.DUE
+    counts = M.status_counts(M.query(tmp_path), now=now)
+    assert by["10-20 04"] == M.WAIT_REFERENCE                  # exactly "now": the hour has been reached
+    assert counts[M.WAIT_TARGET] == 1 and counts[M.WAIT_REFERENCE] == 3 and counts[M.DUE] == 2
+    checkable = dict(zip(df["target_time_utc"].dt.strftime("%m-%d %H"), df["checkable_from_utc"], strict=True))
+    assert str(checkable["10-18 07"]) == "2026-10-25"          # target date + publication delay + 1 day
+
+
+def test_eligibility_uses_the_utc_date():
+    assert M.eligibility_cutoff(date(2026, 10, 20)) == pd.Timestamp("2026-10-14", tz="UTC")
+
+
+def test_older_databases_gain_the_note_column_without_losing_records(tmp_path):
+    import sqlite3
+    con = sqlite3.connect(tmp_path / M.DB_NAME)
+    con.executescript(M.SCHEMA.replace(",\n  status_note TEXT", ""))
+    con.execute("INSERT INTO predictions (id, created_at_utc, issue_time_utc, target_time_utc, horizon_h, location_id, "
+                "latitude, longitude, model_version, variable, predicted, unit, status) VALUES "
+                "('x', '2026-10-01T06:00:00+00:00', '2026-10-01T06:00:00+00:00', '2026-10-01T07:00:00+00:00', 1, "
+                "'delhi-grid', 28.6, 77.2, 'old', 'temperature_2m', 30.0, '°C', 'pending')")
+    con.commit()
+    con.close()
+    df = M.query(tmp_path)
+    assert len(df) == 1 and "status_note" in df.columns and df["status_note"].isna().all()

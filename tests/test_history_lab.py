@@ -209,7 +209,8 @@ def test_live_tracking_tab_reads_recorded_predictions(lab_fakes, tmp_path, monke
     from tests.test_monitoring import result
     monitoring.record_prediction(result(), tmp_path)
     at = run_lab()
-    assert any("No live predictions have been evaluated yet" in i.value for i in at.info)
+    # The recorded test predictions come from another model version, so the served model has none evaluated.
+    assert any("No live predictions from this model have been evaluated yet" in i.value for i in at.info)
 
 
 # --- Monthly view and reference comparison --------------------------------------------------------
