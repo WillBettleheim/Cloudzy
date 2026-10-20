@@ -88,3 +88,31 @@ def test_units_follow_settings(fake_network, no_reverse):  # noqa: F811
     at = run_page(pick=(48.85, 2.35))
     temp = next(m for m in at.metric if m.label == "Temperature")
     assert temp.value.endswith("°F")
+
+
+# --- Globe / map view ---------------------------------------------------------------------------------
+
+def view_control(at):
+    return next(c for c in at.button_group if c.label == "View")
+
+
+def test_globe_is_the_default_view_and_the_map_is_one_click_away(fake_network, no_reverse):  # noqa: F811
+    at = run_page()
+    assert view_control(at).value == "globe"
+    view_control(at).set_value("map").run()
+    assert not at.exception
+    assert view_control(at).value == "map"
+
+
+def test_globe_fallback_switches_to_the_map_and_says_why(fake_network, no_reverse):  # noqa: F811
+    at = AppTest.from_file("../app_pages/explorer.py", default_timeout=60)
+    at.session_state["_explorer_globe_fallback"] = "This browser or device doesn't support WebGL."
+    at.run()
+    assert not at.exception
+    assert any("3D globe isn't available here" in i.value and "WebGL" in i.value for i in at.info)
+
+
+def test_selected_point_panel_works_in_globe_view(fake_network, no_reverse):  # noqa: F811
+    at = run_page(pick=(48.85, 2.35))
+    assert view_control(at).value == "globe"
+    assert [m.label for m in at.metric] == ["Temperature", "Wind", "Cloud cover", "Condition"]

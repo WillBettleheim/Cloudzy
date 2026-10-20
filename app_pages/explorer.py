@@ -1,7 +1,8 @@
-"""Weather Explorer: a global map of NOAA GFS forecast fields with a forecast timeline.
+"""Weather Explorer: a 3D globe and a global map of NOAA GFS forecast fields with a forecast timeline.
 
-The map (src.explorer_view) draws real 1° GFS grids prepared by src.explorer_data. Clicking the
-map selects a point; this page then shows a separate *point forecast* for it (Open-Meteo), and a
+The globe (src.globe_view, Milestone 1: temperature) and the map (src.explorer_view, all layers) draw
+real 1° GFS grids prepared by src.explorer_data. If the globe can't run (no WebGL, a lost graphics
+context or a failed texture) the page switches to the map by itself. Clicking either selects a point; this page then shows a separate *point forecast* for it (Open-Meteo), and a
 Cloudzy Core point prediction only where that model is valid (its Delhi grid cell).
 """
 
@@ -19,13 +20,17 @@ from src.briefing import CLOUDZY_RADIUS_KM, distance_km
 from src.config import DELHI
 from src.data_collection import DataCollectionError
 from src.explorer_view import explorer_map
+from src.globe_view import globe
 from src.provider import Place, ProviderError
 
 PICK_KEY = "_explorer_pick"
+VIEW_KEY = "_explorer_view"
+FALLBACK_KEY = "_explorer_globe_fallback"
+VIEWS = {"globe": ":material/public: Globe", "map": ":material/map: Map"}
 
 st.html(T.page_header("Weather Explorer", "Forecast · global model view", "public"))
 st.caption("Global forecast from the NOAA GFS weather model on a 1° grid (about 110 km), 3-hourly to +72 hours. "
-           "A model forecast, not radar or observations. Click the map to select a point.")
+           "A model forecast, not radar or observations. Click the globe or map to select a point.")
 
 prefs = P.load()
 status = explorer_data.ensure_current()
@@ -44,12 +49,28 @@ city = app_data.current_place() or prefs.home_place()
 units = prefs.unit_override() or (U.default_for_country(city.country_code) if city else U.METRIC)
 pick = st.session_state.get(PICK_KEY)
 
-result = explorer_map({
+fallback = st.session_state.get(FALLBACK_KEY)
+view = st.segmented_control("View", list(VIEWS), format_func=lambda v: VIEWS[v], key=VIEW_KEY, default="globe",
+                            required=True, label_visibility="collapsed",
+                            help="Globe: 3D Earth with the temperature layer. Map: flat map with every layer.")
+if view == "globe" and fallback:
+    st.info(f"The 3D globe isn't available here: {fallback.rstrip('.')}. The 2D map is shown instead.",
+            icon=":material/map:")
+    view = "map"
+
+data = {
     "manifest": f"{explorer_data.STATIC_URL}/manifest.json",
     "units": {"temperature": units.temperature, "wind": units.wind, "precipitation": units.precipitation},
     "city": {"lat": city.latitude, "lon": city.longitude, "label": city.label} if city else None,
-    "layer": "wind",
-})
+}
+if view == "globe":
+    result = globe(data)
+    fb = getattr(result, "fallback", None)
+    if isinstance(fb, dict) and not fallback:
+        st.session_state[FALLBACK_KEY] = str(fb.get("reason") or "it couldn't start")[:200]
+        st.rerun()
+else:
+    result = explorer_map({**data, "layer": "wind"})
 picked = getattr(result, "picked", None)
 if isinstance(picked, dict) and {"lat", "lon"} <= set(picked):
     try:
@@ -62,7 +83,7 @@ if isinstance(picked, dict) and {"lat", "lon"} <= set(picked):
 st.html(T.section("Selected point", "location_searching",
                   "Point forecast from Open-Meteo, a different source from the map layers"))
 if not pick:
-    st.caption("Click anywhere on the map to see a point forecast for that spot."
+    st.caption("Click anywhere on the globe or map to see a point forecast for that spot."
                + (f" The yellow marker is {city.label}, the place on your Weather page." if city else ""))
 else:
     lat, lon = pick
@@ -145,6 +166,9 @@ with st.expander("About the layers and data"):
         ("Humidity", "2 m relative humidity", "%"),
         ("CAPE", "Surface-based convective available potential energy", "J/kg; instability, not a storm forecast"),
     ], columns=["Layer", "GFS field", "Notes"]), hide_index=True, width="stretch")
-    st.caption("Map: Leaflet 1.9.4 (BSD-2-Clause). Basemap: Natural Earth coastlines, borders and cities (public "
+    st.caption("Globe: three.js r186 (MIT). Earth imagery: NASA Blue Marble shaded relief and bathymetry via "
+               "NASA GIBS (public domain; a cloud-free composite, not current conditions). In this first version the "
+               "globe shows the temperature layer; the map has every layer. "
+               "Map: Leaflet 1.9.4 (BSD-2-Clause). Basemap: Natural Earth coastlines, borders and cities (public "
                "domain). Data decoding: ECMWF ecCodes (Apache-2.0). Point forecasts: Open-Meteo (CC BY 4.0). "
                "Place names: © OpenStreetMap contributors (ODbL).")
