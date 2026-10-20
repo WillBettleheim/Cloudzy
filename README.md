@@ -39,7 +39,7 @@ the UI comes only after the ML pipeline works and has been measured.
 | **Settings** (`/settings`) | °C/°F, km/h, m/s, mph or knots, mm/in (regional by default); detect location on start; brief or detailed summary; theme guidance; reset. Saved in each visitor's own browser, so people sharing one Cloudzy server never see or change each other's settings; never synced between devices, never precise device coordinates |
 | **Places** (`/places`) | Saved cities as cards: open one on the Weather page, make it your home city (opens first), or remove it |
 | **Alerts** (`/alerts`) | Active and dismissed alerts for the place you're viewing (with each dismissal's expiry and "show again"), alert categories, thresholds and optional browser notifications. Clearly labelled as unofficial |
-| **Weather Explorer** (`/explorer`) | 3D globe (NASA Earth imagery with real day and night; GFS temperature, wind particles, precipitation and cloud layers) and a global map of NOAA GFS forecast fields (1° grid, 3-hourly to +72 h): wind particles driven by the real vectors, temperature, precipitation with rain/snow/mixed type, cloud cover, pressure with isobars, gusts, humidity, CAPE; forecast timeline with playback; click for grid values and a separate point forecast |
+| **Weather Explorer** (`/explorer`) | 3D globe (NASA Earth imagery with real day and night) and a flat map of NOAA GFS forecast fields, with search fly-to and fullscreen (1° grid, 3-hourly to +72 h): wind particles driven by the real vectors, temperature, precipitation with rain/snow/mixed type, cloud cover, pressure with isobars, gusts, humidity, CAPE, snow depth, GFS-Wave wave height; forecast timeline with playback; click for grid values and a separate point forecast |
 | **Design** | "Atmospheric Intelligence": an immersive current-weather sky that follows the real weather code and local sun times (clear day/night, dawn, dusk, partly cloudy, overcast, fog, rain, storm, snow; decorative, static under reduced motion), Inter and Outfit type with tabular figures, editorial page headers, hairline instrument readouts instead of boxed tiles, weather-aware saved-place cards, sidebar navigation, Material Symbols icons, and layouts checked at phone, tablet and laptop widths |
 | **Weather intelligence** | "Cloudzy says" summary (temperature trend, earlier today, rain timing, wind, clouds, tomorrow; nothing when data is missing or more than 3 h old), unofficial alerts (reason, value, period, uncertainty; dismissable; at most one per kind per day), daily briefing, suggestions with reasons. Rule-based, built from the forecast numbers, with no language model |
 | **Cloudzy Core** | Experimental 1–24 h temperature model for Delhi, kept separate from the provider forecast; refuses to predict on incomplete inputs |
@@ -884,84 +884,205 @@ are written in plain language ("the weather service didn't respond within
 
 ## Weather Explorer (globe and global map)
 
-Open **Weather Explorer** in the sidebar (`/explorer`). A **Globe / Map** switch at the top picks the view.
+Open **Weather Explorer** in the sidebar (`/explorer`). One compact row sits above the view: a **Fly to a place**
+search, a **Browse** list of regions and the **Globe / Map** switch; search matches (or your saved places) appear
+on a line below it. Everything else lives inside the view, so the Earth gets the space (the frame is the height of
+the browser window, and can go fullscreen).
 
-**Globe (the default).** A 3D Earth drawn with three.js:
+**Geographic exploration (globe).** Like a virtual globe, it goes from the whole Earth to a continent, a country, a
+state or province, and a city:
+- **Borders:** country outlines always; state/province boundaries appear as you come close to a country (they're
+  fetched per country, when needed).
+- **Labels, by scale:** continents at global scale; countries as they become large enough on screen; states,
+  provinces and the bigger cities at country scale; more and smaller places closer in (Natural Earth's scale rank
+  decides the order). A label is shown only if it fits without overlapping a more important one, the whole label is
+  on screen, and the region is about as wide as its name; at most 110 at a time, and none on the far side.
+- **Hover and select:** pointing at a country or state highlights it and names it; clicking selects it (a filled
+  area and an amber outline). Clicks are tested against the real outlines (point in polygon), not against labels or
+  screen positions. Zoomed out, a click selects a country; at state scale, the state. Clicking within a few pixels
+  of a city's dot selects that city.
+- **Breadcrumb:** Earth › Asia › India › Maharashtra › Mumbai, at the top left. Every level is a button that flies
+  back there; the "up" button and `Backspace` go one level up; the globe button and `Home` return to the whole Earth.
+- **Search and browse:** the search finds countries and states/provinces (Natural Earth names, accents ignored),
+  cities (Open-Meteo geocoding) and coordinates (`28.61, 77.21`, latitude first). With more than one match, you
+  choose; nothing is picked for you. **Browse** offers the same as lists (continent, country, state), usable with the
+  keyboard. Either way the globe flies to the region and frames it.
+- **Weather for a region:** the globe's readout shows the selected region's value for the **layer and step on
+  screen**, and the page's "Selected region" panel shows temperature, precipitation, wind and cloud cover for the
+  step it was selected at. Both are **regional aggregates**: area-weighted (cos latitude) averages over the 1° GFS
+  grid cells whose centres lie inside the region (and inside its country), with minimum and maximum. A region with
+  fewer than 3 such cells (for example Delhi, Goa or Lakshadweep) gets no regional value; the page offers a point
+  forecast for its centre instead. A city's forecast never stands in for a state, and Cloudzy Core stays in the
+  point panel, separate from both.
+- **From region to city:** the panel lists the region's largest places (Natural Earth); choosing one flies there and
+  shows its point forecast, with the state still selected.
+
+**Globe (the default).** A 3D Earth drawn with three.js.
 - **Earth:** two 4096 × 2048 images fetched once from NASA GIBS (`tools/build_globe_texture.py`) and stored in
-  `static/vendor/earth/`: Blue Marble shaded relief and bathymetry for the day side, and VIIRS Black Marble 2016
-  city lights for the night side. Both are composites, **not current conditions**.
+  `static/vendor/earth/` (0.9 MB and 0.4 MB): Blue Marble shaded relief and bathymetry for the day side, and VIIRS
+  Black Marble 2016 city lights for the night side. Both are composites, **not current conditions**.
 - **Day and night:** the sun is placed at its real position for the selected forecast time (a standard
   low-precision solar formula, under 0.1° of error for this century), so the terminator moves as you step through
-  the timeline. The sun button switches to even lighting. The blue rim is a visual atmosphere effect, not a
-  physical model.
-- **Layers:** temperature, wind, precipitation, cloud cover, or "Earth only". They use the same GFS frames,
-  colour scales, thresholds and units as the map. Wind adds particles moved by the real 10 m u/v vectors, which
-  pause when the globe is off screen or the tab is hidden, and become static streamlines under reduced motion or
-  with the motion button. Data layers are dimmed only slightly at night so they stay readable; cloud cover is
-  dimmed more. Pressure, gusts, humidity and CAPE are on the map.
-- **Controls:** drag to rotate, scroll or pinch to zoom, arrow keys and `+`/`-` on the focused globe, buttons for
-  zoom, reset, "turn to the selected place", lighting and wind motion. There's no auto-rotation, and no inertia under reduced motion.
-  It only redraws while something changes or wind particles are moving on screen.
-- **Timeline:** previous/next step, a slider and "Now".
+  the timeline. It can be switched to even lighting. The blue rim is a visual atmosphere effect, not a physical
+  model, and the background stars are decorative (fixed positions, not a star catalogue).
+- **Layers:** a compact toolbar holds the essential layers (temperature, wind, precipitation, cloud cover,
+  pressure). **More** opens a panel (a bottom sheet on phones) with every layer, the display options (lighting,
+  wind animation, stars) and "About this layer" (source, kind, grid, valid times). Layers fade in when switched.
+  A layer that a run or step doesn't have is marked "not in this run" or "N of 25 steps", and a step without it
+  shows a notice instead of a picture.
+- **Controls:** drag to rotate, scroll or pinch to zoom (limited between a regional view and the whole Earth),
+  arrow keys, `+`/`-` and `Home` on the focused globe. Buttons: zoom, reset to the whole Earth, fly to the selected
+  place, fullscreen. The controls sit on top of the globe, so using them never moves the camera.
+- **Fly to a place:** choosing a search result, saved place or region flies the globe there (a short eased camera
+  flight that frames the region; a jump under reduced motion) and selects it. Queries aren't saved.
+- **Timeline:** play/pause, previous/next, a slider over the run's real valid times, and "Now". The label shows
+  the date and time in your time zone, the UTC time, the hours since the model run, and the step number.
+  Playback waits for each step to be drawn and stops at the last available step (+72 h).
+- **Legend:** title, colour bar, units and a short note; it collapses to its title (collapsed by default on phones).
 - **Clicking the globe** reads the GFS grid value there, says whether it's day or night at that time, and shows
   the same point panel as the map.
+- **Fullscreen:** uses the browser's fullscreen mode; where that isn't allowed (for example iPhone Safari), the
+  globe expands to fill the window instead. `Esc` leaves either.
+- **Performance:** it only redraws while something changes, the camera flies, playback runs or wind particles
+  move. Particles and playback pause while the globe is off screen or the tab is hidden. Forecast frames are
+  fetched per layer and step (130 KB each) and kept in a small in-memory cache. Everything the globe created
+  (GPU buffers, textures, timers, listeners) is released when it leaves the page.
 - **Fallback:** without WebGL, after a lost graphics context or if the day image can't load (a missing night image
-  only loses the city lights), the page says why and
-  shows the 2D map instead.
+  only loses the city lights), the page says why and shows the 2D map instead.
 
-**Map.** A dark, full-width map of the world:
-- **Pan and zoom:** drag and scroll, the zoom buttons, or the keyboard (arrows, `+`/`-`).
-- **Map buttons:** world view, "recenter" on the place from your Weather page, and a wind-motion switch.
-- **Timeline:** play/pause, previous/next step, a slider, speed (0.5×, 1×, 2×) and "Now".
-- **Clicking a point** shows the layer's grid value on the map, and a separate point forecast below it.
+**Map (2D).** A flat Leaflet map, separate from the globe (its own component, `src/explorer_view.py`; the two
+share only the GFS frames and colour scales). It's built as three bands, so nothing covers anything else:
+- **Toolbar (above the map):** the 11 layers (names on wide screens, icons with tooltips on narrow ones, wrapping
+  onto a second row on phones), plus **Motion** (wind particles) and **Grid cells** (shows each 1° cell's own value
+  with no smoothing, so the real resolution is visible).
+- **Map:** only the legend (bottom left; collapses to its title), the view buttons (top right: zoom, reset to the
+  world, the place from your Weather page, fullscreen), a status line and the attribution. Clicking (or pressing
+  `Enter` on the focused map, for the point at its centre) opens a popup **at the point** with the value, the step's
+  time, the nearest grid point's own value and "Not an observation"; the page below shows the point forecast.
+  Place labels come from Natural Earth's populated places, by zoom, and never overlap.
+- **Timeline (below the map):** previous, play/pause, next, a slider with a tick per step and day labels (steps
+  where the layer has no data are marked red), "Now" and speed (0.5×, 1×, 2×). The label describes the step that
+  is **drawn**: date and time in your time zone, the UTC time, hours from the model run, analysis or forecast, and
+  the step number. While a step loads, the map is dimmed and the label says so; a step without the layer's data is
+  cleared and reported instead of leaving the previous picture.
+- **Rendering:** the raster is sampled every 2 screen pixels (it was 3–4) at higher opacity, without the dark
+  vignette that made the edges muddy; coastlines and borders sit above it. Pressure adds H and L at pressure
+  centres (the extreme within 10 grid cells, at least 4 hPa from the neighbourhood's average; at most 30, kept
+  apart), as well as isobars. Smoothing is bilinear between grid points; it can't follow coastlines, which the 1°
+  grid doesn't resolve (switch on **Grid cells** to see the cells).
+- **Resizing:** the map recalculates its size whenever its area changes (layout, window, orientation, fullscreen).
+  Fullscreen uses the browser's fullscreen, or fills the window where that isn't allowed; `Esc` leaves.
+- A place chosen with the search or **Browse** is flown to here too, and a clicked point's region appears in the
+  page's panel (the map doesn't draw region outlines or the globe's progressive labels).
 
-**Data: NOAA GFS forecast grids.**
+**Why three.js for the globe.** It was compared with CesiumJS and globe.gl:
+
+| | three.js (chosen) | globe.gl | CesiumJS |
+|---|---|---|---|
+| Licence | MIT | MIT | Apache-2.0 |
+| Size (unminified, vendored) | ~2.1 MB | ~1.9 MB bundle, three.js inside | ~6 MB plus web workers and assets |
+| Fits Streamlit's custom components | yes: one ES module, no build step | yes, but a second wrapper over three.js | heavy: workers, asset paths, a default imagery service that needs a Cesium ion token |
+| Weather overlays | full control (custom shaders, canvas textures, line geometry) | through its own layer API | rich, but tile/imagery-provider oriented |
+
+The weather data here is a 1° grid, not map tiles, so three.js with a few hundred lines of custom code gives a
+real day/night shader, grid-driven particles and isobars without a second library or an account.
+
+**Data: NOAA GFS and GFS-Wave forecast grids.**
 
 | | |
 |---|---|
-| Source | NOAA/NCEP Global Forecast System, 1.0° global grid (360 × 181 points), from the NOAA Open Data Dissemination bucket on AWS (`noaa-gfs-bdp-pds`) |
-| Licence | US government data, public domain. Credit: "NOAA/NCEP GFS". No key, no account |
-| Kind | **Numerical model forecast.** The +0 h step is the model analysis. Not radar, not observations |
-| Horizon and steps | +0 to +72 h every 3 h (25 steps). Each step is that hour's own instantaneous field, never a time average or a reused frame |
+| Source | NOAA/NCEP Global Forecast System, 1.0° global grid (360 × 181 points), and GFS-Wave (WAVEWATCH III) 0.25° from the same run, both from the NOAA Open Data Dissemination bucket on AWS (`noaa-gfs-bdp-pds`) |
+| Licence | US government data, public domain. Credit: "NOAA/NCEP GFS". No key, no account, no rate limit to manage (one download per run per server) |
+| Kind | **Numerical model forecast.** The +0 h step is the model analysis. Not radar, not satellite imagery, not station observations |
+| Horizon and steps | +0 to +72 h every 3 h (25 steps), the same for every layer. Each step is that hour's own instantaneous field, never a time average or a reused frame |
 | Updates | GFS runs at 00, 06, 12 and 18 UTC and is published a few hours later. The app checks for a newer run at most every 15 minutes, on page visits |
-| Download | Only the needed fields, by HTTP byte range using each step's `.idx` file: about 70 KB per field, ~30 MB per run, once per run. Prepared in a background thread; pages never wait |
-| Storage | `static/explorer/<run>/` (ignored by git), 16-bit encoded, ~31 MB. Only the newest complete run is kept |
+| Download | Only the needed fields, by HTTP byte range using each step's `.idx` file: about 70 KB per field (430 KB for the wave field), ~40 MB per run, once per run. Prepared in a background thread; pages never wait |
+| Storage | `static/explorer/<run>/` (ignored by git), 16-bit encoded, ~38 MB. Only the newest complete run is kept. A stored run prepared before a field was added is prepared again once |
 
-**Layers.** All are GFS forecast fields, drawn from the 1° grid with bilinear interpolation:
+**Layers.** All are forecast fields on the 1° grid, drawn with bilinear interpolation between grid points:
 
-| Layer | GFS field | Notes |
+| Layer | Field | Notes |
 |---|---|---|
-| Wind | 10 m u/v wind | colour = speed; particles are moved by the actual u/v vectors. Under reduced motion (or the motion switch) they become static streamlines |
-| Temperature | 2 m temperature | °C or °F from your settings |
-| Precipitation | surface precipitation rate | type from GFS rain/snow/freezing-rain/ice-pellet flags; below 0.1 mm/h is clear |
-| Cloud cover | total cloud cover | low, mid and high cloud are not split |
-| Pressure | mean sea-level pressure | isobars every 4 hPa (8 when zoomed out), traced on the model grid |
-| Wind gusts | surface gusts | |
-| Humidity | 2 m relative humidity | |
-| CAPE | surface-based CAPE | instability, not a storm forecast |
+| Temperature | GFS 2 m temperature | °C or °F from your settings |
+| Wind | GFS 10 m u/v wind | colour = speed; particles are moved by the actual u/v vectors. Under reduced motion (or the motion switch) they become static streamlines |
+| Precipitation | GFS surface precipitation rate | type from GFS rain/snow/freezing-rain/ice-pellet flags; below 0.1 mm/h is clear; opacity grows with the rate |
+| Cloud cover | GFS total cloud cover | low, mid and high cloud are not split; dimmed on the night side |
+| Pressure | GFS mean sea-level pressure | isobars every 4 hPa, traced on the model grid (marching squares) |
+| Wind gusts | GFS surface gusts | |
+| Humidity | GFS 2 m relative humidity | |
+| CAPE | GFS surface-based CAPE | instability, not a storm forecast; below 100 J/kg is clear |
+| Snow depth | GFS snow depth (SNOD) | snow on the ground in cm; below 0.5 cm is clear |
+| Wave height | GFS-Wave significant wave height (HTSGW) | wind waves and swell combined. The 0.25° points that lie exactly on the 1° grid are kept (no averaging); land and sea ice have no value and stay clear |
 
 **Clicking a point:**
-- The map shows the active layer's **GFS grid value** at the selected step.
+- The view shows the active layer's **grid value** at the selected step.
 - The page shows a separate **point forecast from Open-Meteo**, labelled as a different source. The two can differ.
 - **Cloudzy Core** appears only within 15 km of its New Delhi grid cell, as a labelled point prediction. It is not a global model.
-- "Open … on the Weather page" uses the nearest named place, without changing your home city or saved places.
+- A searched or saved place keeps its own name. A clicked point is named with OpenStreetMap's Nominatim reverse
+  geocoding (rate-limited and cached by the app). "Open … on the Weather page" doesn't change your home city or saved places.
 
-**Globe, map, basemap and licences:**
+**Libraries, imagery and licences:**
 - **Globe library:** three.js r186, MIT, bundled unmodified in `static/vendor/three` (`three.module.js` and `three.core.js`, from the npm package; no CDN at runtime).
 - **Earth imagery:** NASA Blue Marble and VIIRS Black Marble via NASA GIBS, public domain, with the acknowledgment GIBS asks for in `static/vendor/earth/README.md`.
 - **Map library:** Leaflet 1.9.4, BSD 2-Clause, bundled in `static/vendor/leaflet` (no third-party CDN at runtime).
 - **Basemap:** Natural Earth (public domain) coastlines, land borders and major cities, drawn by the app. No tile service and no key. CARTO's raster basemaps were considered, but now need an API key.
 - **Decoding:** ECMWF ecCodes (`eccodes` with `eccodeslib`, Apache-2.0), pinned in `requirements.txt`.
+- **Place search:** Open-Meteo geocoding (GeoNames data, CC BY 4.0) for cities; Natural Earth for countries and states.
+- **Boundaries, labels and places:** Natural Earth v5.1.2 (public domain), built by `tools/build_geo.py` into
+  `static/vendor/geo/` (9.4 MB in all; only `countries.json`, 0.95 MB, loads at start; places 0.4 MB after the
+  globe appears; each country's states when needed). Details and adjustments are in `static/vendor/geo/README.md`.
+
+**Borders and disputed areas.** The globe and the map use **India's official point of view** (Natural Earth's
+"IND" worldview): India's outline includes all of Jammu and Kashmir, Ladakh and Aksai Chin. Natural Earth has
+state polygons only for Indian-administered areas, so the rest sits inside India's outline without a state (a click
+there selects India). Divisions that lie inside another country in this view are left out (Pakistan's Azad Kashmir
+and Northern Areas; Russia's Crimea and Sevastopol), and a division reaching into another country's area is trimmed
+to its own country (Israel's HaZafon). Changing the point of view means rebuilding the data with another Natural
+Earth worldview file.
+
+**Geographic coverage.** Countries: 239. First-level divisions: 4,512 in 210 countries, as Natural Earth has them
+(checked for India: all 28 states and 8 union territories, including Ladakh and the merged Dadra and Nagar Haveli and
+Daman and Diu; Natural Earth's type labels for India are corrected from the constitutional list). Other countries'
+divisions are not individually verified, and small countries and territories may have none. Places: 7,342 cities
+and towns; there are no street-level or local place names.
 - **Open-Meteo's own grid files** were also considered. They're only readable with the GPL-2.0 `omfiles` library, which would sit awkwardly with Cloudzy's MIT licence.
 
-**Limits.** The 1° grid (~110 km) doesn't resolve small features such as single thunderstorms, sea breezes or mountain valleys. There's no radar or observed layer, and no wave layer (GFS-Wave isn't included). Polar areas are stretched by the map projection (the globe shows them without that distortion).
+**Limits and layers not included.**
+- The 1° grid (~110 km) doesn't resolve small features such as single thunderstorms, sea breezes or mountain valleys.
+- **No observed layers:** there's no radar or station layer. Near-real-time satellite infrared from NASA GIBS
+  (GOES-East, GOES-West, Himawari) was considered for realistic clouds, but GIBS has no Meteosat imagery, which
+  would leave Europe, Africa and the western Indian Ocean empty, so clouds come from the GFS forecast instead.
+- **No historical playback:** only the newest run (+0 to +72 h) is kept.
+- Polar areas are stretched on the 2D map's projection (the globe shows them without that distortion).
+- Fullscreen falls back to filling the window where the browser doesn't allow element fullscreen.
+- Boundaries are simplified (countries to about 4 km, states to about 1 km), so outlines are approximate at close
+  zoom, and clicks within about 15 km of a coast still count for the nearest country or state.
+- The Earth image is 4096 × 2048 (about 10 km per pixel), so close zoom is soft; there are no streets or buildings.
+- Below country level, only first-level divisions exist (no districts).
 
-**Running it.** It needs no configuration:
+**Running it.** It needs no keys or configuration. After the steps in [Quick start](#quick-start-macos-apple-silicon)
+(`pip install -r requirements.txt`, then `streamlit run streamlit_app.py`), open `/explorer`. The first visit
+downloads the newest run in the background (about a minute); the globe shows the Earth meanwhile. Optional
+environment variables:
 - `CLOUDZY_EXPLORER_REFRESH=0` turns downloading off (the tests use this);
-- `CLOUDZY_GFS_BUCKET` points at a mirror;
+- `CLOUDZY_GFS_BUCKET` points at a mirror of the NOAA bucket;
 - `CLOUDZY_EXPLORER_DIR` moves the frame store.
 
 When deployed, every visitor shares one prepared run per server. The frames are static files, so the server does no per-visitor work.
+
+**Manual checks for the globe.** The rendering itself runs in the browser, so these are checked by hand (the data,
+lookups, search, aggregation and page behaviour have automated tests):
+1. The whole Earth shows continent names only; zooming in brings country names, then states and cities.
+2. Search "India", choose "Country · India": the globe flies to India, the breadcrumb reads Earth › Asia › India, and
+   at that view state boundaries and names appear (in a narrow window, zoom in once more).
+3. Click Gujarat: it's filled and outlined; the readout gives an average over about 18 grid cells; the page panel
+   shows the same region.
+4. Click a city dot (for example Bengaluru): the breadcrumb ends with the city and its state; the point forecast
+   names the city.
+5. Click "India" in the breadcrumb: the camera returns and the page panel shows India. "Earth" clears the selection.
+6. Search "Delhi" and choose the state/province: the panel says it's smaller than the grid and offers a point forecast.
+7. With a region selected, switch layers and step through time: borders, outline and readout stay aligned and update.
+8. Rotate and zoom quickly: labels never overlap or sit on the far side; hovering names countries and states.
 
 ## Device location ("Use my location")
 
@@ -1159,6 +1280,9 @@ src/explorer_view.py     the Explorer map component (Leaflet, layers, particles,
 src/globe_view.py        the Explorer 3D globe component (three.js, Earth, temperature layer, timeline, fallback)
 static/vendor/           Leaflet 1.9.4 (BSD-2), three.js r186 (MIT), NASA Blue Marble (public domain), the Natural Earth basemap (public domain), Inter and Outfit fonts (SIL OFL)
 tools/build_explorer_basemap.py  rebuilds the basemap file from Natural Earth GeoJSON
+tools/build_geo.py       builds static/vendor/geo/ (boundaries, labels, places, land borders) from Natural Earth
+src/geo.py               geographic data access: region lookup, search, point-in-polygon, grid masks
+src/region_weather.py    regional GFS summaries (area-weighted over grid cells inside a region)
 tools/build_globe_texture.py     re-fetches the globe's Blue Marble image from NASA GIBS
 assets/                  Cloudzy logo and mascot (sidebar logo)
 src/geolocation.py       one-time browser location, request handling, reverse geocoding (Nominatim)
