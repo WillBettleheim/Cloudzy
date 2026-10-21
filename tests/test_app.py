@@ -6,10 +6,12 @@ import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
+import src.air_quality
 import src.briefing
 import src.provider
 from src import ui
 from src.provider import Place, ProviderError, parse_forecast
+from tests.aq_fixtures import aq_today_payload
 from tests.test_provider import payload
 
 DELHI = Place("New Delhi", 28.6358, 77.2244, "Asia/Kolkata", "India", "National Capital Territory of Delhi", 317797, "IN")
@@ -90,7 +92,7 @@ def fake_network(monkeypatch, tmp_path):
     st.cache_data.clear()
     monkeypatch.setenv("CLOUDZY_PREFS_PATH", str(tmp_path / "prefs.json"))  # never touch real preferences
     state = {"places": [DELHI, PARIS, PARIS_TX], "payload": today_payload(), "search_error": None,
-             "forecast_error": None,
+             "forecast_error": None, "aq_payload": aq_today_payload(), "aq_error": None,
              "cloudzy": {"available": True, "prediction_point": "New Delhi, India training grid cell",
                          "distance_km_from_place": 3.0, "issue_time_local": "2026-10-19T12:00:00+05:30",
                          "cloudzy": {"predictions": [
@@ -110,6 +112,12 @@ def fake_network(monkeypatch, tmp_path):
             raise state["forecast_error"]
         return parse_forecast(state["payload"], place, "now")
 
+    def air(place, session=None):
+        if state["aq_error"]:
+            raise state["aq_error"]
+        return src.air_quality.parse_air_quality(state["aq_payload"], place, pd.Timestamp.now(tz="UTC").isoformat())
+
+    monkeypatch.setattr(src.air_quality, "fetch_air_quality", air)
     monkeypatch.setattr(src.provider, "search_locations", search)
     monkeypatch.setattr(src.provider, "fetch_forecast", forecast)
     monkeypatch.setattr(src.briefing, "cloudzy_block", lambda place, session=None, snapshot=True: state["cloudzy"])

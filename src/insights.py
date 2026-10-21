@@ -43,7 +43,11 @@ GROUP_PHRASES = {
 
 
 ALERT_KINDS = {"rain": "Rain", "heat": "Heat", "cold": "Cold", "uv": "High UV", "wind": "Strong gusts",
-               "change": "Big day-to-day temperature change"}
+               "change": "Big day-to-day temperature change", "storm": "Thunderstorms",
+               "air": "Air quality", "particles": "Fine particles (PM2.5)", "plan": "Saved outdoor plans"}
+# Kinds checked here, from the weather forecast alone. "air", "particles" and "plan" need air-quality data and
+# are checked in src.air_alerts.
+STORM_CODES = {95, 96, 99}
 
 
 @dataclass
@@ -353,6 +357,14 @@ def _alerts(forecast: ProviderForecast, now: pd.Timestamp, thresholds: AlertThre
                          f"up to {_wind(wind.max(), units)}", _span(wind.index),
                          "Gusts are local and short-lived; exposed places can see stronger ones.",
                          ends_on=_ends_on(wind.index)))
+    storms = flagged("weather_code", lambda s: s.isin(STORM_CODES))
+    if len(storms):
+        out.append(Alert("storm", "Thunderstorms possible",
+                         f"The forecast shows thunderstorms in {len(storms)} hour(s). Lightning is a risk outdoors: "
+                         "when thunder roars, go indoors.",
+                         f"{len(storms)} hour(s)", _span(storms.index),
+                         "Thunderstorms are hard to place exactly; they may miss you or come at other times.",
+                         ends_on=_ends_on(storms.index)))
     today_date = now.tz_convert(forecast.hourly.index.tz).date()
     d = forecast.daily
     if today_date in d.index:

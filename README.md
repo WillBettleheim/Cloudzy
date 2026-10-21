@@ -14,6 +14,32 @@ Cloudzy brings together weather information, predictive modelling, and software 
 - Location-based weather exploration.
 - Weather insights designed to help users understand changing conditions.
 
+### 🌫️ Air Quality Intelligence
+- Current air quality for any searched place, with the index standard named every time: **US AQI (EPA)**,
+  **European AQI (EEA)** or **India's National AQI (CPCB)**. The place's regional index is shown first, and
+  you can switch.
+- Concentrations of PM2.5, PM10, NO₂, O₃, SO₂ and CO, compared with the WHO 2021 guidelines.
+- An hourly trend chart that keeps the model's earlier hours (grey, "not observed") apart from the forecast
+  (blue), a daily outlook, and forecast changes of category with times and values.
+- Data: Copernicus Atmosphere Monitoring Service (CAMS) forecasts via the Open-Meteo Air Quality API, about
+  4–5 days ahead. These are **model estimates, not monitoring-station readings**, and the app says so.
+
+### 🏃 Cloudzy Outdoor Intelligence
+- Better times to run, walk, cycle, exercise or spend time outside, from the air-quality and weather
+  forecasts together.
+- A transparent rule engine, with no black-box score. It checks air quality (the selected index's own
+  guidance), heat (NWS heat index), cold (wind chill), UV (WHO), thunderstorms, freezing rain, rain and
+  wind (Beaufort). Critical hazards can't be outweighed by other good conditions.
+- Each suggested window shows its values, what supports and limits it, and data limits. An hour-by-hour
+  timeline and fact-based explanations come with it, and indoor alternatives are suggested when conditions
+  are unfavourable.
+- Optional preferences: activity, duration, preferred hours, and more conservative guidance. Nothing
+  medical is asked.
+- Saved windows are re-checked when new forecasts load, and can raise an alert if they get worse.
+- It never promises that a time is safe.
+
+Methods, sources, thresholds and limits are in [docs/AIR_QUALITY.md](docs/AIR_QUALITY.md).
+
 ### 🧠 Cloudzy Core
 Cloudzy Core is the machine-learning component of the project.
 
@@ -22,6 +48,9 @@ Cloudzy Core is the machine-learning component of the project.
 - Chronological training, validation, and testing.
 - Model evaluation against baseline approaches.
 - Prediction tracking and accuracy analysis as reference data becomes available.
+- Cloudzy Core predicts temperature only (New Delhi). It does **not** predict air quality: the available
+  air-quality history is itself model output, with no independent measurements to evaluate against (see
+  [docs/AIR_QUALITY.md](docs/AIR_QUALITY.md#cloudzy-core-and-air-quality)).
 
 ### 🗺️ Interactive Weather Exploration
 - Interactive 2D weather map.
@@ -29,7 +58,9 @@ Cloudzy Core is the machine-learning component of the project.
 - Exploration of weather patterns across locations.
 
 ### 🔔 Alerts and Personalization
-- Configurable weather alerts where supported.
+- Configurable weather alerts where supported, including air quality, fine particles (PM2.5),
+  thunderstorms and saved outdoor plans. In-tab browser notifications are optional; there are no
+  background or push notifications.
 - Saved locations and user preferences where implemented.
 - Weather insights based on available data and application settings.
 
@@ -93,7 +124,31 @@ Configure any required environment variables according to the project's setup in
 
 ### Running Cloudzy
 
-The exact startup command depends on the current application entry point. Follow the instructions and configuration in the repository before launching the application.
+From the project folder, with the virtual environment active:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+Then open http://localhost:8501. No API keys are needed: Cloudzy uses Open-Meteo's free, key-less APIs
+(non-commercial use; 600 requests per minute, 5,000 per hour, 10,000 per day). Responses are cached: 10
+minutes for weather and 15 minutes for air quality.
+
+### Testing
+
+```bash
+python -m pytest                 # offline suite, network faked
+python -m pytest -m integration  # live checks against the Open-Meteo APIs
+ruff check .
+mypy
+```
+
+### Data sources and attribution
+
+- Weather data by Open-Meteo.com (CC BY 4.0).
+- Air quality: Copernicus Atmosphere Monitoring Service (CAMS) forecasts, via Open-Meteo.com (CC BY 4.0).
+  Contains modified Copernicus Atmosphere Monitoring Service information.
+- Reanalysis: Copernicus Climate Change Service (ERA5, ERA5-Land).
 
 ## 📊 Model Evaluation
 
@@ -110,6 +165,10 @@ Historical evaluation scores are not guarantees of future forecasting accuracy.
 Cloudzy is an independent weather and machine-learning project. Weather information and model predictions may be incomplete, delayed, or inaccurate.
 
 Cloudzy is not a substitute for official weather warnings, emergency services, or instructions from local authorities. Do not rely on it as the sole source for safety-critical decisions.
+
+Air-quality values are model estimates for an area, not local measurements. Outdoor suggestions come from
+forecasts and published guidance, not from a medical assessment. Forecasts change and people react
+differently to heat and pollution, so Cloudzy never promises that a time is safe.
 
 ## 🗺️ Development Roadmap
 

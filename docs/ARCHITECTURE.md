@@ -38,17 +38,25 @@ request.
    app_pages/predictions.py ◄── src/monitoring.py (query, aggregate, evaluate)
    app_pages/history.py ◄── src/history.py (Archive API on demand: hourly, and daily for comparisons)
    app_pages/settings.py, places.py, alerts.py ◄── src/preferences.py (+ src/app_data.py for alerts)
+
+   Open-Meteo Air Quality API (CAMS) ──► src/air_quality.py (validated, local time, coverage trimmed)
+          │                               └─ src/aqi.py: standards, categories, India NAQI (CPCB method)
+          ├─► app_pages/air_quality.py ◄── src/air_view.py (hero, pollutants, charts)
+          ├─► src/outdoor.py (rule engine) + Forecast API ──► app_pages/outdoor.py
+          └─► src/air_alerts.py (air, PM2.5, saved plans) ──► Weather and Alerts pages
 ```
+
+Air quality and Outdoor Intelligence are documented in [AIR_QUALITY.md](AIR_QUALITY.md).
 
 ## Layers
 
 | Layer | Modules | Responsibility |
 |---|---|---|
 | HTTP | `data_collection.fetch_json` | Every network call goes through this one function, which handles timeouts, retries with backoff, HTTP 429 `Retry-After`, 4xx/5xx handling and user-readable errors. `INTERACTIVE` settings fail within about 25 s. Batch downloads are patient. |
-| Data services | `provider`, `history`, `service`, `data_validation`, `geolocation` | Validate units, time zones, array lengths and physical bounds. Missing values stay missing; optional variables a model lacks are reported as unavailable; wrong units are fatal. |
-| Domain logic | `insights`, `units`, `preferences`, `monitoring` | Pure functions, testable without Streamlit or the network. |
-| Presentation | `theme` (design tokens, global CSS, icons, chips), `weather_view`, `ui`, `lab_ui` | Build HTML and Plotly figures from data and units. They never fetch anything. |
-| Pages | `app_pages/{weather,history,alerts,predictions,lab,places,settings}.py`, `streamlit_app.py`, with `app_data` (shared cached calls) and `nav` (safe page links) | Lay out the page, cache results, and handle loading, empty and error states. |
+| Data services | `provider`, `air_quality`, `history`, `service`, `data_validation`, `geolocation` | Validate units, time zones, array lengths and physical bounds. Missing values stay missing; optional variables a model lacks are reported as unavailable; wrong units are fatal. |
+| Domain logic | `insights`, `aqi`, `outdoor`, `air_alerts`, `units`, `preferences`, `monitoring` | Pure functions, testable without Streamlit or the network. |
+| Presentation | `theme` (design tokens, global CSS, icons, chips), `weather_view`, `air_view`, `ui`, `lab_ui` | Build HTML and Plotly figures from data and units. They never fetch anything. |
+| Pages | `app_pages/{weather,air_quality,outdoor,history,alerts,predictions,lab,places,settings}.py`, `streamlit_app.py`, with `app_data` (shared cached calls), `place_select` (place switcher) and `nav` (safe page links) | Lay out the page, cache results, and handle loading, empty and error states. |
 | ML (offline) | `features`, `splits`, `models`, `train`, `multistep`, `shift`, `compact`, `refit`, `lab_data` | Chronological experiments, the deployed bundle and reproducible Lab data. |
 
 ## Data types are never mixed
@@ -56,6 +64,7 @@ request.
 | Type | Source | Shown as |
 |---|---|---|
 | Provider forecast | Forecast API (`best_match`) | The main weather app: hero, hourly, 7-day, details |
+| Air-quality forecast | Air Quality API (CAMS) | Air Quality and Outdoor pages, labelled "model estimate, not a station reading". Earlier hours are model values, never called observations |
 | Cloudzy Core prediction | `service.py` + compact bundle, Delhi only | A separate "🧪 Cloudzy Core · experimental" section |
 | Historical reanalysis | Archive API | History page, labelled "historical reanalysis"; also the reference for tracked predictions |
 | Evaluation results | `reports/`, `reports/lab/` (committed) | Lab scoreboard, breakdowns, explainability |
@@ -63,20 +72,20 @@ request.
 
 ## Caching and request budget
 
-- **Cache:** search, forecasts, Cloudzy results and history are cached by
-  `st.cache_data`. Forecasts and Cloudzy results live for 10 minutes, history
-  and comparison years for 6 hours.
+- **Cache:** search, forecasts, air quality, Cloudzy results and history are cached by
+  `st.cache_data`. Forecasts and Cloudzy results live for 10 minutes, air quality
+  for 15 minutes, history and comparison years for 6 hours.
 - **Freshness:** the page shows when its data was retrieved, so a cached
   forecast is never presented as freshly fetched.
-- **Request budget:** one place costs at most three requests (geocoding,
-  forecast, and Cloudzy's inputs near Delhi). That is far inside Open-Meteo's
+- **Request budget:** one place costs at most four requests (geocoding,
+  forecast, air quality, and Cloudzy's inputs near Delhi). That is far inside Open-Meteo's
   free limits: 600 per minute, 5,000 per hour, 10,000 per day.
 
 ## Per-visitor state (in each visitor's browser)
 
 | Where | Contents |
 |---|---|
-| `localStorage["cloudzy-preferences-v1"]` (`src/browser_prefs.py`) | Unit override, favourites and home city (city coordinates), alert thresholds, categories and dismissals, summary style, auto-locate and notification choices (yes/no). Never device coordinates |
+| `localStorage["cloudzy-preferences-v1"]` (`src/browser_prefs.py`) | Unit override, favourites and home city (city coordinates), alert thresholds, categories and dismissals, summary style, auto-locate and notification choices (yes/no), AQI standard, outdoor planner choices, up to 5 saved outdoor windows (city coordinates and times). Never device coordinates or health information |
 | `localStorage["cloudzy-notified-alerts"]` (`src/notify.py`) | Keys of alerts already sent as browser notifications |
 
 `streamlit_app.py` reads the settings once per session, before any page draws,
@@ -97,11 +106,11 @@ the tests use that mode.
 
 ## Tests
 
-- **Offline suite:** `python -m pytest` runs 498 tests and needs no network.
+- **Offline suite:** `python -m pytest` runs 710 tests and needs no network.
   `tests/conftest.py` points preferences, monitoring and snapshots at temporary
   folders, so tests never touch real user data.
-- **Live checks:** `python -m pytest -m integration` runs 5 tests against the
-  real APIs.
+- **Live checks:** `python -m pytest -m integration` runs 6 tests against the
+  real APIs (including the Air Quality API).
 - **App states:** headless `streamlit.testing.v1.AppTest` covers every page
   state, with the network replaced by fakes.
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from src import app_data, browser_prefs
+from src import app_data, aqi, browser_prefs
 from src import insights as I
 from src import nav
 from src import preferences as P
@@ -54,8 +54,15 @@ except (ProviderError, DataCollectionError) as exc:
     forecast = None
 loading.empty()
 
-if forecast is not None:
-    found = I.alerts(forecast, now, prefs.alerts, units, enabled=prefs.enabled_alert_kinds())
+# Air-quality, particle and saved-plan alerts: loaded separately, so an air-quality outage never hides the
+# weather alerts (and vice versa).
+env_alerts, env_error = app_data.environment_alerts(place, forecast, prefs, units, now)
+if env_error:
+    st.caption(f":material/cloud_off: {env_error}")
+active: list = []
+if forecast is not None or env_alerts:
+    found = (I.alerts(forecast, now, prefs.alerts, units, enabled=prefs.enabled_alert_kinds())
+             if forecast is not None else []) + env_alerts
     dismissed = prefs.active_dismissals(now)
     active = [a for a in found if a.key not in dismissed]
     hidden = [a for a in found if a.key in dismissed]
@@ -73,7 +80,7 @@ if forecast is not None:
             P.save(prefs)
             st.rerun()
     for i, a in enumerate(hidden):
-        until = pd.Timestamp(prefs.dismissed_alerts[a.key]).tz_convert(forecast.hourly.index.tz)
+        until = pd.Timestamp(prefs.dismissed_alerts[a.key]).tz_convert(place.timezone)
         with st.expander(f"Dismissed: {a.title} · {a.value} (until {until:%a %H:%M} local time)"):
             st.html(T.chip(f"Dismissed until {until:%a %H:%M}", "muted", "notifications_off") + V.alerts_html([a]))
             if st.button("Show again", key=f"al_restore_{i}_{a.kind}", icon=":material/undo:"):
@@ -120,13 +127,22 @@ with st.form("thresholds"):
     gust = c1.number_input(f"Gusts at least ({units.wind})", value=round(U.wind(th.wind_gust_kmh, units.wind)))
     change = c2.number_input(f"Day-to-day high change ({units.temperature})",
                              value=round(U.temperature_delta(th.day_to_day_change_c, units.temperature)))
+    aq_standard, _ = aqi.resolve_standard(prefs.aqi_standard, place.country_code)
+    aq_cat = c1.selectbox(f"Air quality at least ({aq_standard.short} category)", range(1, 6),
+                          index=int(th.aqi_category) - 1, format_func=lambda i: aq_standard.categories[i].label,
+                          help="The same level on every index: the third category is 'Unhealthy for Sensitive Groups' "
+                               "(US AQI), 'Moderately polluted' (India NAQI) or 'Moderate' (European AQI).")
+    pm25 = c2.number_input("PM2.5 24-hour mean at least (μg/m³)", 10, 250, int(th.pm25_24h_ugm3), step=5,
+                           help="35 μg/m³ is the level of the US EPA 24-hour PM2.5 standard; WHO's 2021 guideline "
+                                "is 15 μg/m³.")
     if st.form_submit_button("Save thresholds", icon=":material/save:"):
         new = P.AlertThresholds(
             rain_probability_pct=float(rain_pct), uv_index=float(uv_val),
             heat_feels_like_c=U.to_celsius(heat, units.temperature),
             cold_feels_like_c=U.to_celsius(cold, units.temperature),
             wind_gust_kmh=U.to_kmh(gust, units.wind),
-            day_to_day_change_c=change / 1.8 if units.temperature == "°F" else float(change))
+            day_to_day_change_c=change / 1.8 if units.temperature == "°F" else float(change),
+            aqi_category=float(aq_cat), pm25_24h_ugm3=float(pm25))
         bad = [k for k, (lo, hi) in P.AlertThresholds.LIMITS.items() if not lo <= getattr(new, k) <= hi]
         if bad:
             st.error("Some values are outside the allowed range: " + ", ".join(bad), icon=":material/error:")
@@ -146,7 +162,7 @@ if notify != prefs.notifications:
     st.rerun()
 if prefs.notifications:
     from src.notify import browser_notifications
-    browser_notifications(active if forecast is not None else [])
+    browser_notifications(active)
 st.caption("Notifications only appear while Cloudzy is open in a browser tab; there are no background or push "
            "notifications. Each alert notifies once. If your browser blocks them, alerts still show on the page.")
 nav.page_link("app_pages/weather.py", "Back to the weather", ":material/arrow_back:")

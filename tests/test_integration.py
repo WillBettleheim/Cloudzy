@@ -61,3 +61,17 @@ def test_provider_forecast_and_geocoding(session):
 
 def test_geocoding_no_match_is_empty(session):
     assert search_locations("Qzxwvplace", session=session) == []
+
+
+def test_air_quality_api_returns_valid_cams_data(session):
+    """Units, the US AQI/European AQI fields, a multi-day forecast and enough history for India's NAQI."""
+    from src import aqi
+    from src.air_quality import fetch_air_quality, reading
+    from src.provider import Place
+    place = Place("New Delhi", 28.6139, 77.2090, "Asia/Kolkata", "India", None, None, "IN")
+    data = fetch_air_quality(place, session=session)
+    now = pd.Timestamp.now(tz="UTC")
+    assert data.coverage_end > now + pd.Timedelta(hours=72)            # CAMS forecasts run about 4-5 days
+    assert data.hourly["pm2_5"].notna().sum() > 96
+    for standard in aqi.STANDARDS.values():
+        assert reading(data, standard, now).value is not None, standard.code

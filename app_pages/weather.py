@@ -19,7 +19,9 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from src import app_data
+from src import air_quality as AQ
+from src import air_view as AV
+from src import app_data, aqi
 from src import geolocation as G
 from src import insights as I
 from src import nav
@@ -272,10 +274,20 @@ st.caption(f"{forecast.source_label} · {V.updated_label(forecast.retrieved_at_u
 side_col, alert_col = st.columns([1.5, 1], gap="large")
 
 found = I.alerts(forecast, now, prefs.alerts, units, enabled=prefs.enabled_alert_kinds())
+env_alerts, env_error = app_data.environment_alerts(place, forecast, prefs, units, now)  # never raises
+found += env_alerts
 dismissed = prefs.active_dismissals(now)
 shown = [a for a in found if a.key not in dismissed]
 with side_col:
     st.html(V.summary_html(I.summary(forecast, now, units, style=prefs.summary_style)))
+    # Air quality in one line. It loads separately, so a failure here never affects the weather forecast.
+    try:
+        aq_data = app_data.air(place)
+        aq_std, _ = aqi.resolve_standard(prefs.aqi_standard, place.country_code)
+        st.html(AV.CSS + AV.strip_html(AQ.reading(aq_data, aq_std, now)))
+    except (AQ.AirQualityError, DataCollectionError):
+        st.caption(":material/cloud_off: Air quality isn't available right now.")
+    nav.page_link("app_pages/air_quality.py", "Air quality details and outdoor planner", ":material/air:")
 with alert_col:
     st.html(T.eyebrow("Alerts · next 24 hours", "notifications"))
     for i, alert in enumerate(shown):
@@ -289,6 +301,8 @@ with alert_col:
         st.caption("No Cloudzy alerts for the next 24 hours with your thresholds and alert categories.")
     elif not shown:
         st.caption(f"{len(found)} alert(s) dismissed for now.")
+    if env_error:
+        st.caption(env_error)
     nav.page_link("app_pages/alerts.py", "Alert settings and dismissed alerts", ":material/tune:")
 if shown and prefs.notifications:
     from src.notify import browser_notifications
@@ -444,6 +458,6 @@ if forecast.warnings:
             st.markdown(f"- {w}")
 
 st.divider()
-st.caption(f"{ATTRIBUTION}. Reanalysis: Copernicus Climate Change Service (ERA5, ERA5-Land). Weather icons follow "
+st.caption(f"{ATTRIBUTION}. {AQ.ATTRIBUTION} Reanalysis: Copernicus Climate Change Service (ERA5, ERA5-Land). Weather icons follow "
            "the WMO weather codes in the forecast. Cloudzy is an experimental student project, not an operational "
            "weather service, and its alerts are not official warnings.")

@@ -31,7 +31,7 @@ from src import config
 from src import units as U
 from src.provider import Place
 
-ALERT_KINDS = ("rain", "heat", "cold", "uv", "wind", "change")
+ALERT_KINDS = ("rain", "heat", "cold", "uv", "wind", "change", "storm", "air", "particles", "plan")
 SUMMARY_STYLES = ("detailed", "brief")
 
 logger = logging.getLogger(__name__)
@@ -51,11 +51,29 @@ class AlertThresholds:
     uv_index: float = 8.0
     wind_gust_kmh: float = 50.0
     day_to_day_change_c: float = 5.0
+    aqi_category: float = 2.0          # 0-5 category scale shared by every AQI standard (src.aqi); 2 = third band
+    pm25_24h_ugm3: float = 35.0        # 24-hour mean PM2.5; 35 µg/m³ is the US EPA 24-hour standard's level
 
     LIMITS = {  # (min, max) accepted values
         "rain_probability_pct": (10, 100), "heat_feels_like_c": (25, 55), "cold_feels_like_c": (-40, 15),
         "uv_index": (3, 15), "wind_gust_kmh": (20, 150), "day_to_day_change_c": (2, 20),
+        "aqi_category": (1, 5), "pm25_24h_ugm3": (10, 250),
     }
+
+
+@dataclass
+class OutdoorPrefs:
+    """Outdoor planner choices. Nothing medical: `sensitivity` only switches to more conservative guidance."""
+    activity: str = "running"
+    duration_min: int = 45
+    start_hour: int = 6
+    end_hour: int = 21
+    sensitivity: str = "standard"
+    indoor: bool = True                  # suggest an indoor alternative when outdoor conditions are unfavourable
+
+
+AQI_CHOICES = ("auto", "us_epa", "eu_eaqi", "in_naqi")
+MAX_PLANS = 5
 
 
 @dataclass
@@ -69,6 +87,9 @@ class Preferences:
     summary_style: str = "detailed"      # "detailed" or "brief"
     home: dict | None = None             # a saved favourite (city coordinates), shown when Cloudzy opens
     notifications: bool = False          # show the browser-notification control (permission asked on click)
+    aqi_standard: str = "auto"           # "auto" = the place's regional index (src.aqi.default_standard)
+    outdoor: OutdoorPrefs = field(default_factory=OutdoorPrefs)
+    plans: list[dict] = field(default_factory=list)   # saved outdoor windows, re-checked against new forecasts
 
     def enabled_alert_kinds(self) -> set[str]:
         return {k for k, on in self.alert_categories.items() if on and k in ALERT_KINDS}
@@ -153,6 +174,56 @@ def _clean_place(d) -> dict | None:
     return asdict(place) | {"latitude": lat, "longitude": lon}
 
 
+def _clean_outdoor(raw) -> OutdoorPrefs:
+    from src.outdoor import ACTIVITIES, DURATIONS_MIN, SENSITIVITIES
+    out = OutdoorPrefs()
+    if not isinstance(raw, dict):
+        return out
+    if raw.get("activity") in ACTIVITIES:
+        out.activity = raw["activity"]
+    if raw.get("duration_min") in DURATIONS_MIN:
+        out.duration_min = int(raw["duration_min"])
+    start, end = raw.get("start_hour"), raw.get("end_hour")
+    if isinstance(start, int) and isinstance(end, int) and not isinstance(start, bool) \
+            and not isinstance(end, bool) and 0 <= start < end <= 24:
+        out.start_hour, out.end_hour = start, end
+    if raw.get("sensitivity") in SENSITIVITIES:
+        out.sensitivity = raw["sensitivity"]
+    out.indoor = raw.get("indoor") is not False
+    return out
+
+
+def _clean_plan(raw) -> dict | None:
+    """A saved outdoor window, checked field by field (stored data is untrusted)."""
+    import pandas as pd
+
+    from src.aqi import STANDARDS
+    from src.outdoor import ACTIVITIES, RANK, SENSITIVITIES
+    if not isinstance(raw, dict):
+        return None
+    try:
+        lat, lon = raw["latitude"], raw["longitude"]
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in (lat, lon)):
+            return None
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            return None
+        if not (isinstance(raw["name"], str) and 0 < len(raw["name"]) <= 200):
+            return None
+        ZoneInfo(raw["timezone"])
+        start, end = pd.Timestamp(raw["start"]), pd.Timestamp(raw["end"])
+        if start.tzinfo is None or end.tzinfo is None or not start < end <= start + pd.Timedelta(hours=6):
+            return None
+        if raw["activity"] not in ACTIVITIES or raw["level"] not in RANK or raw["standard"] not in STANDARDS:
+            return None
+        if raw["sensitivity"] not in SENSITIVITIES or not isinstance(raw["saved_at"], str):
+            return None
+    except (KeyError, TypeError, ValueError, OSError):
+        return None
+    keys = ("name", "latitude", "longitude", "timezone", "activity", "start", "end", "level", "standard",
+            "sensitivity", "saved_at")
+    return {k: raw[k] for k in keys} | {"saved_at": raw["saved_at"][:40]}
+
+
 def from_dict(raw) -> Preferences:
     """Preferences from stored data. Anything missing or invalid falls back to its default."""
     prefs = Preferences()
@@ -181,6 +252,11 @@ def from_dict(raw) -> Preferences:
     if raw.get("summary_style") in SUMMARY_STYLES:
         prefs.summary_style = raw["summary_style"]
     prefs.home = _clean_place(raw.get("home"))
+    if raw.get("aqi_standard") in AQI_CHOICES:
+        prefs.aqi_standard = raw["aqi_standard"]
+    prefs.outdoor = _clean_outdoor(raw.get("outdoor"))
+    if isinstance(raw.get("plans"), list):
+        prefs.plans = [c for c in (_clean_plan(p) for p in raw["plans"][:50]) if c][-MAX_PLANS:]
     return prefs
 
 
@@ -191,7 +267,9 @@ def to_dict(prefs: Preferences) -> dict:
             "alert_categories": {k: bool(prefs.alert_categories.get(k, True)) for k in ALERT_KINDS},
             "dismissed_alerts": dict(list(prefs.dismissed_alerts.items())[-MAX_DISMISSED:]),
             "summary_style": prefs.summary_style if prefs.summary_style in SUMMARY_STYLES else "detailed",
-            "home": prefs.home, "notifications": bool(prefs.notifications)}
+            "home": prefs.home, "notifications": bool(prefs.notifications),
+            "aqi_standard": prefs.aqi_standard if prefs.aqi_standard in AQI_CHOICES else "auto",
+            "outdoor": asdict(prefs.outdoor), "plans": list(prefs.plans)[-MAX_PLANS:]}
 
 
 def parse_json(text) -> Preferences:

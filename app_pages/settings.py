@@ -78,6 +78,17 @@ st.caption(f"{len(prefs.enabled_alert_kinds())} alert categories on · notificat
            f"{'offered' if prefs.notifications else 'off'} · {len(prefs.dismissed_alerts)} dismissed.")
 nav.page_link("app_pages/alerts.py", "Alert categories, thresholds and notifications", ":material/tune:")
 
+# --- Air quality and outdoor (pointer) -------------------------------------------------------------
+st.html(T.section("Air quality and outdoor planning", "air"))
+aq_choice = {"auto": "each place's regional index", "us_epa": "US AQI (EPA)", "eu_eaqi": "European AQI (EEA)",
+             "in_naqi": "India National AQI (CPCB)"}[prefs.aqi_standard]
+st.caption(f"Index: {aq_choice} · planner: {prefs.outdoor.activity}, {prefs.outdoor.duration_min} min, "
+           f"{prefs.outdoor.start_hour:02d}:00–{prefs.outdoor.end_hour:02d}:00, "
+           f"{'more conservative' if prefs.outdoor.sensitivity == 'conservative' else 'standard'} guidance · "
+           f"{len(prefs.plans)} saved window(s). No health information is asked for or stored.")
+nav.page_link("app_pages/air_quality.py", "Choose the air-quality index", ":material/air:")
+nav.page_link("app_pages/outdoor.py", "Outdoor planner preferences and saved windows", ":material/directions_run:")
+
 # --- Theme ---------------------------------------------------------------------------------
 st.html(T.section("Theme", "contrast"))
 st.markdown("Light, dark or *use system setting*: open the **⋮** menu (top right) → **Settings** → "
@@ -92,7 +103,8 @@ nav.page_link("app_pages/terms.py", "Terms of Use", ":material/gavel:")
 # --- Reset ---------------------------------------------------------------------------------
 st.divider()
 with st.expander("Reset"):
-    st.caption("Deletes your saved units, places, home city, thresholds and alert choices. "
+    st.caption("Deletes your saved units, places, home city, thresholds, alert choices, air-quality index, "
+               "outdoor planner choices and saved windows. "
                "Prediction tracking records are kept.")
     if st.button("Reset all settings", type="secondary", icon=":material/restart_alt:"):
         P.save(P.Preferences())
