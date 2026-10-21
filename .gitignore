@@ -20,6 +20,7 @@ data/live_snapshots/
 data/user/
 data/monitoring/
 static/explorer/
+static/earth/
 models/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep

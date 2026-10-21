@@ -1,0 +1,351 @@
+"""Cloudzy Earth Intelligence: real disasters and hazards on an interactive 3D globe.
+
+- Data: src.hazards (USGS, GDACS, NHC, NWS, NASA FIRMS, U.S. Drought Monitor, USGS volcano alerts, Smithsonian GVP,
+  NOAA tsunami centres), fetched server-side, cached per source and refreshed in the background. Each feed's real
+  freshness is shown; a failed feed never stops the others.
+- Globe: src.earth_view (MapLibre GL JS, self-hosted). Selecting an event on the globe or in its list reports it
+  here; this page shows the full record, the source link and nearby mapped settlements.
+- Search (src.earth_search) flies the globe to a country, state, city, coordinates or an OpenStreetMap place and
+  lists the loaded events there.
+- Nothing is invented: counts come from the loaded records with stated filters, and an empty area isn't "safe".
+"""
+
+from __future__ import annotations
+
+import pandas as pd
+import streamlit as st
+
+from src import app_data
+from src import earth_search as ES
+from src import theme as T
+from src.earth_view import earth_globe
+from src.hazards import analysis as A
+from src.hazards import gdacs, http
+from src.hazards.schema import CATEGORIES, KINDS, RANK_LABELS, age_text
+from src.hazards.sources import NOT_CONNECTED, SOURCES
+from src.hazards.store import Query, store
+
+SEL_KEY, FOCUS_KEY, REGION_KEY, TOKEN_KEY, FIRE_KEY = "_earth_sel", "_earth_focus", "_earth_region", "_earth_tok", "_earth_fire"
+PERIODS = {"day": "Past 24 hours", "week": "Past 7 days", "month": "Past 30 days", "custom": "Chosen dates"}
+DEFAULT_ON = {"earthquake", "cyclone", "flood", "wildfire", "severe", "volcano", "tsunami", "drought", "temperature",
+              "winter"}
+EMERGENCY_NOTE = ("Cloudzy Earth Intelligence is for situational awareness only. It isn't an official warning "
+                  "service and can be incomplete or delayed. In an emergency, follow your local emergency services "
+                  "and national meteorological or disaster agency. No event shown nearby doesn't mean an area is safe.")
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def gdacs_geometry(url: str):
+    return gdacs.event_geometry(url)
+
+
+def focus(target: dict) -> None:
+    st.session_state[TOKEN_KEY] = st.session_state.get(TOKEN_KEY, 0) + 1
+    st.session_state[FOCUS_KEY] = {k: target.get(k) for k in ("lat", "lon", "bbox", "zoom", "maxzoom", "label")} | \
+        {"token": st.session_state[TOKEN_KEY]}
+    st.session_state[REGION_KEY] = target if target.get("kind") in ("country", "admin1") else \
+        {"kind": "near", "lat": target["lat"], "lon": target["lon"], "name": target.get("name"),
+         "bbox": target.get("bbox")}
+
+
+def select_event(event_id: str) -> None:
+    st.session_state[SEL_KEY] = event_id
+    st.session_state[FIRE_KEY] = None
+
+
+st.html(T.page_header("Earth Intelligence", "Planet · disasters and hazards", "travel_explore",
+                      "Real earthquakes, storms, floods, fires, volcanoes, drought and official warnings on a 3D globe, "
+                      "each with its source, time and what kind of record it is."))
+st.warning("**Situational awareness only, not an official warning service.** In an emergency, follow your local "
+           "emergency services and national weather or disaster agency.", icon=":material/emergency:")
+
+# --- Controls ------------------------------------------------------------------------------------
+search_col, period_col, mag_col, refresh_col = st.columns([3, 1.4, 1.2, 0.7], vertical_alignment="bottom")
+with search_col:
+    query = st.text_input("Search the globe", key="earth_q", max_chars=120, icon=":material/search:",
+                          placeholder="Country, state, city, neighbourhood, address or 28.61, 77.21",
+                          help="Countries and states: Natural Earth. Cities: Open-Meteo geocoding. Neighbourhoods, "
+                               "streets and addresses: OpenStreetMap Nominatim (searched only when you press Enter). "
+                               "Searches aren't saved.").strip()
+with period_col:
+    period = st.selectbox("Period", list(PERIODS), index=1, format_func=lambda k: PERIODS[k], key="earth_period",
+                          help="Applies to earthquakes and GDACS events, and sets the timeline. Other feeds report "
+                               "what is current.")
+with mag_col:
+    min_mag = st.select_slider("Earthquakes from", [0.0, 2.5, 4.0, 4.5, 5.0, 6.0, 7.0], value=2.5,
+                               format_func=lambda m: "any magnitude" if m == 0 else f"M{m:g}", key="earth_mag")
+with refresh_col:
+    refresh = st.button("Refresh", icon=":material/refresh:", width="stretch",
+                        help="Ask every source again now (each is otherwise re-checked on its own schedule).")
+
+# Everything that appears only sometimes (dates, search matches, messages) lives in this one container, so the globe
+# below keeps its place in the page and isn't rebuilt (losing the camera) when one of them shows up.
+extras = st.container()
+now = pd.Timestamp.now(tz="UTC")
+start = end = None
+if period == "custom":
+    d1, d2 = extras.columns(2)
+    picked_start = d1.date_input("From (UTC)", value=(now - pd.Timedelta(days=14)).date(),
+                                 max_value=now.date(), key="earth_from")
+    picked_end = d2.date_input("To (UTC)", value=now.date(), max_value=now.date(), key="earth_to")
+    start = pd.Timestamp(picked_start, tz="UTC")
+    end = min(pd.Timestamp(picked_end, tz="UTC") + pd.Timedelta(days=1), now)
+    if end <= start:
+        extras.error("The end date must be after the start date.", icon=":material/event_busy:")
+        st.stop()
+    if end - start > pd.Timedelta(days=62):
+        extras.error("Choose at most 62 days, to keep the request within USGS and GDACS limits.", icon=":material/event_busy:")
+        st.stop()
+    extras.caption("Historical earthquakes come from the USGS FDSN event service (M2.5 and above) and GDACS events from its "
+               "archive. Feeds that only report what is current (NWS, NHC, fire detections, drought, volcano alerts, "
+               "tsunami bulletins) show today's records, not the chosen dates.")
+period = period or "week"
+q = Query(period, float(min_mag), start, end)
+hz = store()
+if refresh:
+    for key in SOURCES:
+        hz.refresh(key, q)
+
+with extras, st.spinner("Loading disaster and hazard feeds… the first load takes up to 25 seconds; later views are "
+                        "instant."):
+    snap = hz.snapshot(q)
+
+events = snap.events
+by_id = {e.id: e for e in events}
+
+# --- Search ---------------------------------------------------------------------------------------
+if len(query) >= 2:
+    targets, search_errors = ES.search(query, cities=app_data.search)
+    for err in search_errors:
+        extras.caption(f":material/error: Part of the search is unavailable ({err}); other results still work.")
+    if not targets:
+        extras.info(f"No place matches “{query}”.", icon=":material/travel_explore:")
+    else:
+        choice = extras.selectbox("Matching places", range(len(targets)), format_func=lambda i: targets[i]["label"],
+                              key=f"earth_pick_{query}")
+        if st.session_state.get("_earth_last_choice") != (query, choice):
+            st.session_state["_earth_last_choice"] = (query, choice)
+            focus(targets[choice])
+        if targets[choice].get("source"):
+            extras.caption(f"Place data: {targets[choice]['source']}.")
+
+region = st.session_state.get(REGION_KEY)
+region_geom = ES.region_geometry(region["kind"], region["a3"], region.get("id")) \
+    if region and region.get("kind") in ("country", "admin1") else None
+
+# --- Globe ----------------------------------------------------------------------------------------
+selected_id = st.session_state.get(SEL_KEY)
+selected = by_id.get(selected_id) if selected_id else None
+sel_geometry = None
+if selected is not None and selected.source == "gdacs" and selected.category != "cyclone" and selected.extra.get("geometry_url"):
+    try:
+        sel_geometry = gdacs_geometry(selected.extra["geometry_url"])
+    except http.FeedError:
+        sel_geometry = None
+period_start = start if start is not None else now - pd.Timedelta(days=q.days())
+period_end = end if end is not None else now
+attribution = ("Data: USGS, GDACS, NOAA (NHC, NWS, tsunami centres), NASA FIRMS, U.S. Drought Monitor, "
+               "Smithsonian GVP (full list below the globe)")
+result = earth_globe({
+    "layers": snap.layers,
+    "statuses": [{"source": s, "name": SOURCES[s].name, "label": st_.label} for s, st_ in snap.statuses.items()],
+    "categories": [{"key": c.key, "label": c.label, "color": c.color, "shape": c.shape, "icon": c.icon,
+                    "on": c.key in DEFAULT_ON} for c in CATEGORIES.values()],
+    "kinds": KINDS, "source_names": {k: s.name for k, s in SOURCES.items()},
+    "period": {"start": int(period_start.timestamp() * 1000), "end": int(period_end.timestamp() * 1000)},
+    "imagery_day": (now - pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
+    "attribution": attribution,
+    "focus": st.session_state.get(FOCUS_KEY), "region": region_geom,
+    "selected": selected_id, "selected_geometry": sel_geometry,
+})
+picked = getattr(result, "select", None)
+if picked and picked.get("t") != st.session_state.get("_earth_pick_t"):
+    st.session_state["_earth_pick_t"] = picked.get("t")
+    if picked.get("id"):
+        select_event(picked["id"])
+        selected = by_id.get(picked["id"])
+    elif picked.get("fire"):
+        st.session_state[FIRE_KEY] = picked["fire"]
+        st.session_state[SEL_KEY] = None
+        selected = None
+
+st.caption("Drag to rotate, scroll or pinch to zoom, double-click to zoom in. Zooming reveals continents, countries, "
+           "states, cities, streets and, from about street level, OpenStreetMap building footprints (outlines, not "
+           "imagery). Relief imagery is a 2004 NASA composite; the satellite option shows a recent day at 250 m. "
+           "Nothing on the map shows the condition of a particular building.")
+
+# --- Feed status ----------------------------------------------------------------------------------
+st.html(T.section("Data feeds", "sensors", f"Checked {now:%H:%M} UTC"))
+rows = []
+for key, s in snap.statuses.items():
+    src = SOURCES[key]
+    rows.append({"Source": src.name, "Status": s.label,
+                 "Data time": "—" if s.data_time is None else f"{s.data_time:%d %b %H:%M} UTC ({age_text(s.data_time, now)})",
+                 "Last checked": "never" if s.fetched_at is None else age_text(s.fetched_at, now),
+                 "Records": s.count, "Coverage": src.coverage, "Updates": src.cadence_text,
+                 "Notes": "; ".join(x for x in (s.error and f"Error: {s.error}", s.note) if x) or ""})
+st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", column_config={
+    "Coverage": st.column_config.TextColumn(width="large"), "Notes": st.column_config.TextColumn(width="large")})
+st.caption("Live feed: the source updates every few minutes and its data are fresh. Recently updated: within the "
+           "source's normal schedule (some update every few hours or weekly). Delayed data: older than expected, or "
+           "the last refresh failed and earlier data are shown. Temporarily unavailable: no data could be loaded.")
+
+# --- Summary ----------------------------------------------------------------------------------------
+st.html(T.section("Summary of loaded records", "monitoring", PERIODS[period]))
+fire_count = None
+if snap.statuses.get("firms") and snap.statuses["firms"].note:
+    digits = "".join(ch for ch in snap.statuses["firms"].note.split(" ")[0] if ch.isdigit())
+    fire_count = int(digits) if digits else None
+cols = st.columns(6)
+for col, row in zip(cols, A.summary(events, snap.statuses, fire_count)):
+    col.metric(row["label"], "—" if row["value"] is None else f"{row['value']:,}", help=row["definition"])
+st.caption("Counts are of the records Cloudzy loaded, with the definitions shown on hover. They aren't worldwide "
+           "totals: official warnings are connected for the United States only, and GDACS lists only events large "
+           "enough to model.")
+
+# --- Highest-priority official alerts ----------------------------------------------------------------
+st.html(T.section("Official warnings in force", "campaign", "Severe and extreme, newest first"))
+official = sorted([e for e in events if e.official and e.kind == "warning" and e.current and e.severity_rank >= 3
+                   and not e.extra.get("marine")], key=lambda e: (-e.severity_rank, -(e.time or now).timestamp()))
+if not official:
+    st.caption("No severe or extreme official warnings from the connected agencies right now. Agencies in most "
+               "countries aren't connected, so check your national service.")
+for e in official[:8]:
+    with st.container(border=True):
+        a, b = st.columns([4, 1], vertical_alignment="center")
+        a.markdown(f"**{e.title}** · {e.severity_label} · {e.area or e.country or ''}"[:400])
+        a.caption(f"{SOURCES[e.source].publisher} · issued {age_text(e.updated, now)}"
+                  + (f" · expires {e.ends:%d %b %H:%M} UTC" if e.ends is not None else ""))
+        if e.url:
+            b.link_button("Official source", e.url, icon=":material/open_in_new:", width="stretch")
+        if b.button("Show", key=f"earth_show_{e.id}", icon=":material/my_location:", width="stretch"):
+            select_event(e.id)
+            if e.lat is not None:
+                focus({"lat": e.lat, "lon": e.lon, "zoom": 6, "label": e.title})
+            st.rerun()
+
+# --- Selected event ---------------------------------------------------------------------------------
+st.html(T.section("Selected", "location_searching", "Select a marker or a list entry"))
+fire = st.session_state.get(FIRE_KEY)
+if selected is not None:
+    cat = CATEGORIES[selected.category]
+    st.markdown(f"#### :material/{cat.icon}: {selected.title}")
+    chips = [KINDS[selected.kind], "Official source" if selected.official else "Not an official warning",
+             "Current" if selected.current else "Not current"]
+    st.caption(" · ".join(chips))
+    left, right = st.columns([1.3, 1], gap="large")
+    with left:
+        facts = {"Category": cat.label, "Severity": f"{selected.severity_label} (Cloudzy rank: "
+                 f"{RANK_LABELS[selected.severity_rank]})", "Location": selected.area or selected.country or "Not available",
+                 "Coordinates": "Not available" if selected.lat is None else f"{selected.lat:.4f}, {selected.lon:.4f}",
+                 "Time": "Not available" if selected.time is None else f"{selected.time:%Y-%m-%d %H:%M} UTC",
+                 "Last update": "Not available" if selected.updated is None else
+                 f"{selected.updated:%Y-%m-%d %H:%M} UTC ({age_text(selected.updated, now)})",
+                 "Source": SOURCES[selected.source].publisher}
+        if selected.ends is not None:
+            facts["Ends or expires"] = f"{selected.ends:%Y-%m-%d %H:%M} UTC"
+        facts.update(selected.measurements)
+        st.dataframe(pd.DataFrame({"Field": list(facts), "Value": [str(v) for v in facts.values()]}),
+                     hide_index=True, width="stretch")
+        st.caption(f"Severity as the source defines it: {selected.severity_definition}")
+        if selected.summary:
+            st.markdown(f"**From the source:** {selected.summary[:1200]}")
+        if selected.extra.get("description"):
+            with st.expander("Full official text"):
+                st.write(selected.extra["description"])
+        if selected.extra.get("cone_note"):
+            st.caption(selected.extra["cone_note"])
+        links = st.columns(2)
+        if selected.url:
+            links[0].link_button("Open original source", selected.url, icon=":material/open_in_new:", width="stretch")
+        for link in selected.extra.get("related_links", [])[:1]:
+            links[1].link_button(link["label"], link["url"], icon=":material/link:", width="stretch")
+    with right:
+        ctx = A.context(selected)
+        st.markdown("**Nearby mapped settlements**")
+        if ctx["places"]:
+            st.dataframe(pd.DataFrame([{"Place": p.name, "Admin. area": p.admin1, "Country": p.country_a3,
+                                        "Distance km": p.distance_km, "Population (NE)": p.population}
+                                       for p in ctx["places"]]), hide_index=True, width="stretch")
+        else:
+            st.caption("No mapped settlement in the search area, or the event has no location.")
+        st.caption(ctx["method"] + " " + " ".join(ctx["notes"]))
+        near = A.nearby_events(selected, events, 300)
+        if near:
+            st.markdown("**Other loaded events within 300 km**")
+            st.dataframe(pd.DataFrame([{"Event": e.title, "Distance km": d, "Kind": KINDS[e.kind],
+                                        "Time (UTC)": "" if e.time is None else f"{e.time:%d %b %H:%M}"}
+                                       for e, d in near]), hide_index=True, width="stretch")
+elif fire:
+    st.markdown("#### :material/local_fire_department: Satellite fire detection")
+    st.caption("Satellite detection · not a confirmed fire · NASA FIRMS, VIIRS NOAA-20 375 m")
+    t = pd.Timestamp(fire["tms"], unit="ms", tz="UTC")
+    st.markdown(f"Detected **{t:%Y-%m-%d %H:%M} UTC** ({age_text(t, now)}) at {fire['lat']:.3f}, {fire['lon']:.3f}, "
+                f"{'night' if fire['night'] else 'day'} overpass. Fire radiative power: "
+                f"{'not given' if fire['frp'] is None else str(fire['frp']) + ' MW'}; confidence: {fire['conf']}.")
+    near = A.places_near(fire["lat"], fire["lon"], 25)
+    if near:
+        st.dataframe(pd.DataFrame([{"Place": p.name, "Country": p.country_a3, "Distance km": p.distance_km}
+                                   for p in near]), hide_index=True, width="stretch")
+    st.caption("Hotspots also come from industry, gas flares and volcanoes. For active wildfires and evacuations, "
+               "follow your national fire service. " + A.PROXIMITY_NOTE)
+    st.link_button("Open NASA FIRMS at this point",
+                   f"https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@{fire['lon']:.3f},{fire['lat']:.3f},9.0z",
+                   icon=":material/open_in_new:")
+else:
+    st.caption("Nothing selected yet.")
+
+# --- Events table (synchronised with the globe) -------------------------------------------------------
+place_name = (region or {}).get("name")
+st.html(T.section("Events", "list", f"Near {place_name}" if place_name else "All loaded records"))
+f1, f2, f3 = st.columns([2, 1.2, 1.2])
+cat_pick = f1.multiselect("Categories", list(CATEGORIES), default=sorted(DEFAULT_ON), key="earth_cats",
+                          format_func=lambda k: CATEGORIES[k].label)
+min_rank = f2.selectbox("Minimum severity", list(RANK_LABELS), format_func=lambda r: RANK_LABELS[r],
+                        key="earth_rank") or 0
+only_official = f3.toggle("Official sources only", key="earth_off")
+area_only = bool(place_name) and st.toggle(f"Only events in or near {place_name}", value=True, key="earth_area")
+table_events = A.filter_events(events, set(cat_pick), min_rank, only_official,
+                               region=region if area_only and region and region.get("kind") in ("country", "admin1") else None)
+if area_only and region and region.get("kind") == "near":
+    table_events = A.events_near(region["lat"], region["lon"], table_events, 150)
+    st.caption("Events within 150 km of the place.")
+table_events.sort(key=lambda e: (-e.severity_rank, -(e.time or now).timestamp()))
+if not table_events:
+    st.info("No loaded records match. That doesn't mean nothing is happening there: many hazards and countries "
+            "aren't covered by the connected feeds.", icon=":material/info:")
+else:
+    df = pd.DataFrame([{"Event": e.title, "Category": CATEGORIES[e.category].label, "Kind": KINDS[e.kind],
+                        "Severity": e.severity_label, "Where": (e.area or e.country or "")[:80],
+                        "Time (UTC)": None if e.time is None else e.time.tz_localize(None),
+                        "Source": SOURCES[e.source].name, "Official": e.official, "id": e.id}
+                       for e in table_events[:2000]])
+    pick = st.dataframe(df.drop(columns="id"), hide_index=True, width="stretch", on_select="rerun",
+                        selection_mode="single-row", key="earth_table",
+                        column_config={"Time (UTC)": st.column_config.DatetimeColumn(format="YYYY-MM-DD HH:mm")})
+    st.caption(f"{len(table_events):,} records" + (" (first 2,000 shown)" if len(table_events) > 2000 else "") +
+               ". Select a row to show it on the globe.")
+    rows_sel = getattr(getattr(pick, "selection", None), "rows", []) or []
+    if rows_sel:
+        chosen = df.iloc[rows_sel[0]]["id"]
+        if chosen != st.session_state.get(SEL_KEY):
+            select_event(chosen)
+            st.rerun()
+
+# --- Sources, gaps and terms ------------------------------------------------------------------------------
+with st.expander("What isn't connected, and why"):
+    st.dataframe(pd.DataFrame(NOT_CONNECTED, columns=["Not connected", "Why"]), hide_index=True, width="stretch")
+with st.expander("Sources, licences and attribution"):
+    st.dataframe(pd.DataFrame([{"Source": s.name, "Publisher": s.publisher, "Licence or terms": s.licence,
+                                "Attribution": s.attribution, "Home": s.home, "Note": s.note}
+                               for s in SOURCES.values()]), hide_index=True, width="stretch")
+    st.markdown("- **Base map:** OpenFreeMap vector tiles (© OpenMapTiles, © OpenStreetMap contributors, ODbL). "
+                "**Imagery:** NASA GIBS (public domain). **Terrain:** AWS Terrain Tiles (Mapzen; SRTM, GMTED, "
+                "ETOPO1 and others). **Places and borders:** Natural Earth (public domain), shown from India's "
+                "official point of view. **Search:** Open-Meteo geocoding (GeoNames, CC BY 4.0) and OpenStreetMap "
+                "Nominatim. **Map engine:** MapLibre GL JS (BSD-3-Clause).")
+if snap.warnings:
+    with st.expander(f"Data notes ({len(snap.warnings)})"):
+        for w in snap.warnings:
+            st.markdown(f"- {w}")
+st.caption(EMERGENCY_NOTE)

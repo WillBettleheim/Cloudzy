@@ -4,7 +4,8 @@ Run:  streamlit run streamlit_app.py
 
 Navigation (sidebar on wide screens; Streamlit collapses it behind a menu
 button on narrow ones):
-- Forecast: Weather, Air Quality, Outdoor Intelligence, Weather Explorer (global map), History & Trends, Alerts
+- Forecast: Weather, Air Quality, Outdoor Intelligence, Weather Explorer (global map), Earth Intelligence
+  (disasters and hazards on a 3D globe), History & Trends, Alerts
 - Cloudzy Core: Predictions (live tracking), Cloudzy Lab (offline evaluation)
 - You: Places (saved cities and home), Settings
 - Terms of Use (/terms): not in the menu; linked from the sidebar footer and Settings
@@ -28,6 +29,7 @@ pages = {
         st.Page("app_pages/outdoor.py", title="Outdoor Intelligence", icon=":material/directions_run:",
                 url_path="outdoor"),
         st.Page("app_pages/explorer.py", title="Weather Explorer", icon=":material/public:", url_path="explorer"),
+        st.Page("app_pages/earth.py", title="Earth Intelligence", icon=":material/travel_explore:", url_path="earth"),
         st.Page("app_pages/history.py", title="History & Trends", icon=":material/history:", url_path="history"),
         st.Page("app_pages/alerts.py", title="Alerts", icon=":material/notifications:", url_path="alerts"),
     ],

@@ -48,14 +48,28 @@ request.
 
 Air quality and Outdoor Intelligence are documented in [AIR_QUALITY.md](AIR_QUALITY.md).
 
+```
+   USGS · GDACS · NHC · NWS · NASA FIRMS · U.S. Drought Monitor · USGS volcanoes · GVP · NOAA tsunami
+          │  (server side, src/hazards/<provider>.py: validate, normalise to HazardEvent)
+          ▼
+   src/hazards/store.py ── per-source cache and TTL, background refresh, last-good fallback,
+          │                 cross-source merging, content-hashed files in static/earth/
+          ▼
+   app_pages/earth.py ◄── src/earth_view.py (MapLibre globe, browser) ◄── static/earth/*.json
+          │                 + OpenFreeMap tiles, NASA GIBS imagery, AWS terrain tiles
+          └─ src/hazards/analysis.py (filters, summaries, nearby settlements), src/earth_search.py
+```
+
+Earth Intelligence is documented in [EARTH_INTELLIGENCE.md](EARTH_INTELLIGENCE.md).
+
 ## Layers
 
 | Layer | Modules | Responsibility |
 |---|---|---|
 | HTTP | `data_collection.fetch_json` | Every network call goes through this one function, which handles timeouts, retries with backoff, HTTP 429 `Retry-After`, 4xx/5xx handling and user-readable errors. `INTERACTIVE` settings fail within about 25 s. Batch downloads are patient. |
-| Data services | `provider`, `air_quality`, `history`, `service`, `data_validation`, `geolocation` | Validate units, time zones, array lengths and physical bounds. Missing values stay missing; optional variables a model lacks are reported as unavailable; wrong units are fatal. |
+| Data services | `provider`, `air_quality`, `hazards.*` (one module per disaster source), `history`, `service`, `data_validation`, `geolocation`, `earth_search` | Validate units, time zones, array lengths and physical bounds. Missing values stay missing; optional variables a model lacks are reported as unavailable; wrong units are fatal. |
 | Domain logic | `insights`, `aqi`, `outdoor`, `air_alerts`, `units`, `preferences`, `monitoring` | Pure functions, testable without Streamlit or the network. |
-| Presentation | `theme` (design tokens, global CSS, icons, chips), `weather_view`, `air_view`, `ui`, `lab_ui` | Build HTML and Plotly figures from data and units. They never fetch anything. |
+| Presentation | `theme` (design tokens, global CSS, icons, chips), `weather_view`, `air_view`, `earth_view`, `ui`, `lab_ui` | Build HTML and Plotly figures from data and units. They never fetch anything. |
 | Pages | `app_pages/{weather,air_quality,outdoor,history,alerts,predictions,lab,places,settings}.py`, `streamlit_app.py`, with `app_data` (shared cached calls), `place_select` (place switcher) and `nav` (safe page links) | Lay out the page, cache results, and handle loading, empty and error states. |
 | ML (offline) | `features`, `splits`, `models`, `train`, `multistep`, `shift`, `compact`, `refit`, `lab_data` | Chronological experiments, the deployed bundle and reproducible Lab data. |
 
@@ -64,6 +78,7 @@ Air quality and Outdoor Intelligence are documented in [AIR_QUALITY.md](AIR_QUAL
 | Type | Source | Shown as |
 |---|---|---|
 | Provider forecast | Forecast API (`best_match`) | The main weather app: hero, hourly, 7-day, details |
+| Hazard records | USGS, GDACS, NHC, NWS, FIRMS, USDM, USGS volcanoes, GVP, NOAA tsunami centres | Earth Intelligence. Every record has a kind (observed, forecast, official warning, automatic estimate, satellite detection, assessment, catalogue) |
 | Air-quality forecast | Air Quality API (CAMS) | Air Quality and Outdoor pages, labelled "model estimate, not a station reading". Earlier hours are model values, never called observations |
 | Cloudzy Core prediction | `service.py` + compact bundle, Delhi only | A separate "🧪 Cloudzy Core · experimental" section |
 | Historical reanalysis | Archive API | History page, labelled "historical reanalysis"; also the reference for tracked predictions |
@@ -102,15 +117,17 @@ the tests use that mode.
 | `data/monitoring/` | `cloudzy_predictions.sqlite` (predictions, refusals); the old `predictions.jsonl` is imported once and kept | `CLOUDZY_MONITORING_DIR`, `CLOUDZY_MONITORING=0` |
 | `data/live_snapshots/` | Raw live-input responses, deleted after 30 days | `CLOUDZY_SNAPSHOTS=0` |
 | `static/explorer/` | GFS forecast frames for the Weather Explorer (newest complete run only, ~31 MB) | `CLOUDZY_EXPLORER_DIR`, `CLOUDZY_EXPLORER_REFRESH=0` |
+| `static/earth/` | Earth Intelligence layers (events, fire detections, drought, volcano catalogue; ~4 MB, 3 versions each) | `CLOUDZY_EARTH_DIR` |
+| Memory | Hazard feed cache (one entry per source and query) | |
 | Memory | Place-name lookups (at most 1,000, oldest dropped first); Streamlit's data caches (public weather data only) | |
 
 ## Tests
 
-- **Offline suite:** `python -m pytest` runs 710 tests and needs no network.
+- **Offline suite:** `python -m pytest` runs 824 tests and needs no network.
   `tests/conftest.py` points preferences, monitoring and snapshots at temporary
   folders, so tests never touch real user data.
-- **Live checks:** `python -m pytest -m integration` runs 6 tests against the
-  real APIs (including the Air Quality API).
+- **Live checks:** `python -m pytest -m integration` runs 12 tests against the
+  real APIs (including the Air Quality API and six hazard feeds).
 - **App states:** headless `streamlit.testing.v1.AppTest` covers every page
   state, with the network replaced by fakes.
 

@@ -11,6 +11,7 @@ def isolated_user_data(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("CLOUDZY_SNAPSHOTS", "0")
     monkeypatch.setenv("CLOUDZY_EXPLORER_DIR", str(base / "explorer"))
     monkeypatch.setenv("CLOUDZY_EXPLORER_REFRESH", "0")   # never download GFS data in tests
+    monkeypatch.setenv("CLOUDZY_EARTH_DIR", str(base / "earth"))   # hazard static files go to a temp folder
 
 
 @pytest.fixture(autouse=True)
@@ -23,3 +24,19 @@ def no_live_air_quality(request, monkeypatch):
     def blocked(place, session=None):
         raise src.air_quality.AirQualityError("network access is disabled in offline tests")
     monkeypatch.setattr(src.air_quality, "fetch_air_quality", blocked)
+
+
+@pytest.fixture(autouse=True)
+def no_live_hazard_feeds(request, monkeypatch):
+    """Offline tests never call disaster-data providers, and each test starts with an empty hazard store."""
+    import src.hazards.store
+    monkeypatch.setattr(src.hazards.store, "_STORE", None)
+    if request.node.get_closest_marker("integration"):
+        return
+    import src.earth_search
+    import src.hazards.http
+
+    def blocked(url, params=None, **kw):
+        raise src.hazards.http.FeedError("network access is disabled in offline tests")
+    monkeypatch.setattr(src.hazards.http, "get", blocked)
+    monkeypatch.setattr(src.earth_search, "nominatim", lambda q, session=None: [])

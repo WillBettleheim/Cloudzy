@@ -40,6 +40,30 @@ Cloudzy brings together weather information, predictive modelling, and software 
 
 Methods, sources, thresholds and limits are in [docs/AIR_QUALITY.md](docs/AIR_QUALITY.md).
 
+### 🌍 Cloudzy Earth Intelligence
+- An interactive 3D globe (MapLibre GL JS) with real disasters and hazards. It zooms from the whole planet to
+  streets and OpenStreetMap building footprints (outlines, not imagery).
+- Connected sources:
+  - **USGS** earthquakes.
+  - **GDACS**: global cyclones, floods, fires, volcanoes and droughts, as automatic impact estimates, not
+    official warnings.
+  - **NOAA NHC** cyclones, with cone, observed track and forecast track.
+  - **NWS** warnings (U.S. only).
+  - **NASA FIRMS** satellite fire detections (not confirmed fires).
+  - The **U.S. Drought Monitor**.
+  - **USGS** volcano alert levels.
+  - The **Smithsonian** volcano catalogue.
+  - **NOAA** tsunami bulletins.
+- Each feed shows its real freshness (Live feed, Recently updated, Delayed data, Historical dataset or
+  Temporarily unavailable). A failing feed never stops the others.
+- The globe has layer controls, filters, a searchable event list kept in sync with the map, and a timeline
+  that plays records by their own times. Search covers countries, states, cities, coordinates and addresses.
+- Selecting an event shows its source-backed details, a link to the original record, and nearby mapped
+  settlements (proximity, never an impact estimate).
+- For situational awareness only: it isn't an official warning service and doesn't cover every country.
+
+Details, sources, licences and limits are in [docs/EARTH_INTELLIGENCE.md](docs/EARTH_INTELLIGENCE.md).
+
 ### 🧠 Cloudzy Core
 Cloudzy Core is the machine-learning component of the project.
 
@@ -130,9 +154,13 @@ From the project folder, with the virtual environment active:
 streamlit run streamlit_app.py
 ```
 
-Then open http://localhost:8501. No API keys are needed: Cloudzy uses Open-Meteo's free, key-less APIs
-(non-commercial use; 600 requests per minute, 5,000 per hour, 10,000 per day). Responses are cached: 10
-minutes for weather and 15 minutes for air quality.
+Then open http://localhost:8501. Earth Intelligence is at http://localhost:8501/earth; its first load
+fetches nine feeds and takes up to about 25 seconds, and later views are instant.
+
+No API keys are needed. Cloudzy uses Open-Meteo's free, key-less APIs (non-commercial use; 600 requests per
+minute, 5,000 per hour, 10,000 per day), and Earth Intelligence's sources are also key-less. Responses are
+cached: 10 minutes for weather, 15 minutes for air quality, and each hazard feed for its own update
+interval.
 
 ### Testing
 
@@ -148,6 +176,11 @@ mypy
 - Weather data by Open-Meteo.com (CC BY 4.0).
 - Air quality: Copernicus Atmosphere Monitoring Service (CAMS) forecasts, via Open-Meteo.com (CC BY 4.0).
   Contains modified Copernicus Atmosphere Monitoring Service information.
+- Earth Intelligence:
+  - U.S. Geological Survey, GDACS, NOAA (NHC, NWS, Tsunami Warning Centers), NASA FIRMS and GIBS, the U.S.
+    Drought Monitor, and the Smithsonian Global Volcanism Program.
+  - Basemap © OpenFreeMap, © OpenMapTiles, © OpenStreetMap contributors.
+  - Terrain from the AWS Terrain Tiles, and search by OpenStreetMap Nominatim.
 - Reanalysis: Copernicus Climate Change Service (ERA5, ERA5-Land).
 
 ## 📊 Model Evaluation

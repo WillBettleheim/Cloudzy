@@ -75,3 +75,17 @@ def test_air_quality_api_returns_valid_cams_data(session):
     assert data.hourly["pm2_5"].notna().sum() > 96
     for standard in aqi.STANDARDS.values():
         assert reading(data, standard, now).value is not None, standard.code
+
+
+@pytest.mark.parametrize("name", ["usgs", "gdacs", "nhc", "nws", "usgs_volcano", "tsunami"])
+def test_hazard_feeds_answer_with_parseable_data(name):
+    """Each connected disaster feed still answers in the format its parser expects (FIRMS's 11 MB file and the
+    18 MB drought map are left out to stay light)."""
+    from src.hazards import gdacs, http, nhc, nws, tsunami, usgs, volcanoes
+    fetch = {"usgs": lambda: usgs.fetch("day"), "gdacs": lambda: gdacs._fetch_type("TC", 30, pd.Timestamp.now(tz="UTC"), None),
+             "nhc": lambda: nhc.parse_current(http.get(nhc.CURRENT_URL)),
+             "nws": nws.fetch, "usgs_volcano": volcanoes.fetch_usgs, "tsunami": tsunami.fetch}[name]
+    result = fetch()
+    assert result.warnings == [] or all(isinstance(w, str) for w in result.warnings)
+    for e in result.events:
+        assert e.id and e.source and e.kind and (e.lat is None or -90 <= e.lat <= 90)
