@@ -88,7 +88,7 @@ def test_predictions_page_with_records_never_claims_accuracy_without_evaluations
 def test_navigation_lists_every_page():
     with open("streamlit_app.py") as f:
         src = f.read()
-    for page in ("weather", "history", "alerts", "predictions", "lab", "places", "settings"):
+    for page in ("weather", "explorer", "history", "alerts", "predictions", "lab", "places", "settings", "terms"):
         assert f"app_pages/{page}.py" in src
 
 
@@ -101,6 +101,29 @@ def test_figure_table_lists_drawn_values_and_skips_reference_lines():
     df, cut = figure_table(fig)
     assert list(df["series"]) == ["MAE", "MAE"] and list(df["value"]) == [1.0, 2.0] and not cut
     assert figure_table(go.Figure()) is None
+
+
+def test_figure_table_counts_histogram_bins_exactly_as_drawn():
+    import plotly.graph_objects as go
+
+    from src.ui import figure_table
+    errors = [-0.1, -0.04, 0.0, 0.04, 0.05, 0.12, 9.9]      # 9.9 is outside the bins, so it isn't drawn
+    fig = go.Figure(go.Histogram(x=errors, xbins={"start": -0.15, "end": 0.15, "size": 0.1}, name="Cloudzy"))
+    df, _ = figure_table(fig)
+    assert list(df["x"]) == [-0.1, 0.0, 0.1] and list(df["value"]) == [1, 3, 2]
+    assert figure_table(go.Figure(go.Histogram(x=errors))) is None   # automatic bins can't be reproduced
+
+
+def test_lab_error_histogram_has_a_table():
+    import pandas as pd
+
+    from src import lab_ui
+    from src.ui import figure_table
+    df = pd.DataFrame({"observed": [20.0, 21.0, 22.0], "persistence": [20.5, 21.0, 21.0],
+                       lab_ui.CLOUDZY: [20.1, 21.0, 22.0]})
+    fig = lab_ui.error_histogram(df, "persistence", lab_ui.lab_palette())
+    table, _ = figure_table(fig)
+    assert table.groupby("series")["value"].sum().tolist() == [3, 3]    # every hour counted once per model
 
 
 def test_lab_shows_deployed_model_version():

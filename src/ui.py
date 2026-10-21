@@ -196,14 +196,37 @@ def cloudzy_table(predictions: list[dict], provider: list[dict], unit: str = "°
     })
 
 
+def _histogram_counts(tr):
+    """Bin centres and counts exactly as Plotly draws a histogram with explicit `xbins` (bins include their
+    left edge; values outside start..end aren't drawn). None when the bins aren't fixed in the figure."""
+    import numpy as np
+    xb = tr.xbins
+    if xb is None or xb.start is None or xb.end is None or not xb.size:
+        return None
+    start, end, size = float(xb.start), float(xb.end), float(xb.size)
+    v = np.asarray(tr.x, dtype=float)
+    v = v[np.isfinite(v) & (v >= start) & (v < end)]
+    idx = np.floor((v - start) / size + 1e-9).astype(int)
+    counts = np.bincount(idx, minlength=round((end - start) / size))
+    keep = np.nonzero(counts)[0]                       # empty bins draw nothing, so they're left out
+    return [round(start + (k + 0.5) * size, 6) for k in keep], counts[keep].tolist()
+
+
 def figure_table(fig, max_rows: int = 2000):
-    """The values a Plotly figure draws, as a long table (one row per point), for a text alternative."""
+    """The values a Plotly figure draws, as a long table (one row per point or bar), for a text alternative."""
     import pandas as pd
     parts = []
     for tr in fig.data:
+        if getattr(tr, "hoverinfo", None) == "skip":
+            continue                          # reference lines such as "perfect prediction"
+        if tr.type == "histogram":
+            binned = _histogram_counts(tr)
+            if binned is not None:
+                parts.append(pd.DataFrame({"series": tr.name or "", "x": binned[0], "value": binned[1]}))
+            continue
         x, y = getattr(tr, "x", None), getattr(tr, "y", None)
-        if x is None or y is None or getattr(tr, "hoverinfo", None) == "skip":
-            continue                          # reference lines and histograms of raw values are skipped
+        if x is None or y is None:
+            continue
         parts.append(pd.DataFrame({"series": tr.name or "", "x": list(x), "value": list(y)}))
     if not parts:
         return None

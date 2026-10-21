@@ -112,7 +112,9 @@ tp = U.precipitation(ov["total_precip_mm"], hunits.precipitation)
 c4.metric("Total rain", "—" if tp is None else f"{tp:.{rdig}f} {hunits.precipitation}",
           help=f"{ov['wet_days']} days with at least 1 mm")
 
-daily_tab, monthly_tab, compare_tab = st.tabs(["Daily", "Monthly", "Compared with earlier years"])
+# Keyed, so the open tab survives reruns (for example after loading the comparison).
+daily_tab, monthly_tab, compare_tab = st.tabs(["Daily", "Monthly", "Compared with earlier years"],
+                                              key="hist_tab", on_change="rerun")
 
 with daily_tab:
     chart(lab_ui.history_temperature_chart(daily, colors, tu, tconv))

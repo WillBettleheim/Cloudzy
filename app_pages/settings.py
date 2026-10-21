@@ -83,6 +83,12 @@ st.html(T.section("Theme", "contrast"))
 st.markdown("Light, dark or *use system setting*: open the **⋮** menu (top right) → **Settings** → "
             "**Theme**. Your browser remembers the choice. Cloudzy's charts and cards follow it.")
 
+# --- About ---------------------------------------------------------------------------------
+st.html(T.section("About Cloudzy", "info"))
+st.caption("Cloudzy's forecasts, alerts and predictions are estimates and can be wrong; it isn't an emergency or "
+           "official warning service.")
+nav.page_link("app_pages/terms.py", "Terms of Use", ":material/gavel:")
+
 # --- Reset ---------------------------------------------------------------------------------
 st.divider()
 with st.expander("Reset"):

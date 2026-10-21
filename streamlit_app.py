@@ -7,6 +7,7 @@ button on narrow ones):
 - Forecast: Weather, Weather Explorer (global map), History & Trends, Alerts
 - Cloudzy Core: Predictions (live tracking), Cloudzy Lab (offline evaluation)
 - You: Places (saved cities and home), Settings
+- Terms of Use (/terms): not in the menu; linked from the sidebar footer and Settings
 """
 
 from pathlib import Path
@@ -35,6 +36,9 @@ pages = {
     "You": [
         st.Page("app_pages/places.py", title="Places", icon=":material/bookmark:", url_path="places"),
         st.Page("app_pages/settings.py", title="Settings", icon=":material/settings:", url_path="settings"),
+        # Not in the menu: linked from the sidebar footer and from Settings.
+        st.Page("app_pages/terms.py", title="Terms of Use", icon=":material/gavel:", url_path="terms",
+                visibility="hidden"),
     ],
 }
 page = st.navigation(pages, position="sidebar")
@@ -42,6 +46,7 @@ st.logo(str(ASSETS / "cloudzy_logo.svg"), icon_image=str(ASSETS / "cloudzy_icon.
 st.html(GLOBAL_CSS)
 st.sidebar.caption("Weather with a little intelligence. Forecasts from Open-Meteo; Cloudzy Core is an "
                    "experimental model for New Delhi.")
+st.sidebar.page_link("app_pages/terms.py", label="Terms of Use", icon=":material/gavel:")
 
 # Each visitor's settings live in their own browser; wait for them before drawing any page.
 if not browser_prefs.begin():
