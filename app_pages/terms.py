@@ -22,9 +22,6 @@ st.html("""<style>
 
 with st.container(key="cz-terms"):
     st.markdown(f"**Last updated: {TU.LAST_UPDATED}**")
-    if TU.REVIEW_ITEMS:
-        st.warning("**Draft for review.** These terms aren't final. Before Cloudzy is offered publicly:\n\n"
-                   + "\n".join(f"- {item}" for item in TU.REVIEW_ITEMS), icon=":material/rate_review:")
     st.markdown("**In short:** Cloudzy's forecasts, alerts and predictions are estimates that can be wrong. "
                 "It isn't an emergency or official warning service, so for anything that matters, check an "
                 "official source. The code is open source under the MIT licence; data and components from "

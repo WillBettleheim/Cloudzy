@@ -29,10 +29,9 @@ def test_page_shows_every_section_in_order_with_anchors_and_the_date():
     assert all(f"(#{s.anchor})" in links for s in TU.SECTIONS)
 
 
-def test_open_review_items_are_shown_until_resolved_and_there_is_no_fake_consent():
+def test_no_draft_box_and_no_fake_consent():
     at = run_page()
-    assert at.warning and "Draft for review" in at.warning[0].value
-    assert all(item.split(":")[0] in at.warning[0].value for item in TU.REVIEW_ITEMS)
+    assert not at.warning                                           # the draft-for-review box was removed
     assert not at.button and not at.checkbox                       # nothing to click to "accept"
 
 

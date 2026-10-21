@@ -6,7 +6,7 @@ What this text may and may not say (checked against the code on the date below):
 - The software is MIT-licensed (LICENSE, copyright Joe Goldberg). Nothing here narrows the rights that licence
   grants, and third-party code, data and assets keep their own licences and terms.
 - No company, address, contact channel, governing law or privacy practice is invented. The open items are listed
-  in REVIEW_ITEMS and shown on the page until they're resolved.
+  in REVIEW_ITEMS and docs/LEGAL_REVIEW.md, and the affected sections say what's still to be decided.
 
 This is a carefully worded draft, not legal advice; it hasn't been reviewed by a lawyer.
 """
@@ -19,7 +19,7 @@ LAST_UPDATED = "21 October 2026"
 OWNER = "Joe Goldberg"                      # the copyright holder named in LICENSE
 REPOSITORY = "https://github.com/WillBettleheim/Cloudzy"
 
-# Must be resolved before Cloudzy is offered publicly; shown on the page while they're open.
+# Must be resolved before Cloudzy is offered publicly (also listed in docs/LEGAL_REVIEW.md).
 REVIEW_ITEMS = [
     "Contact: no contact method exists yet. Add one (section 15) before public release.",
     "Governing law and disputes: not decided. Confirm with a lawyer and complete section 14.",
