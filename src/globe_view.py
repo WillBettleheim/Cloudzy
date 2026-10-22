@@ -1453,6 +1453,9 @@ CSS = r"""
   .czg-legend{bottom:118px;width:calc(100% - 20px)}
   .czg-legend .note{display:none}
 }
+@media (max-width:640px){.czg{height:clamp(440px,calc(100dvh - 150px),820px)}}
+@media (max-height:500px) and (orientation:landscape){.czg{height:max(300px,calc(100vh - 70px));height:max(300px,calc(100dvh - 70px))}}
+@media (pointer:coarse){.czg-legend .lg-h{min-height:40px}.czg-slider{height:36px}}
 @media (prefers-reduced-motion:reduce){.czg-layer,.czg-opt{transition:none}.czg-loading .spin{animation:none}}
 """
 

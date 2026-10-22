@@ -205,7 +205,8 @@ links = [("app_pages/weather.py", "Full forecast", ":material/partly_cloudy_day:
          ("app_pages/alerts.py", "Alerts", ":material/notifications:"),
          ("app_pages/predictions.py", "Prediction history", ":material/query_stats:"),
          ("app_pages/lab.py", "Model Lab", ":material/science:")]
-cols = st.columns(3)
+with T.two_up("overview_links"):
+    cols = st.columns(3)
 for i, (path, label, ico) in enumerate(links):
     with cols[i % 3]:
         nav.page_link(path, label, ico)

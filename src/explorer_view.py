@@ -911,7 +911,11 @@ CSS = r"""
   .czx-legend .note{display:none}
   .czx-attr .run{display:none}
 }
-@media (max-width:640px){.czx{height:clamp(520px,calc(100vh - 24px),900px)}.czx-stage{border-radius:14px}}
+@media (max-width:640px){.czx{height:clamp(520px,calc(100vh - 24px),900px);height:clamp(480px,calc(100dvh - 90px),900px)}
+  .czx-stage{border-radius:14px}}
+@media (max-height:500px) and (orientation:landscape){.czx{height:max(340px,calc(100dvh - 40px))}}
+@media (pointer:coarse){.czx-slider{height:36px}.czx-btn{min-width:44px;min-height:44px}.czx-speed{height:44px}
+  .lg-h{min-height:40px}}
 @media (prefers-reduced-motion:reduce){.czx-layer,.czx-chip,.czx-btn,.czx-canvas{transition:none}.czx-pick i{animation:none}}
 """
 

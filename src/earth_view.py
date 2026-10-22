@@ -1075,6 +1075,27 @@ details.sf[open] summary{margin-bottom:4px}
   .cze-coord{display:none}
   .cze-notice{font-size:.68rem}
 }
+/* Phones: the globe fills the visible screen above the bottom navigation (dvh follows the browser's toolbars;
+   vh is the fallback). Short landscape screens: as much of the screen as possible. */
+@media (max-width:767px){.cze{height:clamp(440px,calc(100vh - 150px),860px);height:clamp(440px,calc(100dvh - 150px),860px);
+  border-radius:16px}}
+@media (max-height:500px) and (orientation:landscape){.cze{height:max(300px,calc(100vh - 70px));height:max(300px,calc(100dvh - 70px))}}
+@container (max-width:700px){.cze-panel{padding-bottom:calc(10px + env(safe-area-inset-bottom))}}
+/* Touch screens: every control at least 44 × 44 CSS px (40 for the small close buttons inside panels). */
+@media (pointer:coarse){
+  .cze-btn{width:44px;height:44px}
+  .cze-btn.sm{width:40px;height:40px}
+  .cze-btn.now{height:44px}
+  .cze-panel .tog{min-height:40px}
+  .cze-panel select,.cze-sq,.cze-q,.cze-win{min-height:40px}
+  .presets .pre{min-height:36px;padding:4px 12px}
+  .fchip{padding:3px 4px 3px 11px}.fchip button{width:30px;height:30px}.fchip.all{min-height:32px}
+  details.sf summary{min-height:40px;display:flex;align-items:center}
+  .cze-items li{min-height:44px}
+  .cze-card .lnk,.cze-panel .lnk{min-height:36px;padding:4px 2px}
+  .cze-slider{height:32px}
+  .cze-legend summary{min-height:32px;display:flex;align-items:center}
+}
 @media (prefers-reduced-motion:reduce){.cze-loading .spin{animation:none}.cze-btn,.cze-status{transition:none}}
 """
 

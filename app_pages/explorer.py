@@ -105,7 +105,8 @@ units = prefs.unit_override() or (U.default_for_country(city.country_code) if ci
 # --- Search, region browser, saved places and the view switch: one compact row, so the globe keeps the space ---
 fallback = st.session_state.get(FALLBACK_KEY)
 geo_ok = geo.data_files_present()
-q_col, b_col, v_col = st.columns([3, 1, 1.9], vertical_alignment="bottom")
+with T.two_up("explorer_controls", first_full=True):
+    q_col, b_col, v_col = st.columns([3, 1, 1.9], vertical_alignment="bottom")
 query = q_col.text_input("Fly to a place", key="explorer_q", placeholder="Country, state, city or lat, lon",
                          max_chars=80, icon=":material/travel_explore:", label_visibility="collapsed",
                          help="Press Enter to search. Countries and states/provinces come from Natural Earth; cities "
@@ -245,7 +246,8 @@ def show_region(r: dict) -> None:
     else:
         valid = pd.Timestamp(s["valid_utc"])
         t, w, pr, cl = s.get("temperature"), s.get("wind"), s.get("precipitation"), s.get("clouds")
-        m1, m2, m3, m4 = st.columns(4)
+        with T.two_up("explorer_point_1"):
+            m1, m2, m3, m4 = st.columns(4)
         if t:
             lo, hi = U.temperature(t["min"], units.temperature), U.temperature(t["max"], units.temperature)
             m1.metric("Average temperature", f"{U.temperature(t['mean'], units.temperature):.0f}{units.temperature}",
@@ -332,7 +334,8 @@ else:
             t = U.temperature(cur.get("temperature_2m"), units.temperature)
             feels = U.temperature(cur.get("apparent_temperature"), units.temperature)
             wind = U.wind(cur.get("wind_speed_10m"), units.wind)
-            m1, m2, m3, m4 = st.columns(4)
+            with T.two_up("explorer_point_2"):
+                m1, m2, m3, m4 = st.columns(4)
             m1.metric("Temperature", "Not available" if t is None else f"{t:.0f}{units.temperature}",
                       help=None if feels is None else f"Feels like {feels:.0f}{units.temperature}")
             m2.metric("Wind", "Not available" if wind is None else f"{wind:.0f} {units.wind}")

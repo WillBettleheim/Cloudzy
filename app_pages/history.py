@@ -104,7 +104,8 @@ ov = history.overview(daily)
 
 st.html(T.section(f"{h_place.label} · {start:%d %b %Y} – {end:%d %b %Y}", "location_on",
                   f"{(end - start).days + 1} days · reanalysis"))
-c1, c2, c3, c4 = st.columns(4)
+with T.two_up("history_metrics"):
+    c1, c2, c3, c4 = st.columns(4)
 c1.metric("Mean temperature", f"{tconv(ov['mean_c']):.1f} {tu}")
 c2.metric("Hottest day", f"{tconv(ov['hottest'][1]):.0f}{tu[0]}", help=f"{ov['hottest'][0]:%d %b %Y}")
 c3.metric("Coldest night", f"{tconv(ov['coldest'][1]):.0f}{tu[0]}", help=f"{ov['coldest'][0]:%d %b %Y}")
@@ -181,7 +182,8 @@ with compare_tab:
             span = f"{cmp['years'][0]}–{cmp['years'][-1]}"
             diff = U.temperature_delta(abs(cmp["difference_c"]), tu)
             word = "warmer" if cmp["difference_c"] > 0 else "cooler"
-            a, b = st.columns(2)
+            with T.two_up("history_compare"):
+                a, b = st.columns(2)
             a.metric("Mean temperature, selected dates", f"{tconv(cmp['mean_c']):.1f} {tu}",
                      delta=f"{'+' if cmp['difference_c'] > 0 else '−'}{diff:.1f} {tu} vs {span} average",
                      delta_color="off")

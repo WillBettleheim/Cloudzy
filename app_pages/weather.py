@@ -141,7 +141,8 @@ if geo["mode"] == "device" and geo["fix"] is not None:
     with loc_col:
         st.markdown(f"**:material/my_location: {place.label}** · your device location")
         detected_slot = st.empty()
-        a, b = st.columns(2)
+        with T.two_up("weather_device"):
+            a, b = st.columns(2)
         a.button("Refresh location", icon=":material/refresh:", on_click=request_location, width="stretch",
                  disabled=geo["pending"] is not None)
         b.button("Search for a city instead", icon=":material/search:", on_click=search_instead, width="stretch")
@@ -154,7 +155,8 @@ else:
         else:  # first visit with a saved home city (set on the Places page)
             st.session_state["search"] = home.name
             st.session_state["_fav_target"] = (home.latitude, home.longitude)
-    search_col, loc_col, unit_col = st.columns([3.2, 2, 1.3], vertical_alignment="bottom")
+    with T.two_up("weather_search", first_full=True):
+        search_col, loc_col, unit_col = st.columns([3.2, 2, 1.3], vertical_alignment="bottom")
     query = search_col.text_input(
         "Search for a city or town", key="search", placeholder="e.g. Mumbai, Reykjavik, Lagos", max_chars=80,
         icon=":material/search:", help="Press Enter to search. Results use Open-Meteo's geocoding service.").strip()
@@ -414,7 +416,8 @@ with st.container(border=True):
                     for p in block["provider"]["forecasts"]]
             ifs_by_h = {p["horizon_h"]: p["temperature_2m_c"] for p in prov}
             first_p = preds[0]
-            m1, m2, m3 = st.columns(3)
+            with T.two_up("weather_core"):
+                m1, m2, m3 = st.columns(3)
             iv = first_p.get("interval")
             m1.metric(f"Cloudzy Core, +{first_p['horizon_h']} h", f"{first_p['temperature_2m_c']:.1f} {tu}",
                       delta=f"80% range {iv['lower_c']:.1f} to {iv['upper_c']:.1f} {tu}" if iv else None,

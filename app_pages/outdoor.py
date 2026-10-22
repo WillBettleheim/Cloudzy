@@ -57,7 +57,8 @@ with act_col:
 with dur_col:
     duration = st.selectbox("Duration", O.DURATIONS_MIN, index=O.DURATIONS_MIN.index(op.duration_min),
                             format_func=_duration_label, key="od_duration")
-range_col, sens_col, indoor_col = st.columns([2.2, 1.2, 1.2], vertical_alignment="bottom")
+with T.two_up("outdoor_prefs", first_full=True):
+    range_col, sens_col, indoor_col = st.columns([2.2, 1.2, 1.2], vertical_alignment="bottom")
 with range_col:
     start_hour, end_hour = st.slider("Preferred hours (local time at this place)", 0, 24,
                                      (op.start_hour, op.end_hour), key="od_range", format="%d:00")

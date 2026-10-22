@@ -112,7 +112,8 @@ if pending in ("region", "all"):
     for k in (REGION_KEY, FOCUS_KEY):
         st.session_state.pop(k, None)
     st.session_state["earth_q"] = ""
-search_col, period_col, mag_col, refresh_col = st.columns([3, 1.4, 1.2, 0.7], vertical_alignment="bottom")
+with T.two_up("earth_controls", first_full=True):
+    search_col, period_col, mag_col, refresh_col = st.columns([3, 1.4, 1.2, 0.7], vertical_alignment="bottom")
 with search_col:
     query = st.text_input("Search the globe", key="earth_q", max_chars=120, icon=":material/search:",
                           placeholder="Country, state, city, neighbourhood, address or 28.61, 77.21",
@@ -263,7 +264,8 @@ fire_count = None
 if snap.statuses.get("firms") and snap.statuses["firms"].note:
     digits = "".join(ch for ch in snap.statuses["firms"].note.split(" ")[0] if ch.isdigit())
     fire_count = int(digits) if digits else None
-cols = st.columns(6)
+with T.two_up("earth_summary"):
+    cols = st.columns(6)
 for col, row in zip(cols, A.summary(events, snap.statuses, fire_count)):
     col.metric(row["label"], "—" if row["value"] is None else f"{row['value']:,}", help=row["definition"])
 st.caption("Counts are of the records Cloudzy loaded, with the definitions shown on hover. They aren't worldwide "
@@ -331,7 +333,8 @@ if selected is not None:
                                                  icon=":material/visibility:", width="stretch"):
             push_situations(view.on | {sit.key})
             st.rerun()
-    act1, act2, act3 = st.columns(3)
+    with T.two_up("earth_actions"):
+        act1, act2, act3 = st.columns(3)
     if selected.lat is not None and act1.button("Focus on the globe", key="earth_focus_sel", icon=":material/my_location:",
                                                 width="stretch"):
         focus({"lat": selected.lat, "lon": selected.lon, "zoom": 3.5 if selected.category == "cyclone" else 6,
@@ -368,7 +371,8 @@ if selected is not None:
         if selected.lat is not None:
             st.caption("Coordinates (copy with the button on the right):")
             st.code(f"{selected.lat:.5f}, {selected.lon:.5f}", language=None)
-        links = st.columns(2)
+        with T.two_up("earth_links"):
+            links = st.columns(2)
         if selected.url:
             links[0].link_button("Open original source", selected.url, icon=":material/open_in_new:", width="stretch")
         for link in selected.extra.get("related_links", [])[:1]:
@@ -404,7 +408,8 @@ if selected is not None:
             st.caption(f":material/cloud_off: The USGS catalogue isn't available right now ({exc}).")
             hist = None
         if hist and hist["n"]:
-            h1, h2, h3, h4 = st.columns(4)
+            with T.two_up("earth_seismicity"):
+                h1, h2, h3, h4 = st.columns(4)
             for col, t in zip((h1, h2, h3), hist["thresholds"]):
                 col.metric(f"M{t['min_mag']:g}+ recorded", f"{t['count']:,}",
                            help=f"About {t['per_decade']:g} per decade since {hist['start'][:4]}: a historical "

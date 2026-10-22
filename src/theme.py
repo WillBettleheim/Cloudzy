@@ -9,6 +9,15 @@ Art direction
 - Type: Inter for the interface (tabular figures for data), Outfit for display figures such as the
   temperature. Both SIL OFL, self-hosted (static/vendor/fonts) and registered in config.toml.
 
+Responsive system (mobile-first; one set of breakpoints, `BREAKPOINTS`, used by every rule here)
+- Phones (< md): compact page headers, a 16 px gutter, two-up rows for metrics and controls (`two_up`), and a
+  bottom navigation bar for the main destinations (`streamlit_app.py`); the full menu stays behind the top button.
+- Short landscape screens (height < 500 px): compact headers; `src.shell` collapses the sidebar once.
+- Tablets and laptops: Streamlit's sidebar, with fluid gutters.
+- Large and ultrawide screens: content capped at `CONTENT_MAX` and centred, so lines and charts don't stretch.
+- Touch screens (`pointer: coarse`): controls at least 44 × 44 CSS px. Safe areas (notches, home indicators) are
+  respected through `env(safe-area-inset-*)`.
+
 Tokens are exposed as CSS custom properties (`--cz-*`). Surfaces and borders are translucent so they
 read on both Streamlit themes. Motion uses shared duration/easing tokens and is switched off under
 `prefers-reduced-motion`. Icons are Material Symbols (shipped with Streamlit).
@@ -55,6 +64,11 @@ MOTION = {"fast": "140ms", "base": "240ms", "slow": "600ms", "ease": "cubic-bezi
           "ease-in-out": "cubic-bezier(.65,0,.35,1)"}
 NEUTRAL = {"surface": "rgba(140,160,195,.07)", "surface-2": "rgba(140,160,195,.12)",
            "border": "rgba(140,160,195,.20)", "border-strong": "rgba(140,160,195,.38)"}
+# Breakpoints (CSS px, min-width): sm large phones, md tablets, lg small laptops, xl desktops, xxl large screens.
+BREAKPOINTS = {"sm": 480, "md": 768, "lg": 1024, "xl": 1280, "xxl": 1600}
+CONTENT_MAX = "1680px"
+SHORT_SCREEN = 500           # max-height for "short landscape" rules
+TOUCH_TARGET = "44px"
 FONTS = {"ui": "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
          "display": "Outfit, Inter, sans-serif"}
 
@@ -108,10 +122,69 @@ h1,h2,h3,h4{{letter-spacing:-.015em}}
 .stButton button:active:not(:disabled){{transform:translateY(1px)}}
 :focus-visible{{outline:3px solid var(--cz-c-sky) !important;outline-offset:2px}}
 
-/* Layout: long names wrap, phones get a 16 px gutter, no horizontal overflow. */
+/* Layout: fluid gutters, a readable maximum width on large screens, long names wrap, no horizontal overflow. */
 .cz-hero .place,.cz-place-card h4{{overflow-wrap:anywhere}}
-[data-testid="stMainBlockContainer"]{{padding-top:4rem;padding-bottom:3rem}}
-@media (max-width:640px){{[data-testid="stMainBlockContainer"]{{padding-top:3.6rem;padding-left:1rem;padding-right:1rem}}}}
+[data-testid="stMainBlockContainer"]{{padding-top:4rem;padding-bottom:3rem;
+  padding-left:clamp(1rem,3.2vw,3.5rem) !important;padding-right:clamp(1rem,3.2vw,3.5rem) !important;
+  max-width:{CONTENT_MAX} !important;margin-inline:auto}}
+/* Flexible children may shrink below their content width (Streamlit's own phone stacking is left alone). */
+@media (min-width:640px){{[data-testid="stColumn"]{{min-width:0}}}}
+[data-testid="stVerticalBlock"],[data-testid="stHorizontalBlock"]{{min-width:0}}
+[data-testid="stMarkdownContainer"] p,[data-testid="stCaptionContainer"]{{overflow-wrap:anywhere}}
+[data-testid="stMarkdownContainer"] table{{display:block;overflow-x:auto;max-width:100%}}
+
+/* Two-up rows on phones: a container whose key starts with "cz2up" keeps its columns two per row instead of
+   stacking every one (metric rows, short control rows). See theme.two_up. */
+@media (max-width:{BREAKPOINTS["md"] - 1}px){{
+  [class*="st-key-cz2up"] [data-testid="stHorizontalBlock"]{{flex-wrap:wrap;gap:.75rem}}
+  [class*="st-key-cz2up"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]{{
+    flex:1 1 calc(50% - .75rem) !important;min-width:calc(50% - .75rem) !important;width:auto !important}}
+  [class*="st-key-cz2upf"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child{{
+    flex-basis:100% !important;min-width:100% !important}}
+}}
+
+[data-testid="stSidebar"]{{padding-left:env(safe-area-inset-left)}}
+
+/* Touch screens: every control at least 44 × 44 CSS px, including Streamlit's own menu buttons. */
+@media (pointer:coarse){{
+  [data-testid="stButton"] button,[data-testid="stDownloadButton"] button,[data-testid="stLinkButton"] a,
+  [data-testid="stFormSubmitButton"] button,[data-testid="stPopover"] button,[data-testid="stPageLink"] a{{
+    min-height:{TOUCH_TARGET}}}
+  [data-testid="stExpandSidebarButton"],[data-testid="stSidebarCollapseButton"] button,
+  [data-testid="stBaseButton-headerNoPadding"]{{min-width:{TOUCH_TARGET};min-height:{TOUCH_TARGET}}}
+  [data-testid="stCheckbox"] label,[data-testid="stRadio"] label{{min-height:{TOUCH_TARGET};align-items:center}}
+  [data-testid="stExpander"] summary{{min-height:{TOUCH_TARGET}}}
+  [data-baseweb="tab"]{{min-height:{TOUCH_TARGET};min-width:{TOUCH_TARGET};justify-content:center}}
+  [data-testid="stTabsScrollLeft"],[data-testid="stTabsScrollRight"],
+  [data-testid="stDateInputCalendarButton"]{{min-width:40px;min-height:40px}}
+  [data-testid="stHeaderActionElements"] a{{display:inline-grid;place-items:center;min-width:36px;min-height:36px;
+    margin:-8px 0}}
+  [data-testid="stSlider"] [role="slider"]{{width:32px !important;height:32px !important}}
+  /* Small icon buttons keep their look but get a larger tap area. */
+  /* Only the "?" help icons (labelled "Help for …"); buttons that merely have a tooltip keep their own size. */
+  button[aria-label^="Help for"]{{min-width:32px;min-height:32px;margin:-8px}}
+  [data-testid="stSidebarNavLink"]{{min-height:{TOUCH_TARGET}}}
+  [data-testid="stBaseButton-elementToolbar"]{{min-width:36px;min-height:36px}}
+}}
+
+/* Mobile bottom navigation (streamlit_app.py): hidden from tablet width up. */
+.st-key-cz_mobile_nav{{display:none !important}}
+@media (max-width:{BREAKPOINTS["md"] - 1}px){{
+  .st-key-cz_mobile_nav{{display:flex !important;flex-direction:row !important;gap:0 !important;position:fixed;left:0;
+    right:0;bottom:0;z-index:999990;justify-content:space-around;align-items:stretch;
+    padding:4px max(6px,env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(6px,env(safe-area-inset-left));
+    background:rgba(6,13,31,.96);border-top:1px solid rgba(140,160,195,.25);backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px)}}
+  .st-key-cz_mobile_nav > div{{flex:1 1 0;min-width:0;width:auto !important}}
+  .st-key-cz_mobile_nav [data-testid="stPageLink"] a{{display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:2px;min-height:52px;padding:4px 2px;border-radius:12px;color:#c9d6ea}}
+  .st-key-cz_mobile_nav [data-testid="stPageLink"] a *{{color:inherit !important}}
+  .st-key-cz_mobile_nav [data-testid="stPageLink"] a p{{font-size:.68rem;font-weight:600;line-height:1.1;margin:0;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}}
+  .st-key-cz_mobile_nav [data-testid="stPageLink"] a span[data-testid="stIconMaterial"]{{font-size:1.45rem}}
+  .st-key-cz_mobile_nav [data-testid="stPageLink"] a[aria-current="page"],
+  .st-key-cz_mobile_nav [data-testid="stPageLink"] a.cz-current{{color:#ffd58f;background:rgba(74,163,255,.14)}}
+}}
 
 /* Building blocks. */
 .cz-ico{{font-family:"Material Symbols Rounded";font-weight:normal;font-style:normal;line-height:1;
@@ -153,6 +226,23 @@ h1,h2,h3,h4{{letter-spacing:-.015em}}
 @keyframes czshimmer{{from{{background-position:200% 0}}to{{background-position:-200% 0}}}}
 .cz-fade{{animation:czfade var(--cz-m-slow) var(--cz-m-ease) both}}
 @keyframes czfade{{from{{opacity:0;transform:translateY(6px)}}to{{opacity:1;transform:none}}}}
+/* Responsive overrides: after the building blocks, so they take precedence. */
+.cz-page h1{{font-size:clamp(1.85rem,1.2rem + 2.6vw,var(--cz-t-3xl))}}
+/* Phones: compact page headers and section spacing, room for the bottom navigation and the home indicator. */
+@media (max-width:{BREAKPOINTS["md"] - 1}px){{
+  [data-testid="stMainBlockContainer"]{{padding-top:3.9rem;
+    padding-bottom:calc(5.5rem + env(safe-area-inset-bottom)) !important}}
+  .cz-page{{margin-bottom:var(--cz-s-3)}}
+  .cz-page p.sub{{font-size:var(--cz-t-sm);margin-top:var(--cz-s-1)}}
+  .cz-section{{margin-top:var(--cz-s-6);flex-wrap:wrap;row-gap:2px}}
+  .cz-section p{{margin-left:0;flex-basis:100%}}
+}}
+/* Short landscape screens (phones turned sideways): the first screen is only ~390 px tall. */
+@media (max-height:{SHORT_SCREEN}px) and (orientation:landscape){{
+  [data-testid="stMainBlockContainer"]{{padding-top:3.4rem}}
+  .cz-page h1{{font-size:1.7rem}}
+  .cz-page p.sub{{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}}
+}}
 @media (prefers-reduced-motion:reduce){{
   .cz-fade,.cz-skel{{animation:none}}
   *{{transition:none !important;scroll-behavior:auto !important}}
@@ -194,6 +284,13 @@ def chip(text: str, kind: str = "muted", icon_name: str | None = None, title: st
     tip = f' title="{escape(title)}"' if title else ""
     ico = icon(icon_name) if icon_name else ""
     return f'<span class="cz-chip {kind}"{tip}>{ico}{escape(text)}</span>'
+
+
+def two_up(key: str, first_full: bool = False):
+    """A container whose columns sit two per row on phones instead of stacking one per row (see GLOBAL_CSS).
+    With `first_full`, the first column (a search box, say) keeps the full width and the rest pair up."""
+    import streamlit as st
+    return st.container(key=f"cz2up{'f' if first_full else ''}_{key}")
 
 
 def skeleton(height_px: int, width: str = "100%") -> str:

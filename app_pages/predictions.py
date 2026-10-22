@@ -79,7 +79,8 @@ if all_records.empty:
     st.stop()
 
 # --- Filters -----------------------------------------------------------------------------------
-f1, f2, f3, f4 = st.columns([1.2, 1.6, 1.2, 1.6])
+with T.two_up("pred_filters"):
+    f1, f2, f3, f4 = st.columns([1.2, 1.6, 1.2, 1.6])
 loc = f1.selectbox("Location", ["All"] + M.distinct("location_id"),
                    format_func=lambda x: "Delhi grid cell" if x == M.LOCATION_ID else x)
 ver = f2.selectbox("Model version", ["All"] + M.distinct("model_version"))
@@ -100,7 +101,8 @@ df = M.classify(M.query(location_id=None if loc == "All" else loc, model_version
 counts = M.status_counts(df)
 waiting = counts[M.WAIT_TARGET] + counts[M.WAIT_REFERENCE]
 attention = counts[M.DUE] + counts[M.CHECKED_MISSING] + counts[M.UNAVAILABLE] + counts[M.INVALID]
-m1, m2, m3, m4, m5 = st.columns(5)
+with T.two_up("pred_metrics"):
+    m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("Records", len(df))
 m2.metric("Evaluated", counts[M.EVALUATED])
 m3.metric("Waiting (normal)", waiting, help="Target hour not reached yet, or the reference data isn't "

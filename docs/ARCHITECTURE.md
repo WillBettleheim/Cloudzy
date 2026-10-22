@@ -130,6 +130,8 @@ the tests use that mode.
   folders, so tests never touch real user data.
 - **Live checks:** `python -m pytest -m integration` runs 12 tests against the
   real APIs (including the Air Quality API and six hazard feeds).
+- **Responsive layout:** `python -m pytest -m responsive` runs real-browser layout checks in the installed Google
+  Chrome (Playwright, from `requirements-dev.txt`); see *Responsive layout* below.
 - **App states:** headless `streamlit.testing.v1.AppTest` covers every page
   state, with the network replaced by fakes.
 
@@ -267,3 +269,29 @@ on both Streamlit themes. Icons are Material Symbols, which Streamlit already sh
 - `theme.icon()` in custom HTML, hidden from screen readers unless given a label.
 
 Status is never shown by colour alone: chips carry an icon and text.
+
+### Responsive layout
+
+One mobile-first system, defined in `src/theme.py` and applied to every page:
+
+| Screen | What changes |
+|---|---|
+| Phones (< 768 px) | Compact page headers and 16 px gutters; a fixed **bottom navigation bar** (Today, Weather, Air, Earth, Model Lab) with the full menu behind the top-left button; metric and control rows two per row (`theme.two_up`) instead of one long column; maps and globes sized to the visible screen (`dvh`) |
+| Short landscape (height < 500 px) | Even more compact headers; `src/shell.py` collapses the sidebar once per session so content gets the width |
+| Tablets and laptops | Streamlit's sidebar, fluid gutters (`clamp`) |
+| Large and ultrawide | Content capped at 1,680 px and centred |
+| Touch screens (`pointer: coarse`) | Every control at least 44 × 44 CSS px, including Streamlit's menu button, help icons and the globes' controls |
+
+Other rules:
+- **Breakpoints are tokens** (`theme.BREAKPOINTS`), not scattered numbers. The views' own panels use container
+  queries, so they adapt to the space they actually get.
+- **Safe areas:** `viewport-fit=cover` plus `env(safe-area-inset-*)` for notches and home indicators.
+- **Resizing:** the three map views follow their container through `ResizeObserver` and release it when removed.
+- **Device detection:** decisions use size, orientation and pointer type, never the user agent.
+
+Checks:
+- `tests/test_responsive.py` covers the foundation offline.
+- With `-m responsive`, it loads pages at phone, landscape and desktop sizes in Chrome (Playwright), and checks
+  that the globe's canvas follows its container on resize.
+- `python tools/responsive_audit.py` runs the full matrix: 13 pages × 10 viewports from 320 × 568 to
+  2560 × 1080. It records overflow, undersized touch targets, console errors and a screenshot of each.

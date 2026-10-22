@@ -66,7 +66,8 @@ if forecast is not None or env_alerts:
     dismissed = prefs.active_dismissals(now)
     active = [a for a in found if a.key not in dismissed]
     hidden = [a for a in found if a.key in dismissed]
-    c1, c2, c3 = st.columns(3)
+    with T.two_up("alerts_counts"):
+        c1, c2, c3 = st.columns(3)
     c1.metric("Active", len(active))
     c2.metric("Dismissed", len(hidden))
     c3.metric("Categories on", f"{len(prefs.enabled_alert_kinds())} of {len(I.ALERT_KINDS)}")
@@ -103,7 +104,8 @@ if prefs.dismissed_alerts:
 
 # --- Categories --------------------------------------------------------------------------------
 st.html(T.section("Which alerts", "checklist"))
-cols = st.columns(3)
+with T.two_up("alerts_cats"):
+    cols = st.columns(3)
 cats = {}
 for i, (kind, name) in enumerate(I.ALERT_KINDS.items()):
     cats[kind] = cols[i % 3].checkbox(name, value=prefs.alert_categories.get(kind, True), key=f"cat_{kind}")
@@ -117,7 +119,8 @@ if cats != {k: prefs.alert_categories.get(k, True) for k in I.ALERT_KINDS}:
 st.html(T.section("Thresholds", "tune", f"In {units.temperature}, {units.wind}"))
 with st.form("thresholds"):
     th = prefs.alerts
-    c1, c2 = st.columns(2)
+    with T.two_up("alerts_thresholds"):
+        c1, c2 = st.columns(2)
     rain_pct = c1.number_input("Chance of rain at least (%)", 10, 100, int(th.rain_probability_pct), step=5)
     uv_val = c2.number_input("UV index at least", 3, 15, int(th.uv_index))
     heat = c1.number_input(f"Feels-like at least ({units.temperature})",

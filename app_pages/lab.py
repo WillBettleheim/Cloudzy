@@ -111,7 +111,8 @@ with tabs[0]:
         test_split = main_report["splits"]["test"]
         st.markdown(f"**Offline test · {test_split['first_issue_time_utc'][:10]} → "
                     f"{test_split['last_issue_time_utc'][:10]} · {tm[sel]['n']:,} hourly predictions, 1 hour ahead**")
-        h1, h2, h3, h4 = st.columns(4)
+        with T.two_up("lab_headline"):
+            h1, h2, h3, h4 = st.columns(4)
         h1.metric("Selected model", lab_ui.MODEL_NAMES.get(sel, sel),
                   help=main_report["selected"]["reason"])
         h2.metric("Test MAE", f"{tm[sel]['mae_c']:.3f} °C",

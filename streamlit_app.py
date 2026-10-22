@@ -3,7 +3,7 @@
 Run:  streamlit run streamlit_app.py
 
 Navigation (sidebar on wide screens; Streamlit collapses it behind a menu
-button on narrow ones):
+button on narrow ones, and phones also get a bottom bar for the main destinations):
 - Today: Overview (the landing page), Weather, Air Quality, Outdoor Intelligence
 - Explore: Earth Intelligence (disasters and hazards on a 3D globe), Weather Explorer (global model map),
   History & Trends
@@ -19,7 +19,7 @@ import streamlit as st
 
 st.set_page_config(page_title="Cloudzy", page_icon="☁️", layout="wide", initial_sidebar_state="auto")
 
-from src import browser_prefs  # noqa: E402  (after set_page_config)
+from src import browser_prefs, shell  # noqa: E402  (after set_page_config)
 from src.theme import GLOBAL_CSS  # noqa: E402
 
 ASSETS = Path(__file__).parent / "assets"
@@ -68,4 +68,15 @@ except Exception:   # tracking must never stop the app from drawing
 # Each visitor's settings live in their own browser; wait for them before drawing any page.
 if not browser_prefs.begin():
     st.stop()
+
+# Phones: a bottom bar for the main destinations (the theme shows it below tablet width only; the full menu stays
+# behind the top-left button). src.shell adds safe areas, marks the current page and frees landscape phones.
+with st.container(key="cz_mobile_nav"):
+    for target, label, icon in (("app_pages/overview.py", "Today", ":material/dashboard:"),
+                                ("app_pages/weather.py", "Weather", ":material/partly_cloudy_day:"),
+                                ("app_pages/air_quality.py", "Air", ":material/air:"),
+                                ("app_pages/earth.py", "Earth", ":material/travel_explore:"),
+                                ("app_pages/lab.py", "Model Lab", ":material/science:")):
+        st.page_link(target, label=label, icon=icon)
+shell.mount(page.url_path)
 page.run()

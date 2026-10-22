@@ -58,7 +58,8 @@ for i, f in enumerate(favs):
         st.html(V.place_card_html(f, cur, today, units, is_home)
                 + f'<p class="cz-place-card" style="margin:6px 2px 0;font-size:.78rem;opacity:.65">'
                   f'{f.latitude:.2f}°, {f.longitude:.2f}° · {escape(f.timezone)}</p>')
-        b1, b2, b3 = st.columns([1, 1.45, 1.15])
+        with T.two_up(f"places_actions_{i}"):
+            b1, b2, b3 = st.columns([1, 1.45, 1.15])
         if b1.button("Open", key=f"open_{i}", icon=":material/arrow_forward:", width="stretch",
                      help=f"Show the weather for {f.label}"):
             open_place(f)
