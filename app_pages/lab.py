@@ -87,7 +87,8 @@ compare = st.selectbox(
     help="The comparison model is drawn in blue on every chart.")
 
 tabs = st.tabs(["Scoreboard", "Predictions vs observed", "Error breakdown", "Live setting", "Multi-step",
-                "Explainability", "Live tracking", "Learn", "Limitations", "Registry", "Uncertainty"])
+                "Explainability", "Live tracking", "Learn", "Limitations", "Registry", "Uncertainty",
+                "Station check"])
 
 # --- Scoreboard --------------------------------------------------------------------
 with tabs[0]:
@@ -514,6 +515,87 @@ with tabs[10]:
         st.dataframe(pd.DataFrame(mc_rows), hide_index=True, width="stretch")
         st.caption(f"Study run {rep['provenance']['created_at_utc'][:16]} UTC for bundle "
                    f"{rep['provenance']['bundle_sha256'][:12]} · `python -m src.intervals` reproduces it from cached data.")
+
+# --- Station check -------------------------------------------------------------------------------------
+with tabs[11]:
+    st_path = config.REPORTS_DIR / f"station_eval_{config.DELHI.slug}.json"
+    if not st_path.exists():
+        st.info("No station evaluation yet. Run `python -m src.station_eval`.", icon=":material/science:")
+    else:
+        se = json.loads(st_path.read_text())
+        prim = se["primary"]
+        sta = se["stations"][prim]
+        qc = se["quality_control"][prim]
+        st.markdown(
+            "Everything else in this Lab scores Cloudzy against the **reanalysis**, its own training target. Here it "
+            f"is compared with **real thermometer readings**: routine METAR reports from {sta['name']} "
+            f"({prim}), {qc['distance_km_from_grid_point']} km from Cloudzy's grid point. The test period is "
+            f"{se['spans']['test'][0]} to {se['spans']['test'][1]} (exclusive), the same rows for every model. "
+            "These questions were written down before the results were seen.")
+        rows = []
+        for h, r in se["horizons"].items():
+            p = r["test"][prim]
+            d = p["candidate_minus_ifs_at_target"]
+            rows.append({"Ahead": f"+{h} h", "Cloudzy (current)": p["candidate"]["mae_c"],
+                         "Cloudzy (previous)": p["control"]["mae_c"], "ECMWF IFS value": p["ifs_at_target"]["mae_c"],
+                         "Reanalysis (Cloudzy's target)": p["reanalysis"]["mae_c"],
+                         "Cloudzy − IFS [95% CI]": f"{d['mae_diff_c']:+.3f} [{d['ci95_low_c']:+.3f}, {d['ci95_high_c']:+.3f}]",
+                         "n": p["candidate"]["n"]})
+        st.markdown("**Average error against the station (MAE, °C)**")
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        st.warning("**Against the thermometer, the raw ECMWF value is closer than Cloudzy at every horizon.** "
+                   "Cloudzy learns to reproduce the reanalysis, and the reanalysis is itself further from the "
+                   "station than ECMWF is. The October 2026 upgrade still helps here (closer than the previous "
+                   "version from +3 h on), but it improves agreement with the reanalysis, not with a thermometer.",
+                   icon=":material/thermostat:")
+        b = se["horizons"]["1"]["test"][prim]["bias_by_local_hour"]
+        st.markdown("**Why: average offset from the station by local hour (model − station, °C, +1 h)**")
+        st.dataframe(pd.DataFrame([{"Local hour": f"{int(k):02d}:00", "Cloudzy": v["candidate"],
+                                    "ECMWF IFS": v["ifs_at_target"], "Reanalysis": v["reanalysis"]}
+                                   for k, v in b.items()]), hide_index=True, width="stretch")
+        st.caption("At night the reanalysis is 1.5–1.8 °C colder than the station, the urban heat island a ~9 km "
+                   "grid cell doesn't capture, and Cloudzy inherits about 1 °C of it. ECMWF is nearly unbiased at "
+                   "night but too warm around midday.")
+        st.markdown(
+            "- **Measurement noise:** METAR temperatures are whole degrees, and the same station's SYNOP reports "
+            "differ from its METARs by 0.6 °C on average. No model can be expected to reach zero.\n"
+            "- **Checks:** the station data match NOAA's independent copy of the same reports at 99.9% of hours. The "
+            "rebuilt models reproduce the experiment's reanalysis scores exactly before any station comparison.\n"
+            "- **A closer station agrees:** Safdarjung (3.4 km away) only reports from July 2026, but shows the same "
+            "ordering.\n"
+            "- **What would fix it:** training Cloudzy against station readings instead of the reanalysis. That "
+            "would be a new experiment, with its own rules fixed before the results are seen.")
+        st.caption(f"{se['provenance']['observations']}. Run {se['provenance']['created_at_utc'][:16]} UTC · "
+                   "`python -m src.station_eval` reproduces it.")
+    sm_path = config.REPORTS_DIR / f"station_model_{config.DELHI.slug}.json"
+    if sm_path.exists():
+        sm = json.loads(sm_path.read_text())
+        st.markdown("##### Experiment: training Cloudzy on the station readings")
+        st.markdown(
+            "Two candidates were trained to predict Palam's own readings, with the rules written before any result "
+            "was seen (`src/station_model.py`). Same splits and test rows as above.\n"
+            "- **A:** the current inputs only.\n"
+            "- **B:** also the station's latest readings at prediction time. Live, these are published within "
+            "minutes of the hour.")
+        rows = []
+        for h, r in sm["horizons"].items():
+            t = r["test"]
+            d = t["candidate_B_minus_raw_ecmwf"]
+            rows.append({"Ahead": f"+{h} h", "A: station target": t["candidate_A"]["mae_c"],
+                         "B: + station inputs": t["candidate_B"]["mae_c"], "ECMWF value": t["raw_ecmwf"]["mae_c"],
+                         "ECMWF + hourly correction": t["bias_corrected_ecmwf"]["mae_c"],
+                         "Station persistence": t["station_persistence"]["mae_c"],
+                         "B − ECMWF [95% CI]": f"{d['mae_diff_c']:+.3f} [{d['ci95_low_c']:+.3f}, {d['ci95_high_c']:+.3f}]"})
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        dec = sm["decision"]
+        st.info(f"**Verdict under the pre-set rules: A {dec['A']['verdict']}; B {dec['B']['verdict']}.** "
+                "B roughly halves ECMWF's error 1 hour ahead and is significantly better up to 3 hours, also at "
+                "Safdarjung, but is no better at 6 hours and worse at 12-24 hours. The rules required a win at every "
+                "horizon. The ECMWF baseline is optimistic: the archive holds the newest run for each hour, which "
+                "a model at time t couldn't have seen, and that matters most at long horizons.",
+                icon=":material/science:")
+        st.caption("Nothing was deployed: a station-target model would change what Cloudzy predicts and how live "
+                   "predictions are evaluated. `python -m src.station_model` reproduces this.")
 
 st.divider()
 st.caption("Weather data by Open-Meteo.com (CC BY 4.0). Reanalysis: Copernicus Climate Change Service "

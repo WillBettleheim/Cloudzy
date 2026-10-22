@@ -37,6 +37,7 @@ is an **experimental student project**, not an operational weather forecast.
 | Open-Meteo Historical Forecast API, `ecmwf_ifs` | Archived live inputs for training and evaluation | CC BY 4.0 |
 | Open-Meteo Forecast API, `ecmwf_ifs` | Live inputs at prediction time | CC BY 4.0 |
 | Open-Meteo Previous Runs API, `ecmwf_ifs025`, `temperature_2m_previous_day2` | The lagged-forecast input, archived (from 2024-02-05) and live | CC BY 4.0 |
+| Iowa Environmental Mesonet METAR archive: Palam (VIDP) and Safdarjung (VIDD) | Independent check against real thermometer readings (not training) | Public METAR data; credit IEM, Iowa State University |
 
 All three are model-derived, gridded data (about 9–25 km cells), not station
 observations. Validation rejects responses with unexpected units, time zones or
@@ -136,6 +137,83 @@ metric from cached data, without retraining. On 2026-10-22, all four matched exa
 (`reports/reproducibility.json`):
 - the deployed bundle's September 2026 MAE at all six horizons;
 - the three Phase A research models' 2025 test MAE (Delhi, Mumbai, Reykjavík).
+
+## Against real station observations
+
+Everything above scores Cloudzy against the reanalysis, its training target. `python -m src.station_eval` →
+`reports/station_eval_delhi.json` compares it with real thermometer readings: routine METARs from Palam airport
+(VIDP), 10.4 km from the grid point. The questions were written before the results were seen.
+
+**Setup.**
+- **Rows:** the same 2026-01 to 2026-08 test rows as the upgrade experiment, about 5,780 hours per horizon,
+  identical for every model.
+- **Models:** rebuilt exactly as in that experiment (their reanalysis scores are reproduced first).
+- **Why Palam:** Safdarjung, 3.4 km away, has almost no reports before July 2026. Palam was chosen for coverage
+  alone, before any scoring.
+- **Data checks:** the station data match NOAA ISD's copy of the same reports at 99.9% of hours. METAR
+  temperatures are whole degrees, and the station's SYNOP reports differ from its METARs by 0.6 °C on average, so
+  the observations carry noise too.
+
+| Horizon | Cloudzy (current) | Cloudzy (previous) | ECMWF IFS value | Reanalysis itself | Cloudzy − IFS [95% CI] |
+|---|---|---|---|---|---|
+| 1 h | 1.405 | 1.407 | 1.206 | 1.613 | +0.198 [+0.073, +0.317] |
+| 2 h | 1.439 | 1.489 | 1.206 | 1.614 | +0.233 [+0.099, +0.358] |
+| 3 h | 1.474 | 1.552 | 1.207 | 1.615 | +0.267 [+0.131, +0.397] |
+| 6 h | 1.563 | 1.732 | 1.208 | 1.614 | +0.355 [+0.205, +0.496] |
+| 12 h | 1.631 | 1.955 | 1.208 | 1.614 | +0.423 [+0.280, +0.560] |
+| 24 h | 1.633 | 1.985 | 1.209 | 1.611 | +0.424 [+0.272, +0.566] |
+
+**What this shows.**
+- **Q1, against the thermometer:** the raw ECMWF value is closer than Cloudzy at every horizon, significantly.
+- **Q2, the upgrade:** the current version is closer to the station than the previous one from +3 h on
+  (significant), with no difference at +1 and +2 h.
+- **The cause is the target.** The reanalysis is 1.5–1.8 °C colder than the station at night, the urban heat
+  island a ~9 km cell doesn't resolve, and slightly warm around midday. Cloudzy inherits about 1 °C of the night
+  bias. ECMWF is nearly unbiased at night and about 0.7 °C too warm around midday.
+- **A closer station agrees.** Safdarjung, available only from July 2026, gives the same ordering: ECMWF
+  1.54 °C, the reanalysis 1.82 °C, Cloudzy 1.83–2.04 °C.
+- **What it means.** Cloudzy's improvements are improvements at reproducing the reanalysis. As a guide to what
+  a thermometer in Delhi will read, the provider's forecast is better.
+
+**What would address it** was tested next.
+
+### Experiment: training against the station readings
+
+`python -m src.station_model` → `reports/station_model_delhi.json`. The rules were written in the module before
+any model was trained or scored.
+- **Target:** Palam's reading at t + h.
+- **Candidate A:** the current 29 inputs.
+- **Candidate B:** also four station features at or before t (the reading, its offset from ECMWF, its 3-hour
+  change, and the offset a day earlier). Live, these come from METARs published within minutes.
+- **Splits and rows:** the same as above.
+- **Rules (per candidate):** beat raw ECMWF at every horizon, significantly at four or more; also beat ECMWF
+  plus a local-hour bias correction at four or more; no horizon worse than ECMWF by over 0.05 °C in September.
+
+| Horizon | A | B | ECMWF value | ECMWF + hourly correction | Station persistence | B − ECMWF [95% CI] |
+|---|---|---|---|---|---|---|
+| 1 h | 1.181 | **0.589** | 1.206 | 1.225 | 0.874 | −0.618 [−0.703, −0.540] |
+| 2 h | 1.218 | **0.805** | 1.206 | 1.225 | 1.656 | −0.401 [−0.484, −0.323] |
+| 3 h | 1.310 | **0.979** | 1.207 | 1.225 | 2.384 | −0.228 [−0.321, −0.142] |
+| 6 h | 1.410 | 1.250 | 1.208 | 1.226 | 4.176 | +0.042 [−0.055, +0.140] |
+| 12 h | 1.436 | 1.399 | 1.208 | 1.227 | 5.656 | +0.191 [+0.093, +0.287] |
+| 24 h | 1.472 | 1.390 | 1.209 | 1.227 | 1.902 | +0.180 [+0.067, +0.301] |
+
+**Verdict under the rules: neither candidate beats ECMWF.**
+- **B up to 3 hours:** it roughly halves ECMWF's error at +1 h, beats persistence, and is significantly better
+  than ECMWF and the hourly correction up to +3 h. This also holds at Safdarjung (0.82 against 1.53 °C at +1 h).
+- **B from 6 hours:** level at +6 h and significantly worse at +12 and +24 h, so it fails the "every horizon"
+  rule.
+- **A:** no better than ECMWF anywhere.
+- **The hourly correction:** it didn't improve ECMWF, so its midday warm bias isn't stable enough to subtract.
+
+**Context, stated in advance:** the ECMWF baseline is optimistic. The archive holds the newest run for each
+hour, which a model at time t couldn't have seen, and this matters most at long horizons. A baseline matched to
+what was available at t would need its own experiment.
+
+**What it means.** With live station readings, Cloudzy becomes a good 1–3 hour nowcast for the city's real
+temperature. Beyond that, ECMWF's own forecast is the better guide. Nothing was deployed: a station-target model
+changes what Cloudzy predicts and how live predictions are evaluated, so adopting one would be a separate step
+with its own rules.
 
 ## Uncertainty
 

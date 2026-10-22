@@ -79,8 +79,18 @@ Cloudzy Core is the machine-learning component of the project.
 - Prediction tracking and accuracy analysis as reference data becomes available, checked automatically in the
   background once the reanalysis is published (about 6 days later).
 - **A measured upgrade (October 2026).** The deployed model now also uses the ECMWF forecast issued about two
-  days before each target hour. On an untouched January–August 2026 test it lowered the error at every horizon,
-  significantly at all six. Examples: 0.97 → 0.93 °C at +1 h and 1.44 → 1.07 °C at +24 h. The rule for adopting
+  days before each target hour. On an untouched January–August 2026 test it lowered the error against the
+  reanalysis at every horizon, significantly at all six. Examples: 0.97 → 0.93 °C at +1 h and 1.44 → 1.07 °C at
+  +24 h.
+- **Checked against real thermometers, with an honest result.** Against routine readings from Delhi's Palam
+  airport station over the same period, the raw ECMWF value (1.21 °C average error) was closer than Cloudzy
+  (1.40–1.63 °C) at every horizon. The reanalysis Cloudzy learns from is about 1.5 °C colder than the city at
+  night, and Cloudzy inherits that. The upgrade still beat the previous version against the station from +3 h on.
+  Details: Model Lab → Station check, and `python -m src.station_eval`.
+- **A follow-up experiment, with rules fixed beforehand.** I retrained Cloudzy on the station's own readings
+  (`python -m src.station_model`). With the station's latest readings as inputs, it roughly halved ECMWF's error
+  1 hour ahead (0.59 against 1.21 °C) and was significantly better up to 3 hours. It was worse from 12 hours on,
+  so under the rules it does not beat ECMWF overall. It is a good short-range nowcast, not a better forecast. The rule for adopting
   it was fixed before the results were seen; see the [model card](MODEL_CARD.md#version-history-the-october-2026-upgrade).
 - **Validated 80% prediction ranges.** Split conformal, recalibrated for the new model and checked on September
   2026, a month it never saw: they held 80–85% of hours, and are 2.9–3.3 °C wide.
@@ -181,6 +191,7 @@ python -m src.mos            # the lagged-forecast experiment → reports/mos_de
 python -m src.mos --deploy   # install the adopted model (keeps a dated backup)
 python -m src.intervals      # recalibrate prediction ranges for the deployed model
 python -m src.reproduce      # recompute every model's recorded metric
+python -m src.station_eval   # compare with real Delhi station readings → reports/station_eval_delhi.json
 python -m src.refit          # monthly refit
 ```
 
@@ -209,6 +220,7 @@ mypy
   - Basemap © OpenFreeMap, © OpenMapTiles, © OpenStreetMap contributors.
   - Terrain from the AWS Terrain Tiles, and search by OpenStreetMap Nominatim.
 - Reanalysis: Copernicus Climate Change Service (ERA5, ERA5-Land).
+- Station observations: METAR reports via the Iowa Environmental Mesonet, Iowa State University.
 
 ## 📊 Model Evaluation
 

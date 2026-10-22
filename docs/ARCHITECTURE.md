@@ -157,6 +157,11 @@ structure, feature schema and checksum before the app or the evaluator uses a mo
   - `service` fetches the Previous Runs API live and refuses (logged) without it.
   - `refit` and `intervals` add the same features from the cached archive.
   - `artifacts.load_trusted` accepts the extra columns only when the spec declares them.
+- **Station check** (`src/stations.py`, `src/station_eval.py`, `python -m src.station_eval`): real METAR
+  readings from Delhi's airport stations (Iowa Environmental Mesonet), hourly-matched and quality-controlled,
+  compared with Cloudzy, ECMWF and the reanalysis on the upgrade's test rows → `reports/station_eval_delhi.json`,
+  shown in Model Lab → Station check. `src/station_model.py` (`python -m src.station_model`) is the
+  pre-registered experiment training against those readings → `reports/station_model_delhi.json`.
 - **Reproducibility** (`src/reproduce.py`, `python -m src.reproduce`): recomputes every described artifact's
   recorded metric from cached data (no retraining) → `reports/reproducibility.json`, shown in the Registry.
 - **Uncertainty** (`src/intervals.py`, `python -m src.intervals`): split-conformal 80% and 95% ranges per

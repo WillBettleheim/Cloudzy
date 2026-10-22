@@ -68,6 +68,8 @@ LIMITATIONS = [
     "not a specific thermometer.",
     "typical_error_c is the mean absolute error on a replay of archived inputs (typical_error_period), "
     "a best case for real-time use; it is not a confidence interval.",
+    "Against real readings at Delhi's Palam station (Jan-Aug 2026), the raw ECMWF value was closer than Cloudzy at "
+    "every horizon: the reanalysis target runs colder than the city at night (src.station_eval).",
     "Experimental project; not an operational meteorological forecast.",
 ]
 

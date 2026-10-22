@@ -143,7 +143,7 @@ def test_lab_page_renders_from_committed_data():
     assert not at.exception, [e.value for e in at.exception]
     assert [t.label for t in at.tabs] == ["Scoreboard", "Predictions vs observed", "Error breakdown",
                                          "Live setting", "Multi-step", "Explainability", "Live tracking",
-                                         "Learn", "Limitations", "Registry", "Uncertainty"]
+                                         "Learn", "Limitations", "Registry", "Uncertainty", "Station check"]
     assert any("reproduce the experiment reports exactly" in c.value for c in at.caption)
     at.selectbox[0].set_value("persistence").run()
     assert not at.exception

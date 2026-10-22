@@ -443,13 +443,15 @@ with st.container(border=True):
                 st.markdown(
                     "- **What it predicts:** the ERA5-Land *reanalysis* temperature for one ~9 km grid cell, 1 to "
                     "24 hours ahead, starting from live ECMWF IFS model inputs. It isn't a thermometer reading.\n"
-                    "- **Average error** is what Cloudzy achieved on a **replay of 2025** (historical test "
-                    "data). It is not a promise about today's accuracy, and not a confidence interval. Live "
-                    "inputs arrive later than the replay assumes, so real errors are likely larger.\n"
-                    "- **The ECMWF IFS column** is the model Cloudzy takes its inputs from. On the 2025 replay, "
-                    "Cloudzy was closer to the reanalysis than those IFS values up to 12 hours ahead, which "
-                    "shows a bias correction toward the reanalysis. That **doesn't** make Cloudzy a better "
-                    "weather forecast than the provider.\n"
+                    f"- **Average error** is what Cloudzy achieved against the reanalysis on a **replay of "
+                    f"{block.get('typical_error_period', '2025 test')}** data. It is not a promise about today's "
+                    "accuracy, and not a confidence interval. Live inputs arrive later than the replay assumes, "
+                    "so real errors are likely larger.\n"
+                    "- **The ECMWF IFS column** is the model Cloudzy takes its inputs from. Cloudzy is closer to "
+                    "the reanalysis than those values. **Against real thermometer readings** at Delhi's Palam "
+                    "station (January–August 2026), the ECMWF value was closer than Cloudzy at every horizon "
+                    "(about 1.2 °C average error against 1.4–1.6 °C): the reanalysis Cloudzy learns from runs "
+                    "about 1.5 °C colder than the city at night. See Model Lab → Station check.\n"
                     "- **For decisions, use the forecast above.** Details are in Model Lab and the model card.")
             l1, l2 = st.columns(2)
             with l1:
