@@ -50,6 +50,16 @@ class ModelEntry:
     library_versions: dict
     described_at_utc: str
     limitations: list[str] = field(default_factory=list)
+    previous_version: dict | None = None   # what this artifact replaced, and how both scored on the same month
+    reproduced: str = "not checked"         # from reports/reproducibility.json, for this exact version
+
+
+@dataclass(frozen=True)
+class OtherArtifact:
+    """A file in models/ with no sidecar: listed so nothing is hidden, but nothing about it is claimed."""
+    file: str
+    size_mb: float
+    role: str                      # backup | undocumented
 
 
 @dataclass(frozen=True)
@@ -68,6 +78,10 @@ SYSTEMS = (
                 "Not evaluated by Cloudzy; shown as the provider's forecast"),
     SystemEntry("ECMWF IFS value at t+h", "baseline", "Delhi 2 m temperature at the same horizons as Cloudzy Core",
                 "Open-Meteo Forecast / Historical Forecast API", "Scored on the 2025 test year and on tracked predictions"),
+    SystemEntry("ECMWF IFS forecast from 48 h earlier", "baseline",
+                "Delhi 2 m temperature at t+h, from the run issued about 48 h before t+h (Previous Runs API)",
+                "Open-Meteo Previous Runs API", "Scored on the 2026-01..08 test period (src.mos); also a Cloudzy "
+                "Core input"),
     SystemEntry("Persistence", "baseline", "Temperature at t+h = temperature at t", "Computed",
                 "Scored on the 2025 test year"),
     SystemEntry("Diurnal climatology", "baseline", "Temperature at t plus the usual change at that hour",
@@ -110,14 +124,25 @@ def _metrics(sidecar: dict, deployed: bool, report_dir: Path) -> list[dict]:
     m = sidecar.get("metrics", {})
     rows: list[dict] = []
     if deployed:
+        prov = sidecar.get("provenance") or {}
+        month = (prov.get("holdout_month") or ["2026-09"])[0][:7]
+        held_n = prov.get("holdout_rows") or sidecar.get("holdout_rows") or {}
         for h, v in (m.get("holdout_mae_c") or {}).items():
-            rows.append({"name": f"MAE +{h} h", "value": v, "unit": "°C", "period": "2026-09 (held-out month)",
-                         "n": None, "method": "deployed models on a month they never saw (src.refit)"})
+            rows.append({"name": f"MAE +{h} h", "value": v, "unit": "°C", "period": f"{month} (held-out month)",
+                         "n": held_n.get(str(h)), "method": "deployed models on a month they never saw"})
+        if m.get("typical_error_c"):
+            exp = report_dir / str(prov.get("experiment_report", ""))
+            test_n = ({h: r["test"]["candidate"]["n"] for h, r in json.loads(exp.read_text())["horizons"].items()}
+                      if prov.get("experiment_report") and exp.is_file() else {})
+            for h, v in m["typical_error_c"].items():
+                rows.append({"name": f"MAE +{h} h", "value": v, "unit": "°C", "period": m.get("typical_error_period"),
+                             "n": test_n.get(str(h)), "method": "same configuration trained before the test period, tuned on "
+                                                  "2025-07..12, scored once (src.mos)"})
         for h, v in (m.get("test_2025_mae_c") or {}).items():
             rows.append({"name": f"MAE +{h} h", "value": v, "unit": "°C", "period": "2025 (test year)", "n": None,
                          "method": "same configuration trained on 2023-2024, scored once on 2025"})
         refit = report_dir / f"refit_{config.DELHI.slug}.json"
-        if refit.exists():
+        if refit.exists() and prov.get("command") == "python -m src.refit":   # that report scored this artifact
             hold = json.loads(refit.read_text()).get("holdout_mae_c", {})
             for r in rows:
                 h = r["name"].split("+")[1].split(" ")[0]
@@ -139,8 +164,17 @@ def _metrics(sidecar: dict, deployed: bool, report_dir: Path) -> list[dict]:
     return rows
 
 
+def _reproduced(report_dir: Path) -> dict:
+    try:
+        models = json.loads((report_dir / "reproducibility.json").read_text())["models"]
+    except (OSError, ValueError, KeyError):
+        return {}
+    return {m.get("artifact_version"): m.get("status", "not checked") for m in models.values()}
+
+
 def model_entries(models_dir: Path = config.MODELS_DIR, report_dir: Path = config.REPORTS_DIR) -> list[ModelEntry]:
     out = []
+    reproduced = _reproduced(report_dir)
     for side in sorted(models_dir.glob("*.json")):
         try:
             s = json.loads(side.read_text())
@@ -156,7 +190,14 @@ def model_entries(models_dir: Path = config.MODELS_DIR, report_dir: Path = confi
         deployed = s["artifact_file"] == DEPLOYED
         first: dict = next(iter(s.get("models", {}).values()), {})
         splits = s.get("splits") or {}
-        if deployed:
+        if deployed and s.get("lagged_forecast"):
+            prov = s.get("provenance", {})
+            validation = ("Adds the ECMWF forecast issued 48 h before each target hour. Adopted by a rule fixed "
+                          "before results were seen (src.mos): tuned on 2025-07..12, compared with the previous "
+                          "configuration on 2026-01..08 (lower MAE at every horizon, block-bootstrap CI). "
+                          f"Deployed model trained up to {prov.get('refit_data_end_exclusive', '?')} and accepted "
+                          f"only after scoring the held-out month {prov.get('holdout_month', ['?'])[0][:7]}.")
+        elif deployed:
             prov = s.get("provenance", {})
             validation = (f"Hyperparameters chosen on 2024 after fitting on 2023; configuration scored once on 2025. "
                           f"Deployed refit trained up to {prov.get('refit_data_end_exclusive', '?')} and accepted "
@@ -169,6 +210,9 @@ def model_entries(models_dir: Path = config.MODELS_DIR, report_dir: Path = confi
                        "Valid only at its own grid cell; not tested elsewhere"]
         if deployed:
             limitations.append("Live inputs can arrive later than in the replay used for testing")
+            if s.get("lagged_forecast"):
+                limitations.append("Needs the Open-Meteo Previous Runs API live; without it Cloudzy refuses to "
+                                   "forecast rather than switch models")
         else:
             limitations.append("Research setting (reanalysis inputs); not available live")
         out.append(ModelEntry(
@@ -180,8 +224,34 @@ def model_entries(models_dir: Path = config.MODELS_DIR, report_dir: Path = confi
             target_source=s.get("target_source", "?"), trained=_trained(s), validation=validation,
             metrics=_metrics(s, deployed, report_dir), feature_count=len(s.get("features", [])),
             features=[f["name"] for f in s.get("features", [])], library_versions=s.get("library_versions", {}),
-            described_at_utc=s.get("described_at_utc", "?"), limitations=limitations))
+            described_at_utc=s.get("described_at_utc", "?"), limitations=limitations,
+            previous_version=_previous(s) if deployed else None,
+            reproduced=reproduced.get(s.get("artifact_version"), "not checked")))
     out.sort(key=lambda e: (e.status != "deployed", e.id))
+    return out
+
+
+def _previous(sidecar: dict) -> dict | None:
+    prev = sidecar.get("previous_version")
+    if not prev:
+        return None
+    old = ((sidecar.get("provenance") or {}).get("previous_bundle") or {}).get("holdout_mae_c") or {}
+    new = (sidecar.get("metrics") or {}).get("holdout_mae_c") or {}
+    month = ((sidecar.get("provenance") or {}).get("holdout_month") or ["?"])[0][:7]
+    rows = [{"horizon_h": int(h), "previous_mae_c": old[h], "current_mae_c": new.get(h)} for h in old if h in new]
+    return {**prev, "holdout_month": month, "comparison": sorted(rows, key=lambda r: r["horizon_h"])}
+
+
+def other_artifacts(models_dir: Path = config.MODELS_DIR) -> list[OtherArtifact]:
+    """Model files without a sidecar (backups and old research files). Never loaded here."""
+    described = {json.loads(p.read_text()).get("artifact_file") for p in models_dir.glob("*.json")
+                 if p.read_text().strip().startswith("{")}
+    out = []
+    for f in sorted(models_dir.glob("*.joblib")):
+        if f.name in described:
+            continue
+        out.append(OtherArtifact(f.name, round(f.stat().st_size / 1e6, 1),
+                                 "backup" if ".backup-" in f.name else "undocumented"))
     return out
 
 

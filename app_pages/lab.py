@@ -56,7 +56,8 @@ def chart(fig) -> None:
 
 
 st.html(T.page_header("Model Lab", "Cloudzy Core · offline evaluation", "science"))
-st.caption("How good is Cloudzy Core, really? Every number here comes from the untouched 2025 test year.")
+st.caption("How good is Cloudzy Core, really? The research results come from the untouched 2025 test year; the "
+           "deployed model's own tests and its previous version are under **Registry**.")
 
 try:
     with st.spinner("Loading the lab notebooks…"):
@@ -334,10 +335,12 @@ with tabs[7]:
     st.markdown("""
 #### How does Cloudzy Core make a prediction?
 It takes the last 25 hours of weather at its Delhi grid cell (temperature, humidity, pressure, wind and rain), plus
-the time of day and year, and turns them into 27 numbers called *features*. A gradient-boosting model, one per
-forecast horizon, estimates how much the temperature will **change** from now. That change is added to the current
-temperature. The model learned these patterns from 2023–2024 and was tested on 2025, data it never saw while
-learning.
+the time of day and year, and turns them into 27 numbers called *features*. Since October 2026 it adds two more:
+what ECMWF's forecast from about two days earlier said the target hour would be, and how far that is from now. A
+gradient-boosting model, one per forecast horizon, estimates how much the temperature will **change** from now.
+That change is added to the current temperature. The configuration was tuned on the second half of 2025 and
+tested on January–August 2026, data it never saw while learning; the deployed models were then retrained on all
+data through August 2026 and checked on September.
 
 #### What do MAE and RMSE mean?
 - **MAE (mean absolute error):** the average size of the miss, ignoring direction. "MAE 0.24 °C" means
@@ -392,13 +395,14 @@ with tabs[9]:
     entries = registry.model_entries()
     st.dataframe(pd.DataFrame([{
         "Model": e.id.removeprefix("cloudzy_core_"), "Status": registry.STATUS_LABELS[e.status].split(" (")[0],
-        "Artifact": e.artifact,
+        "Artifact": e.artifact, "Reproduced": e.reproduced,
         "Algorithm": e.algorithm, "Target": f"{e.target} ({e.unit})", "Where": e.location,
         "Horizons": ", ".join(f"+{h} h" for h in e.horizons_h), "Inputs → target": f"{e.inputs_source} → {e.target_source}",
         "Features": e.feature_count, "Version": e.version} for e in entries]), hide_index=True, width="stretch")
     st.caption("Artifact: *verified* = the file is in this checkout and matches its recorded SHA-256, so predictions "
                "can be reproduced here; *metadata only* = documented but the file isn't here; *checksum mismatch* = "
-               "changed after it was described (not trusted).")
+               "changed after it was described (not trusted). Reproduced: the recorded test metric was recomputed from the "
+               "artifact and cached data and matched (`python -m src.reproduce`, no retraining).")
     for e in entries:
         with st.expander(f"{e.id} · {registry.STATUS_LABELS[e.status]}"):
             st.markdown(f"**Validation:** {e.validation}")
@@ -412,6 +416,48 @@ with tabs[9]:
             st.markdown("**Limitations:** " + "; ".join(e.limitations) + ".")
             with st.popover(f"Feature schema ({e.feature_count})"):
                 st.write(", ".join(e.features))
+    dep = next((e for e in entries if e.status == "deployed"), None)
+    if dep and dep.previous_version:
+        pv = dep.previous_version
+        st.markdown("##### Previous version → current version")
+        st.markdown(f"`{pv['artifact_version']}` → `{dep.version}`, replaced on {pv['replaced_on']}. {pv['reason']}. "
+                    f"The previous file is kept as `{pv['file']}`.")
+        st.dataframe(pd.DataFrame([{"Ahead": f"+{r['horizon_h']} h", "Previous MAE °C": r["previous_mae_c"],
+                                    "Current MAE °C": r["current_mae_c"],
+                                    "Change °C": round(r["current_mae_c"] - r["previous_mae_c"], 4)}
+                                   for r in pv["comparison"]]), hide_index=True, width="stretch")
+        st.caption(f"Both scored on {pv['holdout_month']}, a month neither was trained on. One month is a small "
+                   "sample; the decision itself rests on the 2026-01..08 test below.")
+    mos_path = config.REPORTS_DIR / f"mos_{config.DELHI.slug}.json"
+    if mos_path.exists():
+        mos = json.loads(mos_path.read_text())
+        with st.expander("Upgrade experiment: lagged ECMWF forecast as an input (src.mos)"):
+            rows = []
+            for h, r in mos["horizons"].items():
+                t = r["test"]
+                d = t["candidate_minus_control"]
+                rows.append({"Ahead": f"+{h} h", "Previous config MAE °C": t["control"]["mae_c"],
+                             "New config MAE °C": t["candidate"]["mae_c"],
+                             "Difference °C [95% CI]": f"{d['mae_diff_c']:+.3f} [{d['ci95_low_c']:+.3f}, "
+                                                       f"{d['ci95_high_c']:+.3f}]",
+                             "Lagged ECMWF alone °C": t["lagged_ifs_forecast"]["mae_c"],
+                             "Ridge, same inputs °C": t["ridge_candidate_features"]["mae_c"],
+                             "Persistence °C": t["persistence"]["mae_c"], "n": t["candidate"]["n"]})
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+            dec = mos["decision"]
+            st.caption(f"Test period {mos['spans']['test'][0]} to {mos['spans']['test'][1]} (exclusive). "
+                       "Confidence intervals: week-block bootstrap. Decision rule fixed before results were seen: "
+                       "lower MAE at every horizon, a significant gain at four or more, and no horizon worse by "
+                       f"over 0.05 °C in September 2026. Result: {'adopted' if dec['adopt'] else 'not adopted'} "
+                       f"({dec['horizons_with_significant_gain']} of 6 horizons significant).")
+    others = registry.other_artifacts()
+    if others:
+        st.markdown("##### Other model files in `models/`")
+        st.dataframe(pd.DataFrame([{"File": o.file, "Size MB": o.size_mb, "Role": o.role} for o in others]),
+                     hide_index=True, width="stretch")
+        st.caption("No metadata file describes these, so the Lab makes no claims about them. Backups are earlier "
+                   "deployed versions kept for rollback; undocumented files are old research artifacts the app "
+                   "never loads.")
     st.markdown("##### Other systems (not Cloudzy ML predictions)")
     st.dataframe(pd.DataFrame([{"System": x.name, "Kind": x.kind, "Predicts or provides": x.predicts,
                                 "Source": x.source, "Evaluation": x.evaluated} for x in registry.SYSTEMS]),
@@ -446,13 +492,16 @@ with tabs[10]:
                              "n (2026-09)": dp["validation"]["n"]})
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
         st.markdown(
-            "- **Method check:** model fitted on 2023-2024, ranges calibrated on its errors in Jan-Jun 2025, coverage "
+            "- **Method check:** model fitted on the data before 2025 (from Feb 2024 for a model using the lagged "
+            "ECMWF forecast, when that archive starts), ranges calibrated on its errors in Jan-Jun 2025, coverage "
             "measured on Jul-Dec 2025.\n"
-            "- **Deployed ranges:** calibrated on the errors of a 2023-2025 fit during Jan-Aug 2026 (the most recent "
+            "- **Deployed ranges:** calibrated on the errors of a fit on the data before 2026 during Jan-Aug 2026 "
+            "(the most recent "
             "out-of-sample errors), then checked on the deployed model's predictions for September 2026, a month it "
             "never saw. One month of hourly, correlated values: evidence, not proof.\n"
             "- **Reading the results:** coverage above the level means the ranges are a little wide (conservative); "
-            "below would mean too narrow. Here they are conservative, more so at longer horizons.\n"
+            "below would mean too narrow. Check each row: a range a few points under its level in one month is "
+            "within what one correlated month can show; a large shortfall would mean recalibrating.\n"
             "- **What a range doesn't include:** delays in live inputs (the replay is a best case), errors in the "
             "reanalysis itself, and any place other than the Delhi grid cell. Coverage on live predictions is tracked "
             "on the Predictions page once they are evaluated.\n"

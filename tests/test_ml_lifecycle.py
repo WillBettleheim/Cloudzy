@@ -180,7 +180,7 @@ def test_registry_lists_every_model_with_verified_artifacts_and_one_deployed():
     assert sum(e.status == "deployed" for e in entries) == 1
     dep = R.deployed_entry()
     assert dep.artifact == "verified" and dep.horizons_h == [1, 2, 3, 6, 12, 24]
-    assert dep.inputs_source == "ecmwf_ifs" and dep.target_source == "era5_seamless" and dep.feature_count == 27
+    assert dep.inputs_source == "ecmwf_ifs" and dep.target_source == "era5_seamless" and dep.feature_count == 29
     assert all(m["period"] for m in dep.metrics) and any(m["n"] for m in dep.metrics)
 
 
@@ -197,3 +197,14 @@ def test_registry_never_calls_providers_or_rules_ml():
     assert kinds["Open-Meteo forecast (best_match)"] == ("provider forecast", False)
     assert kinds["Outdoor Intelligence"] == ("rule engine", False)
     assert kinds["CAMS air-quality forecast"][1] is False
+
+
+def test_every_described_model_reproduces_its_recorded_metric():
+    entries = R.model_entries()
+    assert entries and all(e.reproduced == "reproduced" for e in entries), [(e.id, e.reproduced) for e in entries]
+
+
+def test_deployed_entry_records_the_version_it_replaced():
+    pv = R.deployed_entry().previous_version
+    assert pv and ".backup-" in pv["file"] and pv["artifact_version"] != R.deployed_entry().version   # backups are local
+    assert {r["horizon_h"] for r in pv["comparison"]} == {1, 2, 3, 6, 12, 24}

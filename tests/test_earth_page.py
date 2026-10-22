@@ -17,6 +17,8 @@ from tests.test_hazards import DROUGHT, FIX, load
 
 SENT: list[dict] = []
 PICK: dict = {}
+VIEW: dict = {}
+CHIP: dict = {}
 
 
 def fixture_fetchers(broken: set[str] = frozenset()):
@@ -45,12 +47,14 @@ def fixture_fetchers(broken: set[str] = frozenset()):
 def earth(monkeypatch, fake_network):  # noqa: F811
     SENT.clear()
     PICK.clear()
+    VIEW.clear()
+    CHIP.clear()
     state = {"broken": set()}
     monkeypatch.setattr(STORE, "default_fetchers", lambda: fixture_fetchers(state["broken"]))
 
     def fake_globe(data, key="cloudzy_earth"):
         SENT.append(data)
-        return SimpleNamespace(select=dict(PICK) or None)
+        return SimpleNamespace(select=dict(PICK) or None, view=dict(VIEW) or None, chip=dict(CHIP) or None)
     monkeypatch.setattr(src.earth_view, "earth_globe", fake_globe)
     yield state
 
@@ -199,3 +203,79 @@ def test_seismicity_outage_is_explained(earth, monkeypatch):
     PICK.update({"id": quake["id"], "t": 6})
     at = run(at)
     assert "USGS catalogue isn't available right now" in texts(at)
+
+
+# --- Situation selector ↔ page --------------------------------------------------------------------------
+
+def events_table(at):
+    return next(d for d in at.dataframe if "Event" in d.value.columns).value
+
+
+def situations_table(at):
+    return next(d for d in at.dataframe if "Situation" in d.value.columns and "Loaded" in d.value.columns).value
+
+
+def test_globe_gets_every_situation_presets_and_layers(earth):
+    at = run()
+    data = SENT[-1]
+    sits = {s["key"]: s for s in data["situations"]}
+    assert len(sits) == 18 and not sits["lightning"]["connected"] and not sits["landslide"]["connected"]
+    assert sits["earthquake"]["n"] >= 1 and sits["tornado"]["connected"]
+    assert {"all", "geological", "storms", "water", "heat", "fire"} == set(data["presets"])
+    assert set(data["record_layers"]) == {"observed", "official", "provider", "ml", "historical"}
+    table = situations_table(at)
+    assert (table.set_index("Situation").loc["Lightning", "On the globe"]) == "not connected"
+
+
+def test_globe_selection_drives_the_table_summaries_and_picker(earth):
+    at = run()
+    VIEW.update({"on": ["earthquake"], "lk": {}, "f": {}, "t": 1})
+    at = run(at)
+    assert set(events_table(at)["Situation"]) == {"Earthquakes"}
+    assert at.multiselect(key="earth_sits").value == ["earthquake"]
+    table = situations_table(at).set_index("Situation")
+    assert table.loc["Floods", "On the globe"] == "off" and table.loc["Earthquakes", "On the globe"] == "on"
+    VIEW.update({"on": ["earthquake"], "f": {"eqMag": 9}, "t": 2})     # a filter on the globe applies here too
+    at = run(at)
+    try:
+        left = events_table(at)
+    except StopIteration:                                              # nothing left at all
+        left = pd.DataFrame({"Source": []})
+    assert "USGS earthquakes" not in set(left["Source"])              # magnitude applies to USGS-located quakes
+
+
+def test_page_picker_drives_the_globe(earth):
+    at = run()
+    at.multiselect(key="earth_sits").set_value(["flood", "tornado"]).run()
+    sync = SENT[-1]["sit_sync"]
+    assert sync["on"] == ["flood", "tornado"] and sync["token"] == 1
+    assert set(events_table(at)["Situation"]) <= {"Floods", "Tornadoes"}
+
+
+def test_a_hidden_selection_is_explained_and_can_be_shown_again(earth):
+    at = run()
+    storm = next(e for e in sent_events() if e["s"] == "nhc")
+    PICK.update({"id": storm["id"], "t": 1})
+    VIEW.update({"on": ["earthquake"], "t": 1})
+    at = run(at)
+    assert any("hidden on the globe" in i.value and "Tropical cyclones are turned off" in i.value for i in at.info)
+    at.button(key="earth_unhide").click().run()
+    assert "cyclone" in SENT[-1]["sit_sync"]["on"]
+
+
+def test_removing_a_page_owned_chip_on_the_globe_clears_it(earth):
+    at = run()
+    at.text_input(key="earth_q").set_value("Japan").run()
+    assert SENT[-1]["chips"]["region"]
+    CHIP.update({"what": "region", "t": 1})
+    at = run(at)
+    CHIP.clear()
+    at = run(at)
+    assert not SENT[-1]["chips"]["region"] and SENT[-1]["region"] is None
+
+
+def test_ml_layer_shows_only_recorded_predictions(earth, monkeypatch):
+    from src import monitoring
+    monkeypatch.setattr(monitoring, "query", lambda *a, **k: pd.DataFrame())
+    run()
+    assert SENT[-1]["ml"] is None                                       # nothing recorded → no ML marker

@@ -57,6 +57,8 @@ Air quality and Outdoor Intelligence are documented in [AIR_QUALITY.md](AIR_QUAL
           ▼
    app_pages/earth.py ◄── src/earth_view.py (MapLibre globe, browser) ◄── static/earth/*.json
           │                 + OpenFreeMap tiles, NASA GIBS imagery, AWS terrain tiles
+          ├─ src/hazards/situations.py (18 disaster situations, presets, record layers, per-situation
+          │   filters; the globe reports its selector state and the page mirrors it)
           └─ src/hazards/analysis.py (filters, summaries, nearby settlements), src/earth_search.py
 ```
 
@@ -71,7 +73,7 @@ Earth Intelligence is documented in [EARTH_INTELLIGENCE.md](EARTH_INTELLIGENCE.m
 | Domain logic | `insights`, `aqi`, `outdoor`, `air_alerts`, `units`, `preferences`, `monitoring` | Pure functions, testable without Streamlit or the network. |
 | Presentation | `theme` (design tokens, global CSS, icons, chips), `weather_view`, `air_view`, `earth_view`, `ui`, `lab_ui` | Build HTML and Plotly figures from data and units. They never fetch anything. |
 | Pages | `app_pages/{overview,weather,air_quality,outdoor,earth,explorer,history,predictions,lab,alerts,places,settings}.py`, `streamlit_app.py`, with `app_data` (shared cached calls), `place_select` (place switcher), `overview_view` (summary tiles) and `nav` (safe page links) | Lay out the page, cache results, and handle loading, empty and error states. |
-| ML (offline) | `features`, `splits`, `models`, `train`, `multistep`, `shift`, `compact`, `refit`, `lab_data` | Chronological experiments, the deployed bundle and reproducible Lab data. |
+| ML (offline) | `features`, `splits`, `models`, `train`, `multistep`, `shift`, `compact`, `mos`, `refit`, `intervals`, `reproduce`, `lab_data` | Chronological experiments, the deployed bundle, its upgrade (`mos`), monthly refit, intervals, reproducibility checks and reproducible Lab data. |
 
 ## Data types are never mixed
 
@@ -151,6 +153,12 @@ structure, feature schema and checksum before the app or the evaluator uses a mo
 - **Registry** (`src/registry.py`): reads every sidecar and checks each artifact against its checksum
   (*verified*, *metadata only* or *checksum mismatch*). It lists providers, baselines and rule engines
   separately, so they are never shown as Cloudzy predictions. It is shown in Model Lab → Registry.
+- **Lagged forecast input** (`src/mos.py`): the deployed bundle carries a `lagged_forecast` spec.
+  - `service` fetches the Previous Runs API live and refuses (logged) without it.
+  - `refit` and `intervals` add the same features from the cached archive.
+  - `artifacts.load_trusted` accepts the extra columns only when the spec declares them.
+- **Reproducibility** (`src/reproduce.py`, `python -m src.reproduce`): recomputes every described artifact's
+  recorded metric from cached data (no retraining) → `reports/reproducibility.json`, shown in the Registry.
 - **Uncertainty** (`src/intervals.py`, `python -m src.intervals`): split-conformal 80% and 95% ranges per
   horizon, calibrated and validated on later, disjoint periods (see the model card). `service.predict`
   attaches the 80% range only when the deployed bundle's SHA-256 matches the one the study was run for.

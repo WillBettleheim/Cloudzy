@@ -35,7 +35,7 @@ from typing import Any
 import pandas as pd
 
 from src import config
-from src.hazards import firms, gdacs, http, nhc, nws, tsunami, usdm, usgs, volcanoes
+from src.hazards import firms, gdacs, http, nhc, nws, situations, tsunami, usdm, usgs, volcanoes
 from src.hazards.geometry import haversine_km
 from src.hazards.schema import FeedResult, FeedStatus, HazardEvent, freshness
 from src.hazards.sources import SOURCES
@@ -233,7 +233,14 @@ def map_record(e: HazardEvent) -> dict:
     """What the globe needs to draw and list an event. Full details are rendered by the page on selection."""
     d = {"id": e.id, "s": e.source, "c": e.category, "k": e.kind, "t": e.title, "lat": e.lat, "lon": e.lon,
          "time": e.to_json()["time"], "end": e.to_json()["ends"], "r": e.severity_rank, "sev": e.severity_label,
-         "o": e.official, "cur": e.current, "area": (e.area or e.country or "")[:120]}
+         "o": e.official, "cur": e.current, "area": (e.area or e.country or "")[:120],
+         "sit": situations.situation_for(e), "lk": situations.layer_for(e)}
+    if situations.product(e):
+        d["prod"] = situations.product(e)
+    if e.category == "cyclone":
+        d["basin"] = situations.basin(e)
+    if e.category == "flood":
+        d["fl"] = situations.flood_type(e)
     if e.category == "earthquake":
         d["mag"], d["depth"] = e.extra.get("mag"), e.extra.get("depth_km")
     if e.geometry is not None:

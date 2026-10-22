@@ -599,7 +599,7 @@ def main() -> None:
               + ("" if agg["conclusive"] else " — too few to be conclusive"))
         for row in agg["by_horizon"]:
             print(f"  +{row['horizon_h']:>2} h  n={row['n']:<4} MAE {row['mae_c']:.2f} °C  RMSE {row['rmse_c']:.2f} "
-                  f"(2025 test MAE {row['expected_mae_c']})  IFS value MAE {row['ifs_mae_c']}")
+                  f"(offline test MAE {row['expected_mae_c']})  IFS value MAE {row['ifs_mae_c']}")
 
 
 if __name__ == "__main__":

@@ -11,7 +11,10 @@ What it does
    reanalysis temperature.
 4. Returns Cloudzy's predictions and the provider forecast side by side, with
    explicit labels. They are never mixed.
-5. Optionally saves the raw API response to data/live_snapshots/, so the
+5. If the bundle uses the lagged ECMWF forecast (src.mos), fetches it from the
+   Previous Runs API too. If it can't be fetched, the service refuses with a
+   reason; it never falls back to a different model.
+6. Optionally saves the raw API response to data/live_snapshots/, so the
    difference between real-time inputs and the archive replay can be measured
    later.
 
@@ -20,8 +23,9 @@ five variables in config.HOURLY_VARIABLES, on a UTC hourly grid.
 
 Limitations
 - Inputs are NWP model output, not observations.
-- Accuracy figures come from a 2025 replay, which is a best case for live
-  inputs. They are average errors (MAE), not confidence intervals.
+- Accuracy figures come from a replay of archived inputs (the bundle names the
+  period), which is a best case for live inputs. They are average errors (MAE),
+  not confidence intervals.
 - Single location (Delhi). Experimental; not an operational forecast.
 
 Run:  python -m src.service [--no-snapshot]
@@ -62,7 +66,7 @@ LIMITATIONS = [
     "Inputs are ECMWF IFS model values, not station observations.",
     "Cloudzy is trained to predict ERA5/ERA5-Land reanalysis temperature for one grid cell, "
     "not a specific thermometer.",
-    "typical_error_c is the mean absolute error on a 2025 replay of archived inputs, "
+    "typical_error_c is the mean absolute error on a replay of archived inputs (typical_error_period), "
     "a best case for real-time use; it is not a confidence interval.",
     "Experimental project; not an operational meteorological forecast.",
 ]
@@ -119,8 +123,9 @@ class CloudzyForecaster:
         if not Path(bundle_path).exists():
             raise FileNotFoundError(f"{bundle_path} not found; run `python -m src.compact` first")
         # Verified, then cached until the file changes: no re-reading on every request.
-        self.bundle = load_trusted(Path(bundle_path), {"horizons", "feature_columns", "feature_config",
-                                                       "test_2025_mae_c"})
+        self.bundle = load_trusted(Path(bundle_path), {"horizons", "feature_columns", "feature_config"})
+        if not ("typical_error_c" in self.bundle or "test_2025_mae_c" in self.bundle):
+            raise ValueError(f"{Path(bundle_path).name} has no typical-error figures")
         from src.artifacts import file_sha256, read_metadata
         meta = read_metadata(Path(bundle_path))
         self.version = (meta or {}).get("artifact_version") or f"{Path(bundle_path).stem}@{file_sha256(Path(bundle_path))[:12]}"
@@ -131,22 +136,50 @@ class CloudzyForecaster:
     def horizons(self) -> list[int]:
         return sorted(int(h) for h in self.bundle["horizons"])
 
-    def predict(self, history: pd.DataFrame, issue_time: pd.Timestamp) -> list[dict]:
-        """Cloudzy predictions for every horizon, from history up to and including issue_time."""
+    @property
+    def uses_lagged_forecast(self) -> bool:
+        return bool(self.bundle.get("lagged_forecast"))
+
+    @property
+    def typical_error(self) -> dict:
+        return self.bundle.get("typical_error_c") or self.bundle["test_2025_mae_c"]
+
+    @property
+    def typical_error_period(self) -> str:
+        return self.bundle.get("typical_error_period", "2025 test")
+
+    def predict(self, history: pd.DataFrame, issue_time: pd.Timestamp,
+                lagged: pd.Series | None = None) -> list[dict]:
+        """Cloudzy predictions for every horizon, from history up to and including issue_time.
+
+        `lagged` is the ECMWF forecast issued about 48 h before each target hour (src.mos); required when the
+        bundle was trained with it."""
         past = history.loc[:issue_time]
         if len(past) < MIN_HISTORY_HOURS or past.index[-1] != issue_time:
             raise ServiceError(f"Need {MIN_HISTORY_HOURS} complete hours ending at {issue_time}")
         window = past.iloc[-MIN_HISTORY_HOURS:]
-        X = add_features(window, self.cfg)[self.bundle["feature_columns"]].iloc[[-1]]
-        if X.isna().any(axis=None):
-            raise ServiceError(f"Incomplete inputs: {X.columns[X.isna().iloc[0]].tolist()}")
+        cols = self.bundle["feature_columns"]
+        lag_cols = list(self.bundle["lagged_forecast"]["features"]) if self.uses_lagged_forecast else []
+        if lag_cols and lagged is None:
+            raise ServiceError("This model needs the lagged ECMWF forecast, which wasn't supplied")
+        base = add_features(window, self.cfg)[[c for c in cols if c not in lag_cols]].iloc[[-1]]
+        if base.isna().any(axis=None):
+            raise ServiceError(f"Incomplete inputs: {base.columns[base.isna().iloc[0]].tolist()}")
         out = []
         for h in self.horizons:
+            X = base
+            if lag_cols:
+                assert lagged is not None
+                target = lagged.get(issue_time + pd.Timedelta(hours=h), np.nan)
+                if pd.isna(target):
+                    raise ServiceError(f"The lagged ECMWF forecast for +{h} h isn't available")
+                X = base.assign(ifs_prev2_target=float(target),
+                                ifs_prev2_minus_now=float(target) - float(base[TEMP].iloc[0]))[cols]
             value = float(self.bundle["horizons"][h]["model"].predict(X)[0])
             if not np.isfinite(value):
                 raise ServiceError(f"Model produced a non-finite value at h={h}")
             entry = {"horizon_h": h, "temperature_2m_c": round(value, 2),
-                     "typical_error_c": self.bundle["test_2025_mae_c"][h]}
+                     "typical_error_c": self.typical_error[h]}
             from src import intervals                  # lazy: src.intervals imports this module
             iv = intervals.interval(h, value)
             if iv is not None:
@@ -156,7 +189,8 @@ class CloudzyForecaster:
 
 
 def build_forecast(frame: pd.DataFrame, forecaster: CloudzyForecaster, now: pd.Timestamp,
-                   retrieved_at: str, location: config.Location = config.DELHI) -> dict:
+                   retrieved_at: str, location: config.Location = config.DELHI,
+                   lagged: pd.Series | None = None) -> dict:
     issue = now.floor("h")
     if issue not in frame.index:
         raise ServiceError(f"Live data does not contain the issue hour {issue}")
@@ -166,7 +200,7 @@ def build_forecast(frame: pd.DataFrame, forecaster: CloudzyForecaster, now: pd.T
                 "valid_time_local": t.tz_convert(location.local_timezone).isoformat()}
 
     cloudzy = []
-    for row in forecaster.predict(frame, issue):
+    for row in forecaster.predict(frame, issue, lagged):
         cloudzy.append({**row, **times(issue + pd.Timedelta(hours=row["horizon_h"]))})
     provider = []
     for row in cloudzy:
@@ -187,15 +221,28 @@ def build_forecast(frame: pd.DataFrame, forecaster: CloudzyForecaster, now: pd.T
                        for v in config.HOURLY_VARIABLES},
         },
         "model_version": forecaster.version,
+        "typical_error_period": forecaster.typical_error_period,
         "cloudzy": {"label": CLOUDZY_LABEL, "predictions": cloudzy},
         "provider": {"label": PROVIDER_LABEL, "forecasts": provider},
         "limitations": LIMITATIONS,
     }
 
 
+def fetch_lagged(session: requests.Session | None = None) -> pd.Series:
+    """The lagged forecast for the deployed bundle, or ServiceError (logged) if it can't be fetched."""
+    from src.mos import fetch_live_lagged       # lazy: src.mos imports src.refit, which imports this module
+    try:
+        return fetch_live_lagged(session=session)
+    except Exception as exc:
+        logger.warning("Cloudzy refused to forecast: lagged ECMWF forecast unavailable (%s)", exc)
+        raise ServiceError(f"The lagged ECMWF forecast this model needs is unavailable ({exc})") from exc
+
+
 def forecast_now(snapshot: bool = True, session: requests.Session | None = None) -> dict:
+    forecaster = CloudzyForecaster()
     frame, retrieved = fetch_live(session=session, snapshot_dir=SNAPSHOT_DIR if snapshot else None)
-    return build_forecast(frame, CloudzyForecaster(), pd.Timestamp.now(tz="UTC"), retrieved)
+    lagged = fetch_lagged(session) if forecaster.uses_lagged_forecast else None
+    return build_forecast(frame, forecaster, pd.Timestamp.now(tz="UTC"), retrieved, lagged=lagged)
 
 
 def main() -> None:
@@ -210,13 +257,14 @@ def main() -> None:
         return
     print(f"\n☁️  Cloudzy — {result['location']}   issued {result['issue_time_local']}")
     print(f"   input temperature now (IFS model value): {result['inputs']['temperature_2m_at_issue_c']:.1f} °C\n")
-    print(f"   {'ahead':>6}  {'local time':<17} {'Cloudzy':>8}  {'2025 MAE*':>9}  {'IFS':>6}")
+    print(f"   {'ahead':>6}  {'local time':<17} {'Cloudzy':>8}  {'MAE*':>9}  {'IFS':>6}")
     for c, p in zip(result["cloudzy"]["predictions"], result["provider"]["forecasts"]):
         ifs = "—" if p["temperature_2m_c"] is None else f"{p['temperature_2m_c']:.1f}"
         print(f"   {c['horizon_h']:>4} h  {c['valid_time_local'][:16]:<17} {c['temperature_2m_c']:>7.1f}°  "
               f"{c['typical_error_c']:>8.2f}°  {ifs:>6}")
     print("\n   Cloudzy = experimental ML prediction of reanalysis temperature. IFS = provider forecast.")
-    print("   * Cloudzy's average error on a 2025 replay (best case); not a confidence interval.")
+    print(f"   * Cloudzy's average error on the {result['typical_error_period']} replay (best case); "
+          "not a confidence interval.")
 
 
 if __name__ == "__main__":

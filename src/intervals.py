@@ -19,6 +19,9 @@ Two chronological stages, no period reused (all models use the deployed bundle's
   held-out month 2026-09, which the deployed models never saw (src.refit). That check is one month, ~700
   hours per horizon, consecutive and therefore correlated: it's evidence, not proof.
 
+For a bundle trained with the lagged ECMWF forecast (src.mos), every fit span starts on 2024-02-05, when that
+archive begins, so the method-check model is fitted on 11 months instead of two years.
+
 What the interval does not cover: errors from live inputs arriving later than in the replay (the replay uses
 the newest model run for each hour), reanalysis artefacts, and anything outside Delhi. Live coverage is tracked
 on evaluated predictions (src.monitoring) once enough of them exist.
@@ -46,7 +49,7 @@ from sklearn.base import clone
 from src import config
 from src.features import TARGET
 from src.multistep import HORIZONS
-from src.refit import load_source, serving_table
+from src.refit import bundle_table, lagged_spec, load_source
 from src.service import SERVING_BUNDLE
 
 logger = logging.getLogger(__name__)
@@ -90,12 +93,13 @@ def _rows(table: pd.DataFrame, span: tuple[str, str], h: int, target_inside: boo
     return sel
 
 
-def study(ref: pd.DataFrame, live: pd.DataFrame, bundle: dict) -> dict:
+def study(ref: pd.DataFrame, live: pd.DataFrame, bundle: dict, prev: pd.Series | None = None) -> dict:
+    """For a bundle with the lagged forecast, fit spans effectively start when that archive does (src.mos)."""
     cols = bundle["feature_columns"]
     out: dict = {"levels": list(LEVELS), "stages": STAGES, "horizons": {}}
     for h in HORIZONS:
         entry = bundle["horizons"][h]
-        table = serving_table(ref, live, h)
+        table = bundle_table(ref, live, h, bundle, prev)
         res: dict = {}
         for stage, spans in STAGES.items():
             fit = _rows(table, spans["fit"], h, target_inside=True)
@@ -131,7 +135,11 @@ def run() -> dict:
     ref, ref_summary = load_source(config.REANALYSIS, DATA_START, DATA_END)
     live, live_summary = load_source(config.LIVE_ARCHIVE, DATA_START, DATA_END)
     bundle = joblib.load(SERVING_BUNDLE)
-    report = study(ref, live, bundle)
+    prev = None
+    if lagged_spec(bundle):
+        from src.mos import fetch_previous_runs
+        prev = fetch_previous_runs(date(2024, 1, 1), DATA_END)
+    report = study(ref, live, bundle, prev)
     report["provenance"] = {"created_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
                             "command": "python -m src.intervals", "bundle": SERVING_BUNDLE.name,
                             "bundle_sha256": bundle_sha256(),

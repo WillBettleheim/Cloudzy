@@ -75,7 +75,7 @@ def test_tables_have_expected_columns():
     prov = [{"horizon_h": 3, "valid_time_local": "2026-10-19T15:00:00+05:30", "temperature_2m_c": 29.1}]
     row = ui.cloudzy_table(preds, prov).iloc[0]
     assert row["Cloudzy °C"] == 29.0 and row["ECMWF IFS °C"] == 29.1
-    assert row["Cloudzy avg error in 2025 test °C"] == 1.15
+    assert row["Cloudzy avg test error °C"] == 1.15
     assert "Temp °F" in ui.hourly_table(f.hourly.iloc[:2], "°F", "mph", "in").columns
 
 
@@ -245,7 +245,7 @@ def test_cloudzy_values_follow_units(fake_network):
     at.segmented_control(key="unit_temp").set_value("°F").run()
     table = at.dataframe[2].value
     assert table["Cloudzy °F"].iloc[0] == pytest.approx(82.4)                       # 28.0 °C
-    assert table["Cloudzy avg error in 2025 test °F"].iloc[0] == pytest.approx(1.98)  # 1.1 °C difference
+    assert table["Cloudzy avg test error °F"].iloc[0] == pytest.approx(1.98)  # 1.1 °C difference
 
 
 def test_rain_expected_banner(fake_network):

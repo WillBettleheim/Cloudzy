@@ -155,13 +155,76 @@ with failed refreshes is never called live.
 |---|---|
 | Move and zoom | Drag to rotate, wheel or trackpad and pinch to zoom, double-click to zoom in, keyboard arrows and +/- on the focused map |
 | Camera buttons | Zoom, whole globe, reset camera, auto-rotate (stops on any interaction, off under reduced motion), fullscreen |
-| Layers panel | Each hazard category, fire detections, warning areas, cyclone tracks and cones, forecast positions, drought, volcano catalogue, base imagery, terrain, labels |
-| Filters | Minimum severity, official sources only, current records only. Hiding a layer is stated as hiding, not absence |
+| Situations and layers panel | The disaster situation selector, record layers, filters (general and per situation), overlays (fire detections, warning areas, cyclone tracks, drought), base imagery, terrain, labels. See *Disaster situations* below |
+| Filters | Minimum severity, official sources only, current records only, plus per-situation filters. Each active filter is a removable chip on the globe, with "Clear all". Hiding is stated as hiding, not absence |
 | Event list | Text filter, "only in view" and sort. Selecting in the list flies the globe there and highlights the marker; selecting a marker highlights the list entry |
-| Event details | The full source-backed record is shown under the globe |
+| Event details | The globe's card has: copy coordinates, hide this situation, and (when the record is hidden by the current selection) why, with a one-click fix. Under the globe, the full source-backed record has: focus on the globe, open the source, hide or show its situation, copyable coordinates, the same event in other sources, and related events within 300 km |
 | Search | Countries and states (Natural Earth, with outline), cities (Open-Meteo), coordinates, and neighbourhoods, streets and addresses (OpenStreetMap Nominatim: on Enter only, at most 1 request/s, cached). The table can then be limited to that area (inside the outline, or within 150 km) |
 | Coordinates | Cursor coordinates, the zoom level's name, and a copy-centre button |
 | Timeline | Records are shown by their own times inside a sliding window (1 h to the whole period); play, step and "Now". See below |
+
+## Disaster situations
+
+`src/hazards/situations.py` sorts every loaded record into one of 18 situations. The sorting uses the feed's
+category and, for official warnings, the product name the agency used. For example, "Tornado Warning" →
+tornadoes, "Dust Storm Warning" → dust storms, "Wind Chill Advisory" → extreme cold.
+
+| Situation | Sources | Situation | Sources |
+|---|---|---|---|
+| Earthquakes | USGS, GDACS | Severe wind | NWS |
+| Floods | NWS, GDACS | Tsunamis | NOAA tsunami centres, NWS |
+| Tropical cyclones | NHC, GDACS, NWS | Volcanoes | USGS alert levels, GDACS |
+| Drought | U.S. Drought Monitor, GDACS | Landslides | **not connected** |
+| Wildfires | NASA FIRMS, GDACS, NWS fire weather | Snowstorms and blizzards | NWS |
+| Severe thunderstorms | NWS | Dust storms | NWS |
+| Tornadoes | NWS | Lightning | **not connected** |
+| Extreme heat | NWS | Other official warnings | NWS (off by default) |
+| Extreme cold | NWS | | |
+| Heavy rainfall | **not connected** | | |
+
+Situations without a source stay in the list, greyed out with a "not connected" badge. Hovering one says why and
+where to look instead. They can't be switched on, so no markers there is never presented as "no events".
+
+**Selector.**
+- **Actions:** search the list, switch one on or off, show all, all off, restore defaults.
+- **Presets:** All available, Geological, Storms, Water hazards, Climate and heat, Fire and dryness, and My
+  selection.
+- **My selection:** saved in the viewer's browser (`localStorage`, nothing is sent anywhere). If one is saved it
+  is applied when the page opens.
+- **Counts:** each situation shows how many records are drawn with the current filters, or "off" with the number
+  loaded.
+
+**Record layers** separate what a record is:
+- **Observed events:** located earthquakes, satellite detections, drought assessments.
+- **Official warnings.**
+- **Provider forecasts and automatic estimates:** GDACS model-based alerts.
+- **Cloudzy ML predictions:** the newest recorded Cloudzy Core prediction, a single point at the Delhi grid cell.
+  It shows its model version, issue and valid times, value and 80% range, and evaluation status. It is read from
+  the monitoring store, never fetched or computed for the globe, and is labelled as temperature, not a hazard
+  forecast.
+- **Historical analysis:** the Holocene volcano catalogue.
+
+Official forecast tracks and cones stay under the cyclone filters.
+
+**Per-situation filters.** Each group appears only while its situation is on:
+
+| Situation | Filters |
+|---|---|
+| Earthquakes | Magnitude from (on top of the loading threshold); depth bands: shallow < 70 km, intermediate, deep > 300 km |
+| Tropical cyclones | Basin: NHC's own bin, otherwise the basin containing the position (approximate near Central America); intensity; forecast positions and cones |
+| Floods | Official warnings (NWS) or automatic alerts (GDACS). Flood forecasts and inundation maps are stated as not connected |
+| Wildfires | Fire radiative power, detection confidence, detection age: these act on the fire-detection overlay |
+| Drought | Minimum U.S. Drought Monitor category |
+| Severe-weather warnings | Product (warning, watch, advisory, statement); in force now (not past expiry) |
+
+**Sync without rebuilding the globe.** Every change updates the globe at once: markers, areas, legend, counts,
+event list and timeline. The globe then sends its state (`view`) to the page. The page applies the same rules
+(`situations.matches`) to the *Situations* table and the event table, so the per-situation counts follow the
+selector and a searched place. The page's own *Situations* picker is a fallback without WebGL, and it changes
+the globe too. Removing the period or place chip on the globe resets those page controls.
+
+`tests/test_situations.py` checks that the JavaScript filter keys, record layers and trigger names match the
+Python side.
 
 **Timeline rules.**
 

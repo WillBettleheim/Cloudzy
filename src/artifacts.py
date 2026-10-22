@@ -47,6 +47,7 @@ FEATURE_UNITS = {
     "relative_humidity_2m": "%", "surface_pressure": "hPa", "pressure_change_3h": "hPa",
     "wind_speed_10m": "km/h", "precipitation": "mm", "precip_sum_3h": "mm",
     "hour_sin": "unitless", "hour_cos": "unitless", "doy_sin": "unitless", "doy_cos": "unitless",
+    "ifs_prev2_target": "°C", "ifs_prev2_minus_now": "°C",          # lagged ECMWF forecast (src.mos)
 }
 
 
@@ -114,11 +115,16 @@ def metadata_for(bundle: dict, model_path: Path, extra: dict | None = None) -> d
         "models": models,
         "features": [{"name": c, "unit": unit_of(c)} for c in cols],
         "feature_config": bundle.get("feature_config"),
-        "target": target_definition(horizons),
+        "target": target_definition(horizons) + (
+            "; plus the ECMWF forecast for t+h from the run 48 h before it (published at least 24 h before t)"
+            if bundle.get("lagged_forecast") else ""),
+        "lagged_forecast": bundle.get("lagged_forecast"),
         "inputs_source": bundle.get("inputs_source", bundle.get("provenance", {}).get("data", {}).get("model")),
         "target_source": bundle.get("target_source", bundle.get("provenance", {}).get("data", {}).get("model")),
         "metrics": {k: bundle[k] for k in ("validation_mae_c", "test_metrics", "test_2025_mae_c",
-                                            "test_2025_provider_optimistic_mae_c", "holdout_mae_c") if k in bundle},
+                                            "test_2025_provider_optimistic_mae_c", "typical_error_c",
+                                            "typical_error_period", "test_provider_lagged_mae_c", "holdout_mae_c")
+                    if k in bundle},
         "provenance": bundle.get("provenance"),
         "library_versions": {p: version(p) for p in ("scikit-learn", "joblib", "numpy", "pandas")},
         "python": sys.version.split()[0],
@@ -164,7 +170,7 @@ def load_trusted(path: Path, required_keys: set[str]) -> dict:
     missing = required_keys - set(bundle)
     if missing:
         raise ArtifactError(f"Model bundle {path.name} is missing keys: {sorted(missing)}")
-    expected = feature_columns(feature_config_of(bundle))
+    expected = feature_columns(feature_config_of(bundle)) + list((bundle.get("lagged_forecast") or {}).get("features", []))
     if list(bundle["feature_columns"]) != expected:
         raise ArtifactError(f"{path.name} was trained with a different feature schema than this code produces; "
                             "retrain it with the current pipeline.")

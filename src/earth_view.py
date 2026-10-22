@@ -15,6 +15,10 @@ What it draws
   (heat map far out, points close in), U.S. drought categories and the Holocene volcano catalogue.
 
 Interaction
+- The disaster situation selector (src.hazards.situations): 18 situations with search, presets, a selection saved
+  in the viewer's browser, record layers and per-situation filters. Active filters are removable chips. Every
+  change redraws in place (no new map) and is reported to Python as `view`, so the page's tables follow it.
+  A selected record that the selection hides says why on its card, with a one-click fix.
 - Drag, wheel/trackpad and pinch to move and zoom, double-click to zoom in, keyboard (arrows, +/-) on the
   focused map; buttons for zoom, whole-globe view, auto-rotation (stops on any interaction), fullscreen, layers
   and the event list. Clicking a marker or list entry selects it on both, flies to it and reports the id to
@@ -44,6 +48,15 @@ const DEPTH = [[0, "#f2a541", "Shallow, under 70 km"], [70, "#d9584f", "Intermed
 const DROUGHT = ["#f5e6a3", "#e8c06b", "#d98e3a", "#b5402e", "#6e1b1b"];
 const ZOOM_NAMES = [[2.5, "Earth"], [4, "Continent"], [6, "Country"], [8, "State or province"], [11, "City"], [14, "Neighbourhood"], [16, "Streets"], [99, "Building footprints (OpenStreetMap)"]];
 const CURRENT_ONLY = new Set(["nws", "nhc", "usgs_volcano", "tsunami", "usdm"]);
+// Filter defaults. The page mirrors the same rules for its table and summaries (src.hazards.situations.matches).
+const F0 = { rank: 0, official: false, current: false, eqMag: 0, eqDepth: ["shallow", "intermediate", "deep"], tcBasin: "", tcRank: 0,
+             flood: "", fireFrp: 0, fireConf: "", fireHours: 24, dmMin: 0, svProd: "", svActive: false };
+const LK0 = { observed: true, official: true, provider: true, ml: true, historical: false };
+const WARNING_SITS = new Set(["thunderstorm", "tornado", "wind", "dust", "heat", "cold", "snow", "other"]);
+const SAVE_KEY = "cloudzy-earth-selection-v1";
+const FILTER_NAMES = { rank: "Severity", official: "Official only", current: "Current only", eqMag: "Earthquakes from", eqDepth: "Depth",
+  tcBasin: "Basin", tcRank: "Cyclone intensity", flood: "Flood records", fireFrp: "Fire power from", fireConf: "Fire confidence",
+  fireHours: "Fires within", dmMin: "Drought from", svProd: "Warning product", svActive: "Warnings in force" };
 
 export default function (component) {
   const { data, parentElement, setTriggerValue } = component;
@@ -58,6 +71,99 @@ export default function (component) {
     if (S.ready) applyData(S);
   }
 }
+
+// --- Selection state: presets, saving, chips and the page sync ---------------------------------------------
+
+function loadSaved() {
+  try { const v = JSON.parse(window.localStorage.getItem(SAVE_KEY) || "null"); return v && v.on ? v : null; } catch (e) { return null; }
+}
+
+function config(S) {
+  return { on: Object.keys(S.on).filter((k) => S.on[k]), lk: Object.assign({}, S.lk),
+           f: Object.fromEntries(Object.keys(F0).map((k) => [k, S.f[k]])) };
+}
+
+function applyConfig(S, c) {
+  const known = new Set(S.data.situations.filter((x) => x.connected).map((x) => x.key));
+  if (c.on) for (const k of Object.keys(S.on)) S.on[k] = c.on.includes(k) && known.has(k);
+  if (c.lk) Object.assign(S.lk, LK0, c.lk);
+  if (c.f) for (const k of Object.keys(F0)) if (k in c.f) S.f[k] = c.f[k];
+  syncControls(S);
+}
+
+function syncControls(S) {
+  S.all("[data-cat]").forEach((i) => { i.checked = !!S.on[i.dataset.cat]; });
+  S.all("[data-lk]").forEach((i) => { i.checked = !!S.lk[i.dataset.lk]; });
+  S.all("[data-depth]").forEach((i) => { i.checked = S.f.eqDepth.includes(i.dataset.depth); });
+  S.all("select[data-f], input[data-f]").forEach((i) => {
+    const k = i.dataset.f;
+    if (!(k in F0)) return;
+    if (i.type === "checkbox") i.checked = !!S.f[k]; else i.value = String(S.f[k]);
+  });
+  S.all("details.sf").forEach((d) => {
+    const k = d.dataset.for;
+    d.hidden = k === "warnings" ? ![...WARNING_SITS].some((w) => S.on[w]) : !S.on[k];
+  });
+}
+
+function presetKeys(S, name) {
+  if (name === "mine") { const v = loadSaved(); return v ? v.on : null; }
+  const p = (S.data.presets || {})[name];
+  return p ? p.keys : null;
+}
+
+function changed(S) { syncControls(S); refresh(S); sendView(S); }
+
+function sendView(S) {
+  clearTimeout(S.viewTimer);
+  S.viewTimer = setTimeout(() => S.trigger("view", Object.assign(config(S), { t: Date.now() })), 450);
+}
+
+function differs(a, b) { return JSON.stringify(a) !== JSON.stringify(b); }
+
+function chips(S) {
+  const out = [], d = S.data;
+  const conn = S.data.situations.filter((c) => c.connected);
+  const nOn = conn.filter((c) => S.on[c.key]).length;
+  if (differs(S.on, S.defaults.on)) out.push(["sits", `${nOn} of ${conn.length} situations`]);
+  for (const [k, t] of Object.entries(S.data.record_layers)) if (S.lk[k] !== LK0[k]) out.push(["lk:" + k, (S.lk[k] ? "Showing " : "Hiding ") + t.toLowerCase()]);
+  for (const k of Object.keys(F0)) {
+    if (!differs(S.f[k], F0[k])) continue;
+    const v = S.f[k];
+    const txt = typeof v === "boolean" ? FILTER_NAMES[k] : k === "rank" || k === "tcRank" ? `${FILTER_NAMES[k]}: ${["any", "minor+", "moderate+", "severe+", "extreme"][v]}`
+      : k === "eqMag" ? `${FILTER_NAMES[k]} M${v}` : k === "fireFrp" ? `${FILTER_NAMES[k]} ${v} MW` : k === "fireHours" ? `${FILTER_NAMES[k]} ${v} h`
+      : k === "dmMin" ? `${FILTER_NAMES[k]} D${v}` : k === "eqDepth" ? `${FILTER_NAMES[k]}: ${v.join(", ") || "none"}` : k === "fireConf" ? `${FILTER_NAMES[k]}: ${v === "h" ? "high" : "nominal+"}` : `${FILTER_NAMES[k]}: ${v}`;
+    out.push(["f:" + k, txt]);
+  }
+  if (S.cursor != null) out.push(["time", "Timeline: " + fmtTime(S.cursor)]);
+  if (d.chips && d.chips.period) out.push(["py:period", d.chips.period]);
+  if (d.chips && d.chips.region) out.push(["py:region", "Near " + d.chips.region]);
+  const el = S.el(".cze-chips");
+  el.innerHTML = out.map(([k, t]) => `<span class="fchip">${esc(t)}<button type="button" data-clear="${esc(k)}" aria-label="Remove filter: ${esc(t)}"><span class="ico">close</span></button></span>`).join("")
+    + (out.length ? `<button type="button" class="fchip all" data-clear="all">Clear all</button>` : "");
+}
+
+function clearChip(S, k) {
+  if (k === "all" || k === "sits") Object.assign(S.on, S.defaults.on);
+  if (k === "all") { Object.assign(S.lk, LK0); Object.assign(S.f, F0, { eqDepth: F0.eqDepth.slice() }); stopPlay(S); S.cursor = null; }
+  if (k.startsWith("lk:")) S.lk[k.slice(3)] = LK0[k.slice(3)];
+  if (k.startsWith("f:")) { const f = k.slice(2); S.f[f] = Array.isArray(F0[f]) ? F0[f].slice() : F0[f]; }
+  if (k === "time") { stopPlay(S); S.cursor = null; }
+  if (k.startsWith("py:") || k === "all") S.trigger("chip", { what: k === "all" ? "all" : k.slice(3), t: Date.now() });
+  changed(S);
+}
+
+// Why a record isn't drawn, in words (shown on its card instead of letting it vanish silently).
+function whyHidden(S, e, at) {
+  const c = sitOf(S, e.sit);
+  if (!S.on[e.sit]) return { text: `${c.label} are turned off in the situation selector.`, fix: ["sit", e.sit, "Show " + c.label.toLowerCase()] };
+  if (!S.lk[e.lk]) return { text: `The "${S.data.record_layers[e.lk]}" layer is hidden.`, fix: ["lk", e.lk, "Show that layer"] };
+  if (S.cursor != null && (CURRENT_ONLY.has(e.s) || e.tms == null || e.tms > at || (S.windowMs && (e.ems || e.tms) < at - S.windowMs)))
+    return { text: "It's outside the timeline's current window.", fix: ["time", "", "Back to Now"] };
+  return { text: "A filter excludes it (see the active filters at the top of the globe).", fix: ["all", "", "Clear all filters"] };
+}
+
+function sitOf(S, key) { return S.sitMap[key] || { key, label: key, color: "#9aa7bb", icon: "warning", shape: "square" }; }
 
 function fatal(S, msg) {
   S.failed = true;
@@ -97,7 +203,9 @@ async function init(S, root) {
   const css = document.createElement("link");
   css.rel = "stylesheet"; css.href = ML_CSS;
   wrap.appendChild(css);
-  const cats = S.data.categories;
+  const cats = S.data.situations;
+  const presets = Object.entries(S.data.presets || {});
+  const opt = (v, t, sel) => `<option value="${esc(v)}"${sel ? " selected" : ""}>${esc(t)}</option>`;
   wrap.insertAdjacentHTML("beforeend", `
     <div class="cze" role="region" aria-label="Earth Intelligence globe">
       <div class="cze-map" tabindex="0" aria-label="Interactive globe. Drag or use the arrow keys to move, plus and minus to zoom. Select a marker for details."></div>
@@ -105,6 +213,7 @@ async function init(S, root) {
       <div class="cze-top">
         <div class="cze-feed" role="status" aria-live="polite"></div>
         <div class="cze-notice">Situational awareness only, not an official warning service.</div>
+        <div class="cze-chips" role="group" aria-label="Active filters"></div>
       </div>
       <div class="cze-side" role="toolbar" aria-label="Globe controls">
         <button type="button" class="cze-btn" data-act="zin" aria-label="Zoom in" title="Zoom in"><span class="ico">add</span></button>
@@ -116,19 +225,50 @@ async function init(S, root) {
         <button type="button" class="cze-btn" data-act="list" aria-expanded="false" aria-label="Event list" title="Event list"><span class="ico">list</span></button>
         <button type="button" class="cze-btn" data-act="fs" aria-pressed="false" aria-label="Fullscreen" title="Fullscreen"><span class="ico">fullscreen</span></button>
       </div>
-      <aside class="cze-panel cze-layers" hidden aria-label="Layers and filters">
-        <div class="ph"><b>Layers</b><button type="button" class="cze-btn sm" data-act="layers" aria-label="Close layers"><span class="ico">close</span></button></div>
-        <div class="pg"><div class="pt">Hazards</div>
-          ${cats.map((c) => `<label class="tog"><input type="checkbox" data-cat="${c.key}" ${c.on ? "checked" : ""}/><span class="mk" style="--c:${c.color}"><span class="ico">${c.icon}</span></span><span class="lbl">${esc(c.label)}</span><span class="n" data-count="${c.key}"></span></label>`).join("")}
-          <div class="row"><button type="button" class="lnk" data-act="all">Show all</button><button type="button" class="lnk" data-act="none">Hide all</button></div>
+      <aside class="cze-panel cze-layers" hidden aria-label="Disaster situations, layers and filters">
+        <div class="ph"><b>Situations and layers</b><button type="button" class="cze-btn sm" data-act="layers" aria-label="Close"><span class="ico">close</span></button></div>
+        <div class="pg"><div class="pt">Disaster situations <span class="sel-n"></span></div>
+          <input class="cze-sq" type="search" placeholder="Search situations" aria-label="Search the situation list"/>
+          <div class="presets" role="group" aria-label="Presets">${presets.map(([k, p]) => `<button type="button" class="pre" data-preset="${k}">${esc(p.label)}</button>`).join("")}<button type="button" class="pre" data-preset="mine" title="Your saved selection (this browser only)">My selection</button></div>
+          <div class="sits">${cats.map((c) => `<label class="tog sit${c.connected ? "" : " nc"}" data-sitrow="${c.key}" title="${esc(c.covers)}"><input type="checkbox" data-cat="${c.key}" ${c.on ? "checked" : ""} ${c.connected ? "" : "disabled"}/><span class="mk" style="--c:${c.color}"><span class="ico">${c.icon}</span></span><span class="lbl">${esc(c.label)}${c.connected ? "" : '<span class="ncb">not connected</span>'}</span><span class="n" data-count="${c.key}"></span></label>`).join("")}
+            <p class="pnote nomatch" hidden>No situation matches.</p></div>
+          <div class="row wrap"><button type="button" class="lnk" data-act="all">Show all</button><button type="button" class="lnk" data-act="none">All off</button><button type="button" class="lnk" data-act="defaults">Restore defaults</button><button type="button" class="lnk" data-act="save">Save as my selection</button></div>
+          <p class="pnote">Hover a situation to see what it covers. "Not connected" means Cloudzy has no source for it: no markers there says nothing about events.</p>
+        </div>
+        <div class="pg"><div class="pt">Record layers</div>
+          ${Object.entries(S.data.record_layers).map(([k, t]) => `<label class="tog"><input type="checkbox" data-lk="${k}" ${k === "historical" ? "" : "checked"}/><span class="lbl">${esc(t)}${k === "ml" ? ' <span class="dim">(Delhi temperature only)</span>' : k === "historical" ? ' <span class="dim">(Holocene volcano catalogue)</span>' : ""}</span></label>`).join("")}
+        </div>
+        <div class="pg"><div class="pt">Filters</div>
+          <label class="fld">Minimum severity
+            <select data-f="rank"><option value="0">Any</option><option value="1">Minor and above</option><option value="2">Moderate and above</option><option value="3">Severe and above</option><option value="4">Extreme only</option></select></label>
+          <label class="tog"><input type="checkbox" data-f="official"/><span class="lbl">Official sources only</span></label>
+          <label class="tog"><input type="checkbox" data-f="current"/><span class="lbl">Current records only</span></label>
+          <details class="sf" data-for="earthquake"><summary>Earthquakes</summary>
+            <label class="fld">Magnitude from <select data-f="eqMag">${[0, 3, 4, 5, 6, 7].map((m) => opt(m, m ? "M" + m : "Any loaded", !m)).join("")}</select></label>
+            <div class="fld">Depth ${[["shallow", "Shallow, under 70 km"], ["intermediate", "70-300 km"], ["deep", "Over 300 km"]].map(([k, t]) => `<label class="tog"><input type="checkbox" data-depth="${k}" checked/><span class="lbl">${t}</span></label>`).join("")}</div></details>
+          <details class="sf" data-for="cyclone"><summary>Tropical cyclones</summary>
+            <label class="fld">Basin <select data-f="tcBasin">${opt("", "All basins", true)}${(S.data.basins || []).map((b) => opt(b, b)).join("")}</select></label>
+            <label class="fld">Intensity <select data-f="tcRank">${opt(0, "Any", true)}${opt(2, "Moderate and above")}${opt(3, "Severe and above")}${opt(4, "Extreme only")}</select></label>
+            <label class="tog"><input type="checkbox" data-ov="forecast" checked/><span class="lbl">Forecast positions and cones (official forecast, at Now)</span></label></details>
+          <details class="sf" data-for="flood"><summary>Floods</summary>
+            <label class="fld">Record type <select data-f="flood">${opt("", "All", true)}${opt("official", "Official warnings (NWS)")}${opt("automatic", "Automatic alerts (GDACS)")}</select></label>
+            <p class="pnote">Flood forecasts (GloFAS) and observed inundation maps aren't connected.</p></details>
+          <details class="sf" data-for="wildfire"><summary>Wildfires and fire detections</summary>
+            <label class="fld">Fire radiative power from <select data-f="fireFrp">${[0, 5, 20, 50, 100].map((v) => opt(v, v ? v + " MW" : "Any", !v)).join("")}</select></label>
+            <label class="fld">Detection confidence <select data-f="fireConf">${opt("", "Any", true)}${opt("nh", "Nominal or high")}${opt("h", "High only")}</select></label>
+            <label class="fld">Detected within <select data-f="fireHours">${[24, 12, 6, 3].map((v) => opt(v, v + " h", v === 24)).join("")}</select></label></details>
+          <details class="sf" data-for="drought"><summary>Drought</summary>
+            <label class="fld">U.S. Drought Monitor from <select data-f="dmMin">${["D0 abnormally dry", "D1 moderate", "D2 severe", "D3 extreme", "D4 exceptional"].map((t, i) => opt(i, t, !i)).join("")}</select></label></details>
+          <details class="sf" data-for="warnings"><summary>Severe-weather warnings</summary>
+            <label class="fld">Product <select data-f="svProd">${opt("", "All", true)}${["Warning", "Watch", "Advisory", "Statement"].map((v) => opt(v, v)).join("")}</select></label>
+            <label class="tog"><input type="checkbox" data-f="svActive"/><span class="lbl">In force now (not past its expiry)</span></label>
+            <p class="pnote">Applies to thunderstorm, tornado, wind, dust, heat, cold, snow and other warnings.</p></details>
         </div>
         <div class="pg"><div class="pt">Overlays</div>
           <label class="tog"><input type="checkbox" data-ov="fires" checked/><span class="mk" style="--c:#ef6a45"><span class="ico">local_fire_department</span></span><span class="lbl">Satellite fire detections (VIIRS)</span></label>
           <label class="tog"><input type="checkbox" data-ov="areas" checked/><span class="mk sq" style="--c:#b58cf2"></span><span class="lbl">Official warning areas</span></label>
           <label class="tog"><input type="checkbox" data-ov="tracks" checked/><span class="mk" style="--c:#7ab8ff"><span class="ico">route</span></span><span class="lbl">Cyclone tracks and cones</span></label>
-          <label class="tog"><input type="checkbox" data-ov="forecast" checked/><span class="mk dash"></span><span class="lbl">Forecast positions (at Now)</span></label>
           <label class="tog"><input type="checkbox" data-ov="drought" checked/><span class="mk sq" style="--c:#d98e3a"></span><span class="lbl">U.S. Drought Monitor</span></label>
-          <label class="tog"><input type="checkbox" data-ov="volcat"/><span class="mk" style="--c:#d9584f"><span class="ico">landscape</span></span><span class="lbl">Holocene volcanoes (catalogue)</span></label>
         </div>
         <div class="pg"><div class="pt">Filters</div>
           <label class="fld">Minimum severity
@@ -167,11 +307,16 @@ async function init(S, root) {
       <div class="cze-status" role="status"></div>
     </div>`);
   S.root = root;
+  S.sitMap = Object.fromEntries(cats.map((c) => [c.key, c]));
   S.el = (s) => root.querySelector(s);
   S.all = (s) => Array.from(root.querySelectorAll(s));
-  S.on = Object.fromEntries(cats.map((c) => [c.key, !!c.on]));
-  S.ov = { fires: true, areas: true, tracks: true, forecast: true, drought: true, volcat: false, terrain: true, labels: true };
-  S.f = { rank: 0, official: false, current: false, inview: false, sort: "sev", q: "" };
+  S.defaults = { on: Object.fromEntries(cats.map((c) => [c.key, !!c.on])), f: Object.assign({}, F0), lk: Object.assign({}, LK0) };
+  S.on = Object.assign({}, S.defaults.on);
+  S.lk = Object.assign({}, LK0);
+  S.ov = { fires: true, areas: true, tracks: true, forecast: true, drought: true, terrain: true, labels: true };
+  S.f = Object.assign({ inview: false, sort: "sev", q: "" }, F0);
+  const saved = loadSaved();
+  if (saved) applyConfig(S, saved);
   S.base = "relief";
   S.cursor = null;                 // null = Now
   S.windowMs = 86400000;
@@ -258,7 +403,7 @@ function prepareStyle(S, style) {
 
 async function addImages(S) {
   try { await document.fonts.load('48px "Material Symbols Rounded"', "cyclone"); } catch (e) { /* glyphs fall back to shapes only */ }
-  for (const c of S.data.categories) {
+  for (const c of S.data.situations.concat([{ key: "ml", color: "#34b37a", icon: "neurology", shape: "circle" }])) {
     for (const big of [false, true]) {
       const size = big ? 64 : 48, cv = document.createElement("canvas");
       cv.width = cv.height = size;
@@ -295,9 +440,9 @@ function addLayers(S) {
   const map = S.map;
   const src = (id, extra) => map.addSource(id, Object.assign({ type: "geojson", data: EMPTY }, extra || {}));
   src("cz-drought"); src("cz-fires"); src("cz-areas"); src("cz-tracks"); src("cz-trackpts"); src("cz-quakes");
-  src("cz-major"); src("cz-volcat"); src("cz-region"); src("cz-selarea"); src("cz-sel");
+  src("cz-major"); src("cz-volcat"); src("cz-region"); src("cz-selarea"); src("cz-sel"); src("cz-ml");
   src("cz-minor", { cluster: true, clusterRadius: 46, clusterMaxZoom: 4, clusterProperties: { maxr: ["max", ["get", "r"]] } });
-  const catColor = ["match", ["get", "c"], ...S.data.categories.flatMap((c) => [c.key, c.color]), "#9aa7bb"];
+  const catColor = ["match", ["get", "c"], ...S.data.situations.flatMap((c) => [c.key, c.color]), "#9aa7bb"];
   map.addLayer({ id: "drought", type: "fill", source: "cz-drought", paint: { "fill-color": ["match", ["get", "dm"], 0, DROUGHT[0], 1, DROUGHT[1], 2, DROUGHT[2], 3, DROUGHT[3], DROUGHT[4]], "fill-opacity": 0.33 } });
   map.addLayer({ id: "region-line", type: "line", source: "cz-region", paint: { "line-color": "#ffd58f", "line-width": 2 } });
   map.addLayer({ id: "areas-fill", type: "fill", source: "cz-areas", paint: { "fill-color": catColor, "fill-opacity": ["case", ["==", ["get", "kind"], "cone"], 0.10, 0.2] } });
@@ -338,6 +483,9 @@ function addLayers(S) {
   map.addLayer({ id: "major", type: "symbol", source: "cz-major", layout: { "icon-image": ["concat", "cz-", ["get", "c"], "-big"], "icon-allow-overlap": true, "symbol-sort-key": ["-", 0, ["get", "r"]],
     "text-field": ["get", "short"], "text-font": FONT, "text-size": 11, "text-offset": [0, 1.6], "text-anchor": "top", "text-optional": true },
     paint: { "text-color": "#eef3fb", "text-halo-color": "#040914", "text-halo-width": 1.3 } });
+  map.addLayer({ id: "ml", type: "symbol", source: "cz-ml", layout: { "icon-image": "cz-ml-big", "icon-allow-overlap": true,
+    "text-field": ["get", "label"], "text-font": FONT, "text-size": 11, "text-offset": [0, 1.7], "text-anchor": "top", "text-optional": true },
+    paint: { "text-color": "#bff0d8", "text-halo-color": "#040914", "text-halo-width": 1.3 } });
   map.addLayer({ id: "sel-ring", type: "circle", source: "cz-sel", paint: { "circle-radius": 19, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": "#ffd58f", "circle-stroke-width": 2.5 } });
 }
 
@@ -355,18 +503,56 @@ function wire(S) {
     else if (act === "spin") toggleSpin(S, !S.spinning);
     else if (act === "layers" || act === "list") togglePanel(S, act);
     else if (act === "fs") toggleFs(S);
-    else if (act === "all" || act === "none") { S.all("[data-cat]").forEach((i) => { i.checked = act === "all"; S.on[i.dataset.cat] = i.checked; }); refresh(S); }
+    else if (act === "all" || act === "none") { S.all("[data-cat]:not([disabled])").forEach((i) => { S.on[i.dataset.cat] = act === "all"; }); changed(S); }
+    else if (act === "defaults") { Object.assign(S.on, S.defaults.on); Object.assign(S.lk, LK0); Object.assign(S.f, F0, { eqDepth: F0.eqDepth.slice() }); changed(S); }
+    else if (act === "save") {
+      try { window.localStorage.setItem(SAVE_KEY, JSON.stringify(config(S))); status(S, "Saved as your selection in this browser."); }
+      catch (e) { status(S, "This browser doesn't allow saving here (private mode or storage blocked).", "warn"); }
+      setTimeout(() => status(S, ""), 2500);
+    }
+    else if (act === "fix") {
+      const [what, k] = [b.dataset.what, b.dataset.k];
+      if (what === "sit") S.on[k] = true; else if (what === "lk") S.lk[k] = true;
+      else if (what === "time") { stopPlay(S); S.cursor = null; } else if (what === "all") return clearChip(S, "all");
+      changed(S);
+    }
+    else if (act === "hide-sit") { S.on[b.dataset.k] = false; changed(S); }
+    else if (act === "copy-ll") { const t = b.dataset.ll; if (navigator.clipboard) navigator.clipboard.writeText(t).then(() => status(S, "Copied " + t), () => status(S, t)); else status(S, t); setTimeout(() => status(S, ""), 2500); }
     else if (act === "play") togglePlay(S);
     else if (act === "back" || act === "fwd") step(S, act === "fwd" ? 1 : -1);
     else if (act === "now") { stopPlay(S); S.cursor = null; refresh(S); }
     else if (act === "copy") { const c = map.getCenter(); const t = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`; if (navigator.clipboard) navigator.clipboard.writeText(t).then(() => status(S, "Copied " + t), () => status(S, t)); else status(S, t); setTimeout(() => status(S, ""), 2500); }
-    else if (act === "close-card") { S.el(".cze-card").hidden = true; }
+    else if (act === "close-card") { S.el(".cze-card").hidden = true; S.cardClosed = true; }
+  });
+  S.root.addEventListener("click", (ev) => {
+    const p = ev.target.closest("[data-preset]");
+    if (p) {
+      const keys = presetKeys(S, p.dataset.preset);
+      if (!keys) { status(S, "No saved selection yet: choose situations, then “Save as my selection”."); setTimeout(() => status(S, ""), 3000); return; }
+      for (const k of Object.keys(S.on)) S.on[k] = keys.includes(k) && !!sitOf(S, k).connected;
+      changed(S);
+      return;
+    }
+    const c = ev.target.closest("[data-clear]");
+    if (c) clearChip(S, c.dataset.clear);
+  });
+  S.el(".cze-sq").addEventListener("input", (ev) => {
+    const q = ev.target.value.trim().toLowerCase();
+    let any = false;
+    S.all("[data-sitrow]").forEach((r) => { const hit = !q || r.textContent.toLowerCase().includes(q) || (r.title || "").toLowerCase().includes(q); r.hidden = !hit; any = any || hit; });
+    S.el(".nomatch").hidden = any;
   });
   S.root.addEventListener("change", (ev) => {
     const t = ev.target;
-    if (t.dataset.cat) { S.on[t.dataset.cat] = t.checked; refresh(S); }
+    if (t.dataset.cat) { S.on[t.dataset.cat] = t.checked; changed(S); }
+    else if (t.dataset.lk) { S.lk[t.dataset.lk] = t.checked; changed(S); }
+    else if (t.dataset.depth) { S.f.eqDepth = S.all("[data-depth]").filter((i) => i.checked).map((i) => i.dataset.depth); changed(S); }
     else if (t.dataset.ov) { S.ov[t.dataset.ov] = t.checked; refresh(S); }
-    else if (t.dataset.f) { S.f[t.dataset.f] = t.type === "checkbox" ? t.checked : (t.dataset.f === "rank" ? +t.value : t.value); refresh(S); }
+    else if (t.dataset.f) {
+      const k = t.dataset.f, num = typeof F0[k] === "number" || k === "rank";
+      S.f[k] = t.type === "checkbox" ? t.checked : (num ? +t.value : t.value);
+      if (k in F0) changed(S); else refresh(S);
+    }
     else if (t.name === "cze-base") { S.base = t.value; refresh(S); }
     else if (t.classList.contains("cze-win")) { S.windowMs = +t.value; refresh(S); }
   });
@@ -374,7 +560,7 @@ function wire(S) {
   S.el(".cze-slider").addEventListener("input", (ev) => { stopPlay(S); const v = +ev.target.value; S.cursor = v >= 1000 ? null : S.t0 + (S.t1 - S.t0) * v / 1000; refresh(S); });
   S.el(".cze-items").addEventListener("click", (ev) => { const li = ev.target.closest("[data-id]"); if (li) select(S, li.dataset.id, true); });
   S.el(".cze-items").addEventListener("keydown", (ev) => { const li = ev.target.closest("[data-id]"); if (li && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); select(S, li.dataset.id, true); } });
-  const clickable = ["major", "minor", "quakes", "areas-fill", "trackpts"];
+  const clickable = ["major", "minor", "quakes", "areas-fill", "trackpts", "ml"];
   map.on("click", (e) => {
     const f = map.queryRenderedFeatures(e.point, { layers: clickable.concat(["clusters", "fires-pt", "volcat"]) })[0];
     if (!f) return;
@@ -384,6 +570,8 @@ function wire(S) {
       showFire(S, f);
     } else if (f.layer.id === "volcat") {
       showVolcano(S, f);
+    } else if (f.layer.id === "ml") {
+      showMl(S);
     } else if (f.properties.id) {
       select(S, f.properties.id, false);
     }
@@ -462,6 +650,15 @@ async function applyData(S) {
       loader(S, L[name]).catch((e) => { if (e.name !== "AbortError") status(S, `A data layer couldn't load (${name}): ${e.message}`, "warn"); });
     }
   }
+  // The page's situation picker (a fallback without WebGL, and in sync with this selector) wins when it changes.
+  if (d.sit_sync && d.sit_sync.token && d.sit_sync.token !== S.sitToken) {
+    S.sitToken = d.sit_sync.token;
+    for (const k of Object.keys(S.on)) S.on[k] = d.sit_sync.on.includes(k) && !!sitOf(S, k).connected;
+    syncControls(S);
+  }
+  if (!S.sentFirst) { S.sentFirst = true; sendView(S); }      // the page mirrors the globe's starting selection
+  S.sitN = Object.fromEntries(d.situations.map((c) => [c.key, c.n]));
+  setGeo(S, "cz-ml", d.ml && d.ml.lat != null ? { type: "Feature", geometry: { type: "Point", coordinates: [d.ml.lon, d.ml.lat] }, properties: { c: "ml", label: "Cloudzy ML" } } : EMPTY);
   setGeo(S, "cz-region", d.region ? { type: "Feature", geometry: d.region, properties: {} } : EMPTY);
   setGeo(S, "cz-selarea", d.selected_geometry ? { type: "Feature", geometry: d.selected_geometry, properties: {} } : EMPTY);
   if (d.focus && d.focus.token !== S.focusToken) {
@@ -476,6 +673,7 @@ async function applyData(S) {
     S.pySelected = d.selected;
     if (d.selected && d.selected !== S.selected) select(S, d.selected, true, true);
   }
+  refresh(S);
 }
 
 function setGeo(S, id, data) { const s = S.map.getSource(id); if (s) s.setData(data); }
@@ -513,8 +711,18 @@ async function loadDrought(S, url) { S.drought = await getJson(S, "drought", url
 async function loadVolcat(S, url) { S.volcat = await getJson(S, "volcat", url); refresh(S); }
 
 function visible(S, e, at) {
-  if (!S.on[e.c]) return false;
+  if (!S.on[e.sit] || !S.lk[e.lk]) return false;
   if (e.r < S.f.rank || (S.f.official && !e.o) || (S.f.current && !e.cur)) return false;
+  if (e.sit === "earthquake" && e.s === "usgs") {
+    if (e.mag != null && e.mag < S.f.eqMag) return false;
+    if (e.depth != null && !S.f.eqDepth.includes(e.depth < 70 ? "shallow" : e.depth < 300 ? "intermediate" : "deep")) return false;
+  }
+  if (e.sit === "cyclone" && ((S.f.tcBasin && e.basin !== S.f.tcBasin) || e.r < S.f.tcRank)) return false;
+  if (e.sit === "flood" && S.f.flood && e.fl !== S.f.flood) return false;
+  if (WARNING_SITS.has(e.sit)) {
+    if (S.f.svProd && e.prod !== S.f.svProd) return false;
+    if (S.f.svActive && !(e.cur && (e.ems == null || e.ems > Date.now()))) return false;
+  }
   if (S.cursor != null) {
     if (CURRENT_ONLY.has(e.s)) return false;                          // current-only feed: shown at Now only
     if (e.tms == null || e.tms > at) return false;
@@ -529,14 +737,14 @@ function refresh(S) {
   const ev = S.events.filter((e) => visible(S, e, at));
   S.shown = ev;
   const pt = (e, extra) => ({ type: "Feature", geometry: { type: "Point", coordinates: [e.lon, e.lat] },
-    properties: Object.assign({ id: e.id, c: e.c, r: e.r, short: e.c === "cyclone" ? e.t.split(" ").slice(-1)[0] : "" }, extra || {}) });
+    properties: Object.assign({ id: e.id, c: e.sit, r: e.r, short: e.c === "cyclone" ? e.t.split(" ").slice(-1)[0] : "" }, extra || {}) });
   const located = ev.filter((e) => e.lat != null && e.lon != null);
   setGeo(S, "cz-quakes", { type: "FeatureCollection", features: located.filter((e) => e.c === "earthquake").map((e) => pt(e, { mag: e.mag, depth: e.depth })) });
   setGeo(S, "cz-major", { type: "FeatureCollection", features: located.filter((e) => e.c !== "earthquake" && e.r >= 3).map((e) => pt(e)) });
   setGeo(S, "cz-minor", { type: "FeatureCollection", features: located.filter((e) => e.c !== "earthquake" && e.r < 3).map((e) => pt(e)) });
   const areas = [], tracks = [], tpts = [];
   for (const e of ev) {
-    if (e.g && e.c !== "cyclone" && S.ov.areas) areas.push({ type: "Feature", geometry: e.g, properties: { id: e.id, c: e.c, kind: "area" } });
+    if (e.g && e.c !== "cyclone" && S.ov.areas) areas.push({ type: "Feature", geometry: e.g, properties: { id: e.id, c: e.sit, kind: "area" } });
     if (e.c === "cyclone" && S.ov.tracks) {
       if (e.g && S.cursor == null && S.ov.forecast) areas.push({ type: "Feature", geometry: e.g, properties: { id: e.id, c: "cyclone", kind: "cone" } });
       const pts = (e.track || []).map(([lon, lat, t, s]) => ({ lon, lat, tms: Date.parse(t), s, t }))
@@ -550,34 +758,52 @@ function refresh(S) {
   setGeo(S, "cz-areas", { type: "FeatureCollection", features: areas });
   setGeo(S, "cz-tracks", { type: "FeatureCollection", features: tracks });
   setGeo(S, "cz-trackpts", { type: "FeatureCollection", features: tpts });
-  const showFires = S.ov.fires && S.fires;
-  if (showFires) {
-    const lo = S.windowMs ? at - S.windowMs : -Infinity;
-    setGeo(S, "cz-fires", S.cursor == null && !S.windowMs ? S.fires : { type: "FeatureCollection", features: S.fires.features.filter((f) => f.properties.tms <= at && f.properties.tms >= lo) });
-  }
-  setGeo(S, "cz-drought", S.ov.drought && S.drought && S.cursor == null ? S.drought : EMPTY);
-  setGeo(S, "cz-volcat", S.ov.volcat && S.volcat ? S.volcat : EMPTY);
   const vis = (id, on) => { if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none"); };
+  // Fire detections and the drought map belong to their situations and are observed data.
+  const showFires = S.ov.fires && S.fires && S.on.wildfire && S.lk.observed;
+  if (showFires) {
+    const lo = Math.max(S.windowMs ? at - S.windowMs : -Infinity, at - S.f.fireHours * 3600000);
+    const conf = S.f.fireConf === "h" ? new Set(["h"]) : S.f.fireConf === "nh" ? new Set(["n", "h"]) : null;
+    const keep = (p) => p.tms <= at && p.tms >= lo && (p.frp == null ? !S.f.fireFrp : p.frp >= S.f.fireFrp) && (!conf || conf.has(p.conf));
+    const all = S.cursor == null && !S.windowMs && S.f.fireHours >= 24 && !S.f.fireFrp && !conf;
+    S.fireShown = all ? S.fires : { type: "FeatureCollection", features: S.fires.features.filter((f) => keep(f.properties)) };
+    setGeo(S, "cz-fires", S.fireShown);
+  } else S.fireShown = null;
+  const showDrought = S.ov.drought && S.drought && S.cursor == null && S.on.drought && S.lk.observed;
+  setGeo(S, "cz-drought", showDrought ? (S.f.dmMin ? Object.assign({}, S.drought, { features: S.drought.features.filter((f) => f.properties.dm >= S.f.dmMin) }) : S.drought) : EMPTY);
+  setGeo(S, "cz-volcat", S.lk.historical && S.volcat ? S.volcat : EMPTY);
+  vis("ml", !!(S.lk.ml && S.data.ml && S.data.ml.lat != null));
   vis("fires-heat", showFires); vis("fires-pt", showFires);
   vis("cz-relief", S.base === "relief"); vis("cz-viirs", S.base === "viirs"); vis("cz-hill", S.ov.terrain);
   for (const id of S.labelLayers || []) vis(id, S.ov.labels);
-  counts(S); legend(S); timeLabel(S); renderList(S);
+  counts(S); legend(S); timeLabel(S); renderList(S); chips(S);
+  if (S.selected && S.cardMode === "event" && !S.cardClosed) { const e = S.byId && S.byId.get(S.selected); if (e) card(S, e, at); }
 }
 
 function counts(S) {
   const n = {};
-  for (const e of S.shown) n[e.c] = (n[e.c] || 0) + 1;
-  S.all("[data-count]").forEach((el) => { const k = el.dataset.count; el.textContent = S.on[k] ? (n[k] || 0) : "hidden"; });
+  for (const e of S.shown) n[e.sit] = (n[e.sit] || 0) + 1;
+  const loaded = {};
+  for (const e of S.events) loaded[e.sit] = (loaded[e.sit] || 0) + 1;
+  S.all("[data-count]").forEach((el) => {
+    const k = el.dataset.count, c = sitOf(S, k);
+    el.textContent = !c.connected ? "" : S.on[k] ? (n[k] || 0).toLocaleString() : `off · ${(loaded[k] || 0).toLocaleString()}`;
+    el.title = !c.connected ? "" : S.on[k] ? "Shown with the current filters and time" : "Hidden; loaded records";
+  });
+  const conn = S.data.situations.filter((c) => c.connected);
+  S.el(".sel-n").textContent = `· ${conn.filter((c) => S.on[c.key]).length} of ${conn.length} on`;
 }
 
 function legend(S) {
   const parts = [];
   if (S.on.earthquake) parts.push(`<div class="lg"><b>Earthquakes</b> size = magnitude · colour = depth: ${DEPTH.map((d) => `<span class="sw" style="background:${d[1]}"></span>${d[2]}`).join(" ")}</div>`);
-  const cats = S.data.categories.filter((c) => S.on[c.key] && c.key !== "earthquake");
+  const cats = S.data.situations.filter((c) => S.on[c.key] && c.key !== "earthquake");
   if (cats.length) parts.push(`<div class="lg">${cats.map((c) => `<span class="mk" style="--c:${c.color}"><span class="ico">${c.icon}</span></span>${esc(c.label)}`).join(" ")}</div>`);
   if (S.on.cyclone && S.ov.tracks) parts.push(`<div class="lg"><span class="ln"></span>observed track <span class="ln dash"></span>forecast (not a certain path) · dashed area: official forecast cone</div>`);
-  if (S.ov.fires && S.fires) parts.push(`<div class="lg"><span class="sw" style="background:#ef6a45"></span>satellite fire detection (not a confirmed fire)</div>`);
-  if (S.ov.drought && S.drought && S.cursor == null) parts.push(`<div class="lg">U.S. drought, map valid ${esc(S.drought.valid)}: ${["D0", "D1", "D2", "D3", "D4"].map((t, i) => `<span class="sw" style="background:${DROUGHT[i]}"></span>${t}`).join(" ")}</div>`);
+  if (S.lk.ml && S.data.ml && S.data.ml.lat != null) parts.push(`<div class="lg"><span class="mk" style="--c:#34b37a"><span class="ico">neurology</span></span>Cloudzy ML prediction (experimental, Delhi grid cell temperature only)</div>`);
+  if (!S.data.situations.some((c) => S.on[c.key])) parts.push(`<div class="lg">No situation selected: open <b>Situations and layers</b> to choose some.</div>`);
+  if (S.fireShown) parts.push(`<div class="lg"><span class="sw" style="background:#ef6a45"></span>satellite fire detection (not a confirmed fire)</div>`);
+  if (S.ov.drought && S.drought && S.cursor == null && S.on.drought && S.lk.observed) parts.push(`<div class="lg">U.S. drought, map valid ${esc(S.drought.valid)}: ${["D0", "D1", "D2", "D3", "D4"].map((t, i) => `<span class="sw" style="background:${DROUGHT[i]}"></span>${t}`).join(" ")}</div>`);
   parts.push(`<div class="lg dim">Clusters group nearby minor events; severe ones are always shown.</div>`);
   S.el(".cze-legend .lgs").innerHTML = parts.join("");
 }
@@ -637,13 +863,12 @@ function renderList(S) {
   if (S.f.inview) { const b = S.map.getBounds(); items = items.filter((e) => e.lat != null && b.contains([e.lon, e.lat])); }
   items = items.slice().sort(S.f.sort === "new" ? (a, b) => (b.tms || 0) - (a.tms || 0) : (a, b) => (b.r - a.r) || ((b.tms || 0) - (a.tms || 0)));
   S.el(".cze-list .cnt").textContent = `${items.length.toLocaleString()} shown`;
-  const cat = Object.fromEntries(S.data.categories.map((c) => [c.key, c]));
   const shown = items.slice(0, 250);
   ul.innerHTML = shown.map((e) => `<li role="option" tabindex="0" data-id="${esc(e.id)}" aria-selected="${e.id === S.selected}" class="${e.id === S.selected ? "on" : ""}">
-      <span class="mk" style="--c:${cat[e.c] ? cat[e.c].color : "#9aa7bb"}"><span class="ico">${cat[e.c] ? cat[e.c].icon : "warning"}</span></span>
+      <span class="mk" style="--c:${sitOf(S, e.sit).color}"><span class="ico">${sitOf(S, e.sit).icon}</span></span>
       <span class="tx"><b>${esc(e.t)}</b><span class="sub">${esc(e.sev)} · ${esc(S.data.kinds[e.k] || e.k)} · ${esc(S.data.source_names[e.s] || e.s)}${e.lat == null ? " · no map location" : ""}</span><span class="sub">${esc(e.area)}${e.area ? " · " : ""}${ago(e.tms)}</span></span></li>`).join("")
     + (items.length > shown.length ? `<li class="more">${(items.length - shown.length).toLocaleString()} more: narrow the filters or zoom in with “Only in view”.</li>` : "")
-    + (!items.length ? `<li class="more">No records match the current layers, filters and time. That doesn't mean nothing is happening: check the hidden layers and the feed status.</li>` : "");
+    + (!items.length ? `<li class="more">${S.data.situations.some((c) => S.on[c.key]) ? "No records match the current situations, filters and time." : "No situation is selected."} That doesn't mean nothing is happening: check the selector, the active filters and the feed status.</li>` : "");
   const on = ul.querySelector(".on");
   if (on) on.scrollIntoView({ block: "nearest" });
 }
@@ -652,7 +877,9 @@ function select(S, id, flyTo, fromPython) {
   const e = S.byId && S.byId.get(id);
   S.selected = id;
   setGeo(S, "cz-sel", e && e.lat != null ? { type: "Feature", geometry: { type: "Point", coordinates: [e.lon, e.lat] }, properties: {} } : EMPTY);
+  S.cardMode = "event"; S.cardClosed = false;
   if (e) {
+    S.el(".cze-card").dataset.id = "";
     card(S, e);
     if (flyTo && e.lat != null) fly(S, { center: [e.lon, e.lat], zoom: Math.max(S.map.getZoom(), e.c === "cyclone" ? 3.5 : 5.5) });
   }
@@ -660,20 +887,40 @@ function select(S, id, flyTo, fromPython) {
   if (!fromPython) S.trigger("select", { id, t: Date.now() });
 }
 
-function card(S, e) {
-  const c = S.data.categories.find((x) => x.key === e.c) || { color: "#9aa7bb", icon: "warning", label: e.c };
+function card(S, e, at) {
+  const c = sitOf(S, e.sit);
   const el = S.el(".cze-card");
+  if (at === undefined) at = S.cursor == null ? S.t1 : S.cursor;
+  const shown = visible(S, e, at), why = shown ? null : whyHidden(S, e, at);
+  const ll = e.lat != null ? `${e.lat.toFixed(5)}, ${e.lon.toFixed(5)}` : "";
+  if (el.dataset.id === e.id && el.dataset.shown === String(shown) && !el.hidden) return;   // nothing changed: keep focus
+  el.dataset.id = e.id; el.dataset.shown = String(shown);
   el.hidden = false;
   el.innerHTML = `<div class="ch"><span class="mk" style="--c:${c.color}"><span class="ico">${c.icon}</span></span><b>${esc(e.t)}</b>
     <button type="button" class="cze-btn sm" data-act="close-card" aria-label="Close"><span class="ico">close</span></button></div>
-    <div class="cb"><span class="chip">${esc(S.data.kinds[e.k] || e.k)}</span>${e.o ? '<span class="chip off">Official source</span>' : '<span class="chip">Not an official warning</span>'}</div>
+    ${why ? `<div class="why" role="status"><span class="ico">visibility_off</span><span>Hidden on the globe: ${esc(why.text)}</span><button type="button" class="lnk" data-act="fix" data-what="${why.fix[0]}" data-k="${esc(why.fix[1])}">${esc(why.fix[2])}</button></div>` : ""}
+    <div class="cb"><span class="chip">${esc(c.label)}</span><span class="chip">${esc(S.data.kinds[e.k] || e.k)}</span>${e.o ? '<span class="chip off">Official source</span>' : '<span class="chip">Not an official warning</span>'}</div>
     <p>${esc(e.sev)}${e.area ? " · " + esc(e.area) : ""}</p>
     <p class="dim">${e.tms ? esc(fmtTime(e.tms)) + " · " + ago(e.tms) : "Time not given"} · ${esc(S.data.source_names[e.s] || e.s)}</p>
-    <p class="dim">Full details, source link and nearby places are below the globe.</p>`;
+    <div class="acts">${ll ? `<button type="button" class="lnk" data-act="copy-ll" data-ll="${ll}">Copy coordinates</button>` : ""}${shown ? `<button type="button" class="lnk" data-act="hide-sit" data-k="${esc(e.sit)}">Hide ${esc(c.label.toLowerCase())}</button>` : ""}</div>
+    <p class="dim">Full details, source link and related events are below the globe.</p>`;
+}
+
+function showMl(S) {
+  const m = S.data.ml, el = S.el(".cze-card");
+  S.cardMode = "other";
+  el.hidden = false; el.dataset.id = "";
+  el.innerHTML = `<div class="ch"><span class="mk" style="--c:#34b37a"><span class="ico">neurology</span></span><b>Cloudzy Core ML prediction</b>
+    <button type="button" class="cze-btn sm" data-act="close-card" aria-label="Close"><span class="ico">close</span></button></div>
+    <div class="cb"><span class="chip">Cloudzy ML prediction</span><span class="chip">Experimental</span><span class="chip">Not a hazard forecast</span></div>
+    <p>2 m temperature at the ${esc(m.where)}, issued ${esc(m.issue)} UTC by <code>${esc(m.version)}</code>${m.current ? "" : " (an earlier model version)"}.</p>
+    <ul class="mlp">${m.rows.map((r) => `<li>+${r.h} h · ${esc(r.valid)} · <b>${r.value.toFixed(1)} °C</b>${r.lo != null ? ` · 80% range ${r.lo.toFixed(1)} to ${r.hi.toFixed(1)}` : ""} · ${esc(r.status)}</li>`).join("")}</ul>
+    <p class="dim">${esc(m.note)}</p>`;
 }
 
 function showFire(S, f) {
   const p = f.properties, el = S.el(".cze-card");
+  S.cardMode = "other";
   const conf = { l: "low", n: "nominal", h: "high", u: "unknown" }[p.conf] || "unknown";
   const [lon, lat] = f.geometry.coordinates;
   el.hidden = false;
@@ -688,6 +935,7 @@ function showFire(S, f) {
 
 function showVolcano(S, f) {
   const p = f.properties, el = S.el(".cze-card");
+  S.cardMode = "other";
   el.hidden = false;
   el.innerHTML = `<div class="ch"><span class="mk" style="--c:#d9584f"><span class="ico">landscape</span></span><b>${esc(p.name)}</b>
     <button type="button" class="cze-btn sm" data-act="close-card" aria-label="Close"><span class="ico">close</span></button></div>
@@ -719,6 +967,12 @@ CSS = r"""
 .cze-feed .ico{font-size:1rem}
 .cze-feed.ok .ico{color:#34b37a}.cze-feed.warn .ico{color:#e9a636}
 .cze-notice{color:#ffd9a8;border-color:rgba(242,169,59,.4)}
+.cze-chips{flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px;pointer-events:none}
+.fchip{pointer-events:auto;display:inline-flex;align-items:center;gap:2px;padding:2px 4px 2px 9px;border-radius:999px;font-size:.7rem;
+  background:rgba(42,120,214,.32);border:1px solid rgba(74,163,255,.6);color:#eef3fb}
+.fchip button{display:inline-grid;place-items:center;width:18px;height:18px;border:0;border-radius:50%;background:none;color:inherit;cursor:pointer;padding:0}
+.fchip button:hover{background:rgba(255,255,255,.15)}.fchip .ico{font-size:.8rem}
+.fchip.all{padding:2px 9px;cursor:pointer;background:rgba(6,13,32,.85);font:500 .7rem Inter,sans-serif}
 .cze-btn{display:inline-grid;place-items:center;width:38px;height:38px;border-radius:12px;border:1px solid rgba(120,150,200,.28);
   background:rgba(6,13,32,.84);color:#eef3fb;cursor:pointer;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
   transition:background .14s,box-shadow .14s}
@@ -745,6 +999,19 @@ CSS = r"""
 .cze-panel .fld{display:flex;flex-direction:column;gap:3px;margin:3px 0 6px}
 .cze-panel select,.cze-q,.cze-win{background:#0c1730;color:#eef3fb;border:1px solid rgba(120,150,200,.35);border-radius:8px;padding:4px 6px;font:inherit}
 .cze-panel .row{display:flex;gap:10px;margin-top:4px}
+.cze-panel .row.wrap{flex-wrap:wrap;gap:4px 12px}
+.cze-panel .dim{opacity:.7}
+.cze-sq{width:100%;box-sizing:border-box;margin:2px 0 6px;background:#0c1730;color:#eef3fb;border:1px solid rgba(120,150,200,.35);border-radius:8px;padding:5px 8px;font:inherit}
+.presets{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
+.presets .pre{background:rgba(74,163,255,.1);color:#cfe3ff;border:1px solid rgba(74,163,255,.35);border-radius:999px;padding:2px 9px;font:500 .72rem Inter,sans-serif;cursor:pointer}
+.presets .pre:hover{background:rgba(74,163,255,.25)}
+.presets .pre:focus-visible,.fchip button:focus-visible,.cze-panel .lnk:focus-visible{outline:2px solid #4aa3ff;outline-offset:2px}
+.sits{display:grid;gap:0;max-height:300px;overflow:auto;padding-right:2px}
+.tog.sit.nc{opacity:.6;cursor:help}
+.ncb{display:inline-block;margin-left:6px;padding:0 6px;border-radius:999px;font-size:.62rem;border:1px dashed rgba(200,215,240,.55);vertical-align:1px}
+details.sf{border:1px solid rgba(120,150,200,.18);border-radius:10px;padding:4px 8px;margin:6px 0}
+details.sf summary{cursor:pointer;font-weight:600;font-size:.78rem}
+details.sf[open] summary{margin-bottom:4px}
 .cze-panel .lnk{background:none;border:0;color:#9ccaff;cursor:pointer;font:inherit;padding:0}
 .cze-panel .pnote{margin:6px 0 0;font-size:.72rem;opacity:.7}
 .mk{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:6px;background:var(--c);color:#06101f;flex:none;border:1px solid rgba(255,255,255,.7)}
@@ -767,6 +1034,11 @@ CSS = r"""
 .cze-card p{margin:5px 0}.cze-card .dim{opacity:.72;font-size:.74rem}
 .cze-card a{color:#9ccaff}
 .cze-card .cb{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.cze-card .why{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;padding:6px 8px;border-radius:10px;background:rgba(233,166,54,.14);border:1px solid rgba(233,166,54,.5)}
+.cze-card .why .ico{font-size:1rem;color:#e9a636}
+.cze-card .acts{display:flex;flex-wrap:wrap;gap:4px 14px;margin:4px 0}
+.cze-card .lnk{background:none;border:0;color:#9ccaff;cursor:pointer;font:inherit;padding:0;text-decoration:underline}
+.cze-card .mlp{margin:4px 0;padding-left:16px}.cze-card code{font-size:.7rem}
 .chip{display:inline-block;padding:1px 8px;border-radius:999px;font-size:.68rem;border:1px solid rgba(200,215,240,.45)}
 .chip.off{border-color:#34b37a;color:#9fe3c2}
 .cze-legend{position:absolute;left:10px;bottom:62px;z-index:5;max-width:min(720px,calc(100% - 140px));padding:6px 10px;border-radius:12px;
@@ -795,6 +1067,7 @@ CSS = r"""
 .cze .maplibregl-ctrl-attrib a{color:#9ccaff}
 .cze .maplibregl-ctrl-bottom-right,.cze .maplibregl-ctrl-bottom-left{bottom:106px}
 .cze .maplibregl-ctrl-scale{background:rgba(6,13,32,.7);color:#dce6f5;border-color:#dce6f5}
+@container (min-width:701px){.cze-layers:not([hidden]) ~ .cze-card{left:346px}}
 @container (max-width:700px){
   .cze-panel{left:0 !important;right:0 !important;top:auto !important;bottom:0;width:auto;max-height:70%;border-radius:18px 18px 0 0;z-index:12}
   .cze-legend{bottom:112px;max-width:calc(100% - 20px)}
@@ -809,13 +1082,17 @@ _component = None
 
 
 def earth_globe(data: dict, key: str = "cloudzy_earth"):
-    """Mount the globe. `.select` → {id} or {fire: {...}} when the viewer selects something on the globe or list.
+    """Mount the globe. `.select` → {id} or {fire: {...}} when the viewer selects something on the globe or list;
+    `.view` → the selector state ({on, lk, f, t}) after each change; `.chip` → {what} when the viewer removes a
+    filter chip that the page owns (period, region).
 
-    `data`: layer URLs (from the hazard store), feed statuses, categories, kinds and source names, the period
+    `data`: layer URLs (from the hazard store), feed statuses, situations (src.hazards.situations.selector_data),
+    presets, record layers and basins, kinds and source names, the period
     {start, end} in UTC milliseconds, the imagery day, attribution text, and optionally `focus` (a place to fly to,
     once per token), `region` (outline GeoJSON geometry), `selected` (an event id) and `selected_geometry`."""
     global _component
     import streamlit as st
     if _component is None:
         _component = st.components.v2.component("cloudzy_earth", js=JS, css=CSS)
-    return _component(key=key, data=data, on_select_change=lambda: None)
+    return _component(key=key, data=data, on_select_change=lambda: None, on_view_change=lambda: None,
+                      on_chip_change=lambda: None)

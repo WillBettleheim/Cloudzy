@@ -5,6 +5,7 @@ from pathlib import Path
 
 import joblib
 import numpy as np
+import pandas as pd
 
 from src import compact, config
 from src.features import feature_columns
@@ -31,14 +32,19 @@ def test_committed_bundle_is_small_complete_and_loadable():
     assert BUNDLE.stat().st_size / 1e6 < compact.MAX_BUNDLE_MB
     f = CloudzyForecaster(BUNDLE)
     assert f.horizons == [1, 2, 3, 6, 12, 24]
-    assert f.bundle["feature_columns"] == feature_columns()
-    assert set(f.bundle["test_2025_mae_c"]) == set(f.horizons)
+    lag = list((f.bundle.get("lagged_forecast") or {}).get("features", []))
+    assert f.bundle["feature_columns"] == feature_columns() + lag
+    assert set(f.typical_error) == set(f.horizons) and f.typical_error_period
 
 
 def test_committed_bundle_predicts_from_history():
     f = CloudzyForecaster(BUNDLE)
     history = frame(start="2026-10-10", hours=48)
-    out = f.predict(history, history.index[-1])
+    lagged = None
+    if f.uses_lagged_forecast:          # a lagged forecast close to the inputs, as live
+        times = pd.date_range(history.index[-1], periods=30, freq="h")
+        lagged = pd.Series(history["temperature_2m"].iloc[-1] + 0.5, index=times)
+    out = f.predict(history, history.index[-1], lagged)
     values = [p["temperature_2m_c"] for p in out]
     assert len(values) == 6 and np.isfinite(values).all()
     assert all(5 < v < 45 for v in values)  # synthetic history is ~14-26 °C
@@ -56,8 +62,9 @@ def test_service_defaults_to_compact_bundle_and_env_overrides(monkeypatch, tmp_p
 
 def test_bundle_keys_match_what_refit_expects():
     b = joblib.load(BUNDLE)
-    for key in ("horizons", "feature_columns", "feature_config", "test_2025_mae_c"):
+    for key in ("horizons", "feature_columns", "feature_config"):
         assert key in b
+    assert "typical_error_c" in b or "test_2025_mae_c" in b
     for entry in b["horizons"].values():
         assert {"model", "params", "deployed_model_trained_on"} <= set(entry)
 

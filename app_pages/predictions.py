@@ -140,7 +140,7 @@ with st.expander("Why records are pending (status breakdown)", expanded=attentio
 
 # --- Tracked accuracy: evaluated records only, one model version at a time ------------------------------
 st.html(T.section("Tracked accuracy (live predictions)", "monitoring"))
-st.caption("Kept separate from the offline test results in **Model Lab** (the 2025 test year). Model versions "
+st.caption("Kept separate from the offline test results in **Model Lab** (each version's own test period). Model versions "
            "are never pooled: each has its own numbers.")
 evaluated = df[df["status"] == "evaluated"]
 if evaluated.empty:
@@ -181,7 +181,7 @@ else:
             f"Bias {tu}": [None if v is None else (U.temperature_delta(abs(v), tu) * (1 if v >= 0 else -1))
                            for v in rows["bias_c"]],
             f"IFS value MAE {tu}": [U.temperature_delta(v, tu) for v in rows["ifs_mae_c"]],
-            f"2025 test MAE {tu} (offline, for reference)": [U.temperature_delta(v, tu) for v in rows["expected_mae_c"]],
+            f"Offline test MAE {tu} (for reference)": [U.temperature_delta(v, tu) for v in rows["expected_mae_c"]],
         })
         st.dataframe(shown, hide_index=True, width="stretch", column_config={
             c: st.column_config.NumberColumn(format="%.2f") for c in shown.columns if tu in c})

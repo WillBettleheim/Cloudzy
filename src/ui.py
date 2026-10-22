@@ -197,7 +197,7 @@ def cloudzy_table(predictions: list[dict], provider: list[dict], unit: str = "°
         "Local time": [pd.Timestamp(p["valid_time_local"]).strftime("%a %H:%M") for p in predictions],
         f"Cloudzy {unit}": [round(p["temperature_2m_c"], 1) for p in predictions],
         f"ECMWF IFS {unit}": [prov.get(p["horizon_h"]) for p in predictions],
-        f"Cloudzy avg error in 2025 test {unit}": [round(p["typical_error_c"], 2) for p in predictions],
+        f"Cloudzy avg test error {unit}": [round(p["typical_error_c"], 2) for p in predictions],
         "80% range": [f"{p['interval']['lower_c']:.1f} to {p['interval']['upper_c']:.1f}" if p.get("interval")
                       else "not validated" for p in predictions],
     })

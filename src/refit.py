@@ -121,16 +121,35 @@ def trained_until(entry: dict) -> pd.Timestamp | None:
     return pd.Timestamp(rng[1]) if rng else None
 
 
+def lagged_spec(bundle: dict) -> dict | None:
+    return bundle.get("lagged_forecast") or None
+
+
+def bundle_table(ref: pd.DataFrame, live: pd.DataFrame, h: int, bundle: dict,
+                 prev: pd.Series | None = None) -> pd.DataFrame:
+    """serving_table, plus the lagged-forecast features when the bundle uses them (rows without them dropped)."""
+    table = serving_table(ref, live, h)
+    spec = lagged_spec(bundle)
+    if not spec:
+        return table
+    if prev is None:
+        raise RefitError("This bundle uses the lagged ECMWF forecast; pass the previous-runs series")
+    from src.mos import with_lag_features       # lazy: src.mos imports this module
+    table = with_lag_features(table, prev, h).dropna(subset=list(spec["features"]))
+    return table[table.index >= pd.Timestamp(spec["data_start"], tz="UTC")]
+
+
 def refit_horizons(ref: pd.DataFrame, live: pd.DataFrame, current: dict, start: date,
-                   hold_start: date) -> tuple[dict, dict]:
+                   hold_start: date, prev: pd.Series | None = None) -> tuple[dict, dict]:
     """Returns (new horizon entries, held-out scores per horizon)."""
     cols = current["feature_columns"]
-    if cols != feature_columns():
+    spec = lagged_spec(current)
+    if cols != feature_columns() + (list(spec["features"]) if spec else []):
         raise RefitError("Current bundle's feature columns differ from features.feature_columns()")
     new, scores = {}, {}
     for h in HORIZONS:
         old = current["horizons"][h]
-        table = serving_table(ref, live, h)
+        table = bundle_table(ref, live, h, current, prev)
         refit_rows, holdout_rows = split_refit_holdout(table, start, hold_start, h)
         model = clone(old["model"]).fit(refit_rows[cols], refit_rows[TARGET])  # same hyperparameters
         y = holdout_rows[TARGET].to_numpy()
@@ -163,9 +182,10 @@ def build_bundle(current: dict, horizons: dict, scores: dict, provenance: dict) 
         "feature_columns": current["feature_columns"],
         "feature_config": current["feature_config"],
         "horizons": horizons,
-        # The service's typical_error_c: the 2025-replay error of this configuration.
-        "test_2025_mae_c": current["test_2025_mae_c"],
-        "test_2025_provider_optimistic_mae_c": current.get("test_2025_provider_optimistic_mae_c"),
+        # The service's typical_error_c: the replay error of this configuration over a named test period.
+        **{k: current[k] for k in ("test_2025_mae_c", "test_2025_provider_optimistic_mae_c", "typical_error_c",
+                                   "typical_error_period", "test_provider_lagged_mae_c", "lagged_forecast")
+           if k in current},
         "holdout_mae_c": {h: s["new_mae_c"] for h, s in scores.items()},
         "provenance": provenance,
     }
@@ -181,7 +201,7 @@ def backup_path(path: Path, stamp: date) -> Path:
     return candidate
 
 
-def install_bundle(bundle: dict, path: Path, stamp: date) -> Path | None:
+def install_bundle(bundle: dict, path: Path, stamp: date, extra: dict | None = None) -> Path | None:
     """Write `bundle` to `path`, moving any existing file to a dated backup first.
 
     The new bundle is written to a temporary file before anything is moved, so
@@ -194,7 +214,7 @@ def install_bundle(bundle: dict, path: Path, stamp: date) -> Path | None:
         os.replace(path, backup)
     os.replace(tmp, path)
     from src.artifacts import write_metadata
-    write_metadata(path, bundle)  # the sidecar must always describe the exact file now in place
+    write_metadata(path, bundle, extra)  # the sidecar must always describe the exact file now in place
     return backup
 
 
@@ -211,7 +231,11 @@ def run(today: date | None = None, start: date = config.START_DATE, raw_dir: Pat
 
     ref, ref_info = load_source(config.REANALYSIS, start, end, raw_dir)
     live, live_info = load_source(config.LIVE_ARCHIVE, start, end, raw_dir)
-    horizons, scores = refit_horizons(ref, live, current, start, hold)
+    prev = None
+    if lagged_spec(current):
+        from src.mos import fetch_previous_runs
+        prev = fetch_previous_runs(date(2024, 1, 1), end)        # the archive starts in 2024
+    horizons, scores = refit_horizons(ref, live, current, start, hold, prev)
 
     new_mean = float(np.mean([s["new_mae_c"] for s in scores.values()]))
     cur_mean = float(np.mean([s["current_mae_c"] for s in scores.values()]))

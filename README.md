@@ -78,9 +78,14 @@ Cloudzy Core is the machine-learning component of the project.
 - Model evaluation against baseline approaches.
 - Prediction tracking and accuracy analysis as reference data becomes available, checked automatically in the
   background once the reanalysis is published (about 6 days later).
-- **Validated 80% prediction ranges.** Split conformal, checked on later data: they held 83–86% of September
-  2026 hours, a month the deployed model never saw.
-- A model registry and an uncertainty report in **Model Lab**, plus live tracking in **Prediction History**
+- **A measured upgrade (October 2026).** The deployed model now also uses the ECMWF forecast issued about two
+  days before each target hour. On an untouched January–August 2026 test it lowered the error at every horizon,
+  significantly at all six. Examples: 0.97 → 0.93 °C at +1 h and 1.44 → 1.07 °C at +24 h. The rule for adopting
+  it was fixed before the results were seen; see the [model card](MODEL_CARD.md#version-history-the-october-2026-upgrade).
+- **Validated 80% prediction ranges.** Split conformal, recalibrated for the new model and checked on September
+  2026, a month it never saw: they held 80–85% of hours, and are 2.9–3.3 °C wide.
+- A model registry in **Model Lab**: previous vs current version, reproducibility checks, and every file in
+  `models/`. Also an uncertainty report there, plus live tracking in **Prediction History**
   (MAE, RMSE, bias, skill against the provider value, and range coverage).
 - Cloudzy Core predicts temperature only (New Delhi). It does **not** predict air quality: the available
   air-quality history is itself model output, with no independent measurements to evaluate against (see
@@ -164,8 +169,20 @@ From the project folder, with the virtual environment active:
 streamlit run streamlit_app.py
 ```
 
-Then open http://localhost:8501. Earth Intelligence is at http://localhost:8501/earth; its first load
-fetches nine feeds and takes up to about 25 seconds, and later views are instant.
+Then open http://localhost:8501. Earth Intelligence is at http://localhost:8501/earth. Its first load fetches
+nine feeds and takes up to about 25 seconds; later views are instant. Its disaster situation selector (the
+layers button on the globe) chooses among 18 situations, with presets and filters, and can save your selection in
+your browser.
+
+Model maintenance (all use cached data where possible):
+
+```bash
+python -m src.mos            # the lagged-forecast experiment → reports/mos_delhi.json
+python -m src.mos --deploy   # install the adopted model (keeps a dated backup)
+python -m src.intervals      # recalibrate prediction ranges for the deployed model
+python -m src.reproduce      # recompute every model's recorded metric
+python -m src.refit          # monthly refit
+```
 
 No API keys are needed. Cloudzy uses Open-Meteo's free, key-less APIs (non-commercial use; 600 requests per
 minute, 5,000 per hour, 10,000 per day), and Earth Intelligence's sources are also key-less. Responses are

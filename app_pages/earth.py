@@ -7,6 +7,9 @@
   here; this page shows the full record, the source link and nearby mapped settlements.
 - Search (src.earth_search) flies the globe to a country, state, city, coordinates or an OpenStreetMap place and
   lists the loaded events there.
+- Situations (src.hazards.situations): the globe's selector chooses which disaster situations, record layers and
+  per-situation filters are shown. The globe reports its state here, so the summaries, the situation table and the
+  event list below follow it without the globe being rebuilt; the page's own situation picker drives the globe too.
 - Nothing is invented: counts come from the loaded records with stated filters, and an empty area isn't "safe".
 """
 
@@ -15,20 +18,20 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from src import app_data
+from src import app_data, monitoring, registry
 from src import earth_search as ES
 from src import theme as T
 from src.earth_view import earth_globe
 from src.hazards import analysis as A
 from src.hazards import gdacs, http, seismicity
-from src.hazards.schema import CATEGORIES, KINDS, RANK_LABELS, age_text
+from src.hazards import situations as SIT
+from src.hazards.schema import KINDS, RANK_LABELS, age_text
 from src.hazards.sources import NOT_CONNECTED, SOURCES
 from src.hazards.store import Query, store
 
 SEL_KEY, FOCUS_KEY, REGION_KEY, TOKEN_KEY, FIRE_KEY = "_earth_sel", "_earth_focus", "_earth_region", "_earth_tok", "_earth_fire"
+VIEW_KEY, SYNC_KEY, SITS_KEY, CLEAR_KEY = "_earth_view", "_earth_sitsync", "earth_sits", "_earth_pending_clear"
 PERIODS = {"day": "Past 24 hours", "week": "Past 7 days", "month": "Past 30 days", "custom": "Chosen dates"}
-DEFAULT_ON = {"earthquake", "cyclone", "flood", "wildfire", "severe", "volcano", "tsunami", "drought", "temperature",
-              "winter"}
 EMERGENCY_NOTE = ("Cloudzy Earth Intelligence is for situational awareness only. It isn't an official warning "
                   "service and can be incomplete or delayed. In an emergency, follow your local emergency services "
                   "and national meteorological or disaster agency. No event shown nearby doesn't mean an area is safe.")
@@ -59,6 +62,42 @@ def select_event(event_id: str) -> None:
     st.session_state[FIRE_KEY] = None
 
 
+def push_situations(on: set[str]) -> None:
+    """Send a situation set to the globe (it applies each token once) and mirror it in the page's picker."""
+    tok = (st.session_state.get(SYNC_KEY) or {}).get("token", 0) + 1
+    st.session_state[SYNC_KEY] = {"on": sorted(on), "token": tok}
+    view = dict(st.session_state.get(VIEW_KEY) or {})
+    st.session_state[VIEW_KEY] = view | {"on": sorted(on)}
+
+
+def picker_changed() -> None:
+    push_situations(set(st.session_state.get(SITS_KEY) or []))
+
+
+def ml_point() -> dict | None:
+    """The newest recorded Cloudzy Core prediction, for the globe's ML layer. No network: monitoring records only."""
+    try:
+        df = monitoring.query()
+    except Exception:            # an unreadable database must never break the globe
+        return None
+    if df.empty:
+        return None
+    issue = df["issue_time_utc"].max()
+    rows = monitoring.classify(df[df["issue_time_utc"] == issue]).sort_values("horizon_h")
+    dep = registry.deployed_entry()
+    version = str(rows["model_version"].iloc[0])
+    return {"lat": float(rows["latitude"].iloc[0]), "lon": float(rows["longitude"].iloc[0]),
+            "where": "Delhi training grid cell", "issue": pd.Timestamp(issue).strftime("%Y-%m-%d %H:%M"),
+            "version": version, "current": dep is not None and dep.version == version,
+            "rows": [{"h": int(r.horizon_h), "valid": pd.Timestamp(r.target_time_utc).strftime("%d %b %H:%M UTC"),
+                      "value": float(r.predicted),
+                      "lo": None if pd.isna(r.interval_lower) else float(r.interval_lower),
+                      "hi": None if pd.isna(r.interval_upper) else float(r.interval_upper),
+                      "status": str(r.detail)} for r in rows.itertuples()],
+            "note": "The newest prediction recorded by the app (made when the Weather or Overview page shows Delhi). "
+                    "A reanalysis-temperature model for one grid cell: it predicts no hazard."}
+
+
 st.html(T.page_header("Earth Intelligence", "Planet · disasters and hazards", "travel_explore",
                       "Real earthquakes, storms, floods, fires, volcanoes, drought and official warnings on a 3D globe, "
                       "each with its source, time and what kind of record it is."))
@@ -66,6 +105,13 @@ st.warning("**Situational awareness only, not an official warning service.** In 
            "emergency services and national weather or disaster agency.", icon=":material/emergency:")
 
 # --- Controls ------------------------------------------------------------------------------------
+pending = st.session_state.pop(CLEAR_KEY, None)       # a filter chip removed on the globe (applied before the widgets)
+if pending in ("period", "all"):
+    st.session_state["earth_period"] = "week"
+if pending in ("region", "all"):
+    for k in (REGION_KEY, FOCUS_KEY):
+        st.session_state.pop(k, None)
+    st.session_state["earth_q"] = ""
 search_col, period_col, mag_col, refresh_col = st.columns([3, 1.4, 1.2, 0.7], vertical_alignment="bottom")
 with search_col:
     query = st.text_input("Search the globe", key="earth_q", max_chars=120, icon=":material/search:",
@@ -152,11 +198,15 @@ period_start = start if start is not None else now - pd.Timedelta(days=q.days())
 period_end = end if end is not None else now
 attribution = ("Data: USGS, GDACS, NOAA (NHC, NWS, tsunami centres), NASA FIRMS, U.S. Drought Monitor, "
                "Smithsonian GVP (full list below the globe)")
+place_name = (region or {}).get("name")
 result = earth_globe({
     "layers": snap.layers,
     "statuses": [{"source": s, "name": SOURCES[s].name, "label": st_.label} for s, st_ in snap.statuses.items()],
-    "categories": [{"key": c.key, "label": c.label, "color": c.color, "shape": c.shape, "icon": c.icon,
-                    "on": c.key in DEFAULT_ON} for c in CATEGORIES.values()],
+    "situations": SIT.selector_data(events),
+    "presets": {k: {"label": label, "keys": list(keys)} for k, (label, keys) in SIT.PRESETS.items()},
+    "record_layers": SIT.LAYERS, "basins": list(SIT.BASINS),
+    "sit_sync": st.session_state.get(SYNC_KEY), "ml": ml_point(),
+    "chips": {"period": PERIODS[period] if period != "week" else None, "region": place_name},
     "kinds": KINDS, "source_names": {k: s.name for k, s in SOURCES.items()},
     "period": {"start": int(period_start.timestamp() * 1000), "end": int(period_end.timestamp() * 1000)},
     "imagery_day": (now - pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
@@ -164,6 +214,17 @@ result = earth_globe({
     "focus": st.session_state.get(FOCUS_KEY), "region": region_geom,
     "selected": selected_id, "selected_geometry": sel_geometry,
 })
+view_msg = getattr(result, "view", None)
+if view_msg and view_msg.get("t") != st.session_state.get("_earth_view_t"):
+    st.session_state["_earth_view_t"] = view_msg.get("t")
+    st.session_state[VIEW_KEY] = view_msg
+clear_msg = getattr(result, "chip", None)
+if clear_msg and clear_msg.get("t") != st.session_state.get("_earth_clear_t"):
+    st.session_state["_earth_clear_t"] = clear_msg.get("t")
+    st.session_state[CLEAR_KEY] = clear_msg.get("what")
+    st.rerun()
+view = SIT.View.from_json(st.session_state.get(VIEW_KEY))
+st.session_state[SITS_KEY] = sorted(view.on)          # the picker below always shows what the globe shows
 picked = getattr(result, "select", None)
 if picked and picked.get("t") != st.session_state.get("_earth_pick_t"):
     st.session_state["_earth_pick_t"] = picked.get("t")
@@ -209,6 +270,25 @@ st.caption("Counts are of the records Cloudzy loaded, with the definitions shown
            "totals: official warnings are connected for the United States only, and GDACS lists only events large "
            "enough to model.")
 
+# --- Situations: follows the globe's selector, filters and the searched place ----------------------------
+area_region = region if region and region.get("kind") in ("country", "admin1") else None
+in_view = [e for e in events if SIT.matches(e, view, now)]
+regional = A.filter_events(in_view, region=area_region, include_marine=True) if area_region else in_view
+if region and region.get("kind") == "near":
+    regional = A.events_near(region["lat"], region["lon"], regional, 150)
+st.html(T.section("Situations", "tune", f"Near {place_name}" if place_name else "Follows the globe's selector"))
+loaded_n, shown_n, here_n = SIT.counts(events), SIT.counts(in_view), SIT.counts(regional)
+st.dataframe(pd.DataFrame([{
+    "Situation": sit.label, "On the globe": "not connected" if not sit.sources else ("on" if k in view.on else "off"),
+    "Loaded": loaded_n[k] if sit.sources else None, "Shown with filters": shown_n[k] if k in view.on else None,
+    **({f"Near {place_name}": here_n[k] if k in view.on else None} if place_name else {}),
+    "What it covers": sit.covers or sit.missing} for k, sit in SIT.SITUATIONS.items()]),
+    hide_index=True, width="stretch", column_config={"What it covers": st.column_config.TextColumn(width="large")})
+st.caption("Loaded: records from the connected feeds for the period. Shown: after the globe's record layers and "
+           "filters, at Now (the timeline can narrow the globe further). Fire detections and the drought map are "
+           "drawn as overlays and counted under the data feeds. Not connected: Cloudzy has no source, so nothing can "
+           "be said about it here.")
+
 # --- Highest-priority official alerts ----------------------------------------------------------------
 st.html(T.section("Official warnings in force", "campaign", "Severe and extreme, newest first"))
 official = sorted([e for e in events if e.official and e.kind == "warning" and e.current and e.severity_rank >= 3
@@ -234,14 +314,38 @@ for e in official[:8]:
 st.html(T.section("Selected", "location_searching", "Select a marker or a list entry"))
 fire = st.session_state.get(FIRE_KEY)
 if selected is not None:
-    cat = CATEGORIES[selected.category]
-    st.markdown(f"#### :material/{cat.icon}: {selected.title}")
-    chips = [KINDS[selected.kind], "Official source" if selected.official else "Not an official warning",
+    sit = SIT.SITUATIONS[SIT.situation_for(selected)]
+    st.markdown(f"#### :material/{sit.icon}: {selected.title}")
+    chips = [sit.label, KINDS[selected.kind], SIT.LAYERS[SIT.layer_for(selected)],
+             "Official source" if selected.official else "Not an official warning",
              "Current" if selected.current else "Not current"]
     st.caption(" · ".join(chips))
+    if not SIT.matches(selected, view, now):
+        why = (f"{sit.label} are turned off in the globe's situation selector" if sit.key not in view.on else
+               f"the “{SIT.LAYERS[SIT.layer_for(selected)]}” layer is hidden" if SIT.layer_for(selected) not in view.layers
+               else "a filter on the globe excludes it (see the chips at the top of the globe)")
+        hc1, hc2 = st.columns([4, 1], vertical_alignment="center")
+        hc1.info(f"This record is selected but hidden on the globe and in the event list: {why}.",
+                 icon=":material/visibility_off:")
+        if sit.key not in view.on and hc2.button(f"Show {sit.label.lower()}", key="earth_unhide",
+                                                 icon=":material/visibility:", width="stretch"):
+            push_situations(view.on | {sit.key})
+            st.rerun()
+    act1, act2, act3 = st.columns(3)
+    if selected.lat is not None and act1.button("Focus on the globe", key="earth_focus_sel", icon=":material/my_location:",
+                                                width="stretch"):
+        focus({"lat": selected.lat, "lon": selected.lon, "zoom": 3.5 if selected.category == "cyclone" else 6,
+               "label": selected.title})
+        st.rerun()
+    if sit.key in view.on and act2.button(f"Hide {sit.label.lower()}", key="earth_hide_sit",
+                                          icon=":material/visibility_off:", width="stretch"):
+        push_situations(view.on - {sit.key})
+        st.rerun()
+    if selected.url:
+        act3.link_button("Open source", selected.url, icon=":material/open_in_new:", width="stretch")
     left, right = st.columns([1.3, 1], gap="large")
     with left:
-        facts = {"Category": cat.label, "Severity": f"{selected.severity_label} (Cloudzy rank: "
+        facts = {"Situation": sit.label, "Severity": f"{selected.severity_label} (Cloudzy rank: "
                  f"{RANK_LABELS[selected.severity_rank]})", "Location": selected.area or selected.country or "Not available",
                  "Coordinates": "Not available" if selected.lat is None else f"{selected.lat:.4f}, {selected.lon:.4f}",
                  "Time": "Not available" if selected.time is None else f"{selected.time:%Y-%m-%d %H:%M} UTC",
@@ -261,11 +365,18 @@ if selected is not None:
                 st.write(selected.extra["description"])
         if selected.extra.get("cone_note"):
             st.caption(selected.extra["cone_note"])
+        if selected.lat is not None:
+            st.caption("Coordinates (copy with the button on the right):")
+            st.code(f"{selected.lat:.5f}, {selected.lon:.5f}", language=None)
         links = st.columns(2)
         if selected.url:
             links[0].link_button("Open original source", selected.url, icon=":material/open_in_new:", width="stretch")
         for link in selected.extra.get("related_links", [])[:1]:
             links[1].link_button(link["label"], link["url"], icon=":material/link:", width="stretch")
+        if selected.related:
+            st.markdown("**Same event in other sources**")
+            st.caption("; ".join(f"{SOURCES[r.split(':')[0]].name if r.split(':')[0] in SOURCES else r}: "
+                                 f"{by_id[r].title if r in by_id else 'folded into this record'}" for r in selected.related))
     with right:
         ctx = A.context(selected)
         st.markdown("**Nearby mapped settlements**")
@@ -278,8 +389,9 @@ if selected is not None:
         st.caption(ctx["method"] + " " + " ".join(ctx["notes"]))
         near = A.nearby_events(selected, events, 300)
         if near:
-            st.markdown("**Other loaded events within 300 km**")
-            st.dataframe(pd.DataFrame([{"Event": e.title, "Distance km": d, "Kind": KINDS[e.kind],
+            st.markdown("**Related: other loaded events within 300 km**")
+            st.dataframe(pd.DataFrame([{"Event": e.title, "Distance km": d,
+                                        "Situation": SIT.SITUATIONS[SIT.situation_for(e)].label, "Kind": KINDS[e.kind],
                                         "Time (UTC)": "" if e.time is None else f"{e.time:%d %b %H:%M}"}
                                        for e, d in near]), hide_index=True, width="stretch")
     if selected.category == "earthquake" and selected.lat is not None and selected.lon is not None:
@@ -333,26 +445,24 @@ else:
     st.caption("Nothing selected yet.")
 
 # --- Events table (synchronised with the globe) -------------------------------------------------------
-place_name = (region or {}).get("name")
-st.html(T.section("Events", "list", f"Near {place_name}" if place_name else "All loaded records"))
-f1, f2, f3 = st.columns([2, 1.2, 1.2])
-cat_pick = f1.multiselect("Categories", list(CATEGORIES), default=sorted(DEFAULT_ON), key="earth_cats",
-                          format_func=lambda k: CATEGORIES[k].label)
-min_rank = f2.selectbox("Minimum severity", list(RANK_LABELS), format_func=lambda r: RANK_LABELS[r],
-                        key="earth_rank") or 0
-only_official = f3.toggle("Official sources only", key="earth_off")
+st.html(T.section("Events", "list", f"Near {place_name}" if place_name else "Follows the globe's selector"))
+connected = [k for k, x in SIT.SITUATIONS.items() if x.sources]
+st.multiselect("Situations", connected, key=SITS_KEY, on_change=picker_changed,
+               format_func=lambda k: SIT.SITUATIONS[k].label,
+               help="The same selection as the globe's situation selector: changing either changes both. The globe's "
+                    "record layers and filters apply here too.")
 area_only = bool(place_name) and st.toggle(f"Only events in or near {place_name}", value=True, key="earth_area")
-table_events = A.filter_events(events, set(cat_pick), min_rank, only_official,
-                               region=region if area_only and region and region.get("kind") in ("country", "admin1") else None)
+table_events = A.filter_events(in_view, region=area_region if area_only else None, include_marine=True)
 if area_only and region and region.get("kind") == "near":
     table_events = A.events_near(region["lat"], region["lon"], table_events, 150)
     st.caption("Events within 150 km of the place.")
 table_events.sort(key=lambda e: (-e.severity_rank, -(e.time or now).timestamp()))
 if not table_events:
-    st.info("No loaded records match. That doesn't mean nothing is happening there: many hazards and countries "
-            "aren't covered by the connected feeds.", icon=":material/info:")
+    st.info(("No situation is selected on the globe or above. " if not view.on else "No loaded records match the "
+             "globe's situations and filters. ") + "That doesn't mean nothing is happening there: many hazards and "
+            "countries aren't covered by the connected feeds.", icon=":material/info:")
 else:
-    df = pd.DataFrame([{"Event": e.title, "Category": CATEGORIES[e.category].label, "Kind": KINDS[e.kind],
+    df = pd.DataFrame([{"Event": e.title, "Situation": SIT.SITUATIONS[SIT.situation_for(e)].label, "Kind": KINDS[e.kind],
                         "Severity": e.severity_label, "Where": (e.area or e.country or "")[:80],
                         "Time (UTC)": None if e.time is None else e.time.tz_localize(None),
                         "Source": SOURCES[e.source].name, "Official": e.official, "id": e.id}

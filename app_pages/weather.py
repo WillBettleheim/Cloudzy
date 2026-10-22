@@ -426,9 +426,10 @@ with st.container(border=True):
             ifs = ifs_by_h.get(first_p["horizon_h"])
             m2.metric(f"ECMWF IFS, +{first_p['horizon_h']} h", "Not available" if ifs is None else f"{ifs:.1f} {tu}",
                       help="The forecast model Cloudzy takes its inputs from, for the same hour.")
-            m3.metric("Average error (2025 test MAE)", f"{first_p['typical_error_c']:.2f} {tu}",
-                      help="Mean absolute error on a 2025 replay. Not a promise about today, not a confidence "
-                           "interval.")
+            period = block.get("typical_error_period", "2025 test")
+            m3.metric(f"Average error ({period} MAE)", f"{first_p['typical_error_c']:.2f} {tu}",
+                      help=f"Mean absolute error on a replay of archived inputs ({period}). Not a promise about "
+                           "today, not a confidence interval.")
             st.caption(f"Prediction point: {block['prediction_point']}, {block['distance_km_from_place']} km from "
                        f"{place.name}. Issued {pd.Timestamp(block['issue_time_local']):%H:%M} local time from "
                        "live ECMWF IFS inputs. For decisions, use the forecast above.")
