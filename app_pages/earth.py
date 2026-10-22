@@ -20,7 +20,7 @@ from src import earth_search as ES
 from src import theme as T
 from src.earth_view import earth_globe
 from src.hazards import analysis as A
-from src.hazards import gdacs, http
+from src.hazards import gdacs, http, seismicity
 from src.hazards.schema import CATEGORIES, KINDS, RANK_LABELS, age_text
 from src.hazards.sources import NOT_CONNECTED, SOURCES
 from src.hazards.store import Query, store
@@ -37,6 +37,12 @@ EMERGENCY_NOTE = ("Cloudzy Earth Intelligence is for situational awareness only.
 @st.cache_data(ttl=3600, show_spinner=False)
 def gdacs_geometry(url: str):
     return gdacs.event_geometry(url)
+
+
+@st.cache_data(ttl=86400, show_spinner=False, max_entries=64)
+def historical_seismicity(lat: float, lon: float) -> dict:
+    """USGS catalogue summary around a point, rounded to 0.25° so nearby selections share one request a day."""
+    return seismicity.summarise(seismicity.fetch(lat, lon), pd.Timestamp.now(tz="UTC"))
 
 
 def focus(target: dict) -> None:
@@ -276,6 +282,37 @@ if selected is not None:
             st.dataframe(pd.DataFrame([{"Event": e.title, "Distance km": d, "Kind": KINDS[e.kind],
                                         "Time (UTC)": "" if e.time is None else f"{e.time:%d %b %H:%M}"}
                                        for e, d in near]), hide_index=True, width="stretch")
+    if selected.category == "earthquake" and selected.lat is not None and selected.lon is not None:
+        st.markdown(f"**Historical seismicity within {seismicity.RADIUS_KM} km · historical analysis**")
+        hist: dict | None
+        try:
+            with st.spinner("Reading the USGS catalogue since 1976…"):
+                hist = historical_seismicity(round(selected.lat * 4) / 4, round(selected.lon * 4) / 4)
+        except http.FeedError as exc:
+            st.caption(f":material/cloud_off: The USGS catalogue isn't available right now ({exc}).")
+            hist = None
+        if hist and hist["n"]:
+            h1, h2, h3, h4 = st.columns(4)
+            for col, t in zip((h1, h2, h3), hist["thresholds"]):
+                col.metric(f"M{t['min_mag']:g}+ recorded", f"{t['count']:,}",
+                           help=f"About {t['per_decade']:g} per decade since {hist['start'][:4]}: a historical "
+                                "count, not a forecast probability.")
+            big = hist["largest"]
+            h4.metric("Largest recorded", f"M{big['mag']:.1f}", help=f"{big['mag_type']}, {big['time'][:10]}")
+            bv = hist.get("b_value")
+            st.caption(
+                f"{hist['n']:,} earthquakes of M{seismicity.MIN_MAG:g}+ in {hist['span_years']:g} years, "
+                f"{hist['last_5_years']:,} in the last 5. "
+                + (f"Gutenberg-Richter b-value {bv['b']:.2f} (90% bootstrap interval {bv['ci90'][0]:.2f}-{bv['ci90'][1]:.2f}, "
+                   f"{bv['n']:,} events above an estimated completeness of M{bv['mc']:.1f}). "
+                   if bv else "Too few events above the catalogue's completeness for a b-value. ")
+                + "Magnitude types are mixed ("
+                + ", ".join(f"{k} {v:.0%}" for k, v in hist["mag_types"].items())
+                + "), so the b-value is indicative. " + hist["note"])
+            for label, url in hist["hazard_links"]:
+                st.link_button(label, url, icon=":material/open_in_new:")
+        elif hist is not None:
+            st.caption("No M4+ earthquakes recorded within this radius since 1976.")
 elif fire:
     st.markdown("#### :material/local_fire_department: Satellite fire detection")
     st.caption("Satellite detection · not a confirmed fire · NASA FIRMS, VIIRS NOAA-20 375 m")

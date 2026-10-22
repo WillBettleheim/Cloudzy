@@ -70,7 +70,7 @@ Earth Intelligence is documented in [EARTH_INTELLIGENCE.md](EARTH_INTELLIGENCE.m
 | Data services | `provider`, `air_quality`, `hazards.*` (one module per disaster source), `history`, `service`, `data_validation`, `geolocation`, `earth_search` | Validate units, time zones, array lengths and physical bounds. Missing values stay missing; optional variables a model lacks are reported as unavailable; wrong units are fatal. |
 | Domain logic | `insights`, `aqi`, `outdoor`, `air_alerts`, `units`, `preferences`, `monitoring` | Pure functions, testable without Streamlit or the network. |
 | Presentation | `theme` (design tokens, global CSS, icons, chips), `weather_view`, `air_view`, `earth_view`, `ui`, `lab_ui` | Build HTML and Plotly figures from data and units. They never fetch anything. |
-| Pages | `app_pages/{weather,air_quality,outdoor,history,alerts,predictions,lab,places,settings}.py`, `streamlit_app.py`, with `app_data` (shared cached calls), `place_select` (place switcher) and `nav` (safe page links) | Lay out the page, cache results, and handle loading, empty and error states. |
+| Pages | `app_pages/{overview,weather,air_quality,outdoor,earth,explorer,history,predictions,lab,alerts,places,settings}.py`, `streamlit_app.py`, with `app_data` (shared cached calls), `place_select` (place switcher), `overview_view` (summary tiles) and `nav` (safe page links) | Lay out the page, cache results, and handle loading, empty and error states. |
 | ML (offline) | `features`, `splits`, `models`, `train`, `multistep`, `shift`, `compact`, `refit`, `lab_data` | Chronological experiments, the deployed bundle and reproducible Lab data. |
 
 ## Data types are never mixed
@@ -123,7 +123,7 @@ the tests use that mode.
 
 ## Tests
 
-- **Offline suite:** `python -m pytest` runs 824 tests and needs no network.
+- **Offline suite:** `python -m pytest` runs 848 tests and needs no network.
   `tests/conftest.py` points preferences, monitoring and snapshots at temporary
   folders, so tests never touch real user data.
 - **Live checks:** `python -m pytest -m integration` runs 12 tests against the
@@ -148,6 +148,13 @@ any location and period. Every model file has a `.json` sidecar describing it (v
 features with units, target, provenance, splits, metrics). `artifacts.load_trusted` verifies the
 structure, feature schema and checksum before the app or the evaluator uses a model.
 
+- **Registry** (`src/registry.py`): reads every sidecar and checks each artifact against its checksum
+  (*verified*, *metadata only* or *checksum mismatch*). It lists providers, baselines and rule engines
+  separately, so they are never shown as Cloudzy predictions. It is shown in Model Lab → Registry.
+- **Uncertainty** (`src/intervals.py`, `python -m src.intervals`): split-conformal 80% and 95% ranges per
+  horizon, calibrated and validated on later, disjoint periods (see the model card). `service.predict`
+  attaches the 80% range only when the deployed bundle's SHA-256 matches the one the study was run for.
+
 ## Prediction tracking
 
 - **Record:** `monitoring.record_prediction` stores one row per (model version,
@@ -164,20 +171,29 @@ structure, feature schema and checksum before the app or the evaluator uses a mo
   - Reference value missing for that hour: the record stays pending with a
     note, and is retried on every later check.
   - Still missing 30 days after the target hour: `unavailable`, with the reason.
+  - Reference value outside physical bounds: `invalid`, never scored.
   - Request failed: no record changes; the failure is stored.
   Every run, successful or not, is stored as `meta.last_check` (time, counts,
   how far the reference data reached, error).
 - **Status breakdown:** `monitoring.classify` explains each record: evaluated;
-  waiting for the target hour; waiting for publication; due on the next run;
-  checked with the value still missing; unavailable. Each record also gets the
-  first date it's checkable.
+  awaiting target time; pending observation (not published yet, or checked and
+  still missing); ready for evaluation; observation unavailable; invalid
+  observation. Each record also gets the first date it's checkable.
 - **Aggregate:** only `evaluated` rows count, one model version at a time.
   Results carry sample counts, issue times and the date range, and are flagged
-  as not conclusive below 30 issue times. Reference values are reanalysis (a
+  as not conclusive below 30 issue times. Each summary also includes MAE skill
+  against the IFS value on the same predictions, and the coverage of the stored
+  80% ranges. Reference values are reanalysis (a
   model reconstruction), not station readings; the most recent ones are
   preliminary (ERA5T) and may be revised slightly later.
-- **Scheduling:** `python -m src.monitoring` exits with status 1 when the
-  reference request fails, so cron or launchd can run it daily (see README).
+- **Scheduling:** `monitoring.maybe_evaluate()` runs from `streamlit_app.py` on each page run. It starts a
+  background evaluation in the server process at most every 6 hours (measured from the stored last check, so
+  restarts don't reset it), only when a record is due, and never two at once. No browser tab is needed.
+  When the app isn't running, `python -m src.monitoring` exits with status 1 if the reference request fails,
+  so cron or launchd can run it daily.
+- **Schema changes:** new nullable columns are added with `ALTER TABLE`. The CHECK constraint that gained
+  `invalid` is migrated once: a file backup, then a copy into the new schema in one transaction, with the row
+  count verified and the migration recorded in `meta`.
 
 ## Alerts and notifications
 

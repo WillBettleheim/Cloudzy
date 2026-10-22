@@ -14,9 +14,9 @@ def page_link(path: str, label: str, icon: str | None = None) -> None:
         st.caption(f"{label}: open it from the sidebar.")
 
 
-def switch_page(path: str) -> None:
+def switch_page(path: str, query_params: dict | None = None) -> None:
     """Go to another page; if the page isn't part of the navigation, stay and say so."""
     try:
-        st.switch_page(path)
+        st.switch_page(path, query_params=query_params)
     except StreamlitAPIException:
         st.info("Open the Weather page from the sidebar to see this place.", icon=":material/info:")

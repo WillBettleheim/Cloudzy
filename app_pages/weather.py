@@ -405,19 +405,28 @@ with st.container(border=True):
         else:
             tu = units.temperature
             preds = [{**p, "temperature_2m_c": U.temperature(p["temperature_2m_c"], tu),
-                      "typical_error_c": U.temperature_delta(p["typical_error_c"], tu)}
+                      "typical_error_c": U.temperature_delta(p["typical_error_c"], tu),
+                      **({"interval": {**p["interval"], "lower_c": U.temperature(p["interval"]["lower_c"], tu),
+                                       "upper_c": U.temperature(p["interval"]["upper_c"], tu)}}
+                         if p.get("interval") else {})}
                      for p in block["cloudzy"]["predictions"]]
             prov = [{**p, "temperature_2m_c": U.temperature(p["temperature_2m_c"], tu)}
                     for p in block["provider"]["forecasts"]]
             ifs_by_h = {p["horizon_h"]: p["temperature_2m_c"] for p in prov}
             first_p = preds[0]
             m1, m2, m3 = st.columns(3)
+            iv = first_p.get("interval")
             m1.metric(f"Cloudzy Core, +{first_p['horizon_h']} h", f"{first_p['temperature_2m_c']:.1f} {tu}",
-                      help="Cloudzy's own model, predicting the reanalysis temperature for its Delhi grid cell.")
+                      delta=f"80% range {iv['lower_c']:.1f} to {iv['upper_c']:.1f} {tu}" if iv else None,
+                      delta_color="off",
+                      help="Cloudzy's own model, predicting the reanalysis temperature for its Delhi grid cell. The "
+                           "80% range held "
+                           + (f"{iv['validated_coverage']:.0%} of {iv['validation_n']} hours in a held-out month "
+                              "(see Model Lab → Uncertainty)." if iv else "n/a: no validated range for this model."))
             ifs = ifs_by_h.get(first_p["horizon_h"])
             m2.metric(f"ECMWF IFS, +{first_p['horizon_h']} h", "Not available" if ifs is None else f"{ifs:.1f} {tu}",
                       help="The forecast model Cloudzy takes its inputs from, for the same hour.")
-            m3.metric("Average error (2025 test)", f"±{first_p['typical_error_c']:.2f} {tu}",
+            m3.metric("Average error (2025 test MAE)", f"{first_p['typical_error_c']:.2f} {tu}",
                       help="Mean absolute error on a 2025 replay. Not a promise about today, not a confidence "
                            "interval.")
             st.caption(f"Prediction point: {block['prediction_point']}, {block['distance_km_from_place']} km from "
@@ -440,7 +449,7 @@ with st.container(border=True):
                     "Cloudzy was closer to the reanalysis than those IFS values up to 12 hours ahead, which "
                     "shows a bias correction toward the reanalysis. That **doesn't** make Cloudzy a better "
                     "weather forecast than the provider.\n"
-                    "- **For decisions, use the forecast above.** Details are in Cloudzy Lab and the model card.")
+                    "- **For decisions, use the forecast above.** Details are in Model Lab and the model card.")
             l1, l2 = st.columns(2)
             with l1:
                 nav.page_link("app_pages/predictions.py", "Live tracking of these predictions",

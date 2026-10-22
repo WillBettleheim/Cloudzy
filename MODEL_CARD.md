@@ -10,7 +10,7 @@ is an **experimental student project**, not an operational weather forecast.
 | Task | Predict the 2 m air temperature at New Delhi, 1, 2, 3, 6, 12 and 24 hours ahead |
 | Deployed model | Six `HistGradientBoostingRegressor` models (one per horizon), each learning the *change* from the current temperature (residual target) |
 | Inputs | 27 features built from the last 25 hours of ECMWF IFS model output for one grid cell: temperature, its lags (1–24 h), changes and rolling statistics, humidity, surface pressure and its 3 h change, wind speed, recent precipitation, and hour-of-day / day-of-year encodings |
-| Output | One temperature value per horizon, in °C. A point estimate, not a probability |
+| Output | One temperature value per horizon, in °C, with a validated 80% prediction range (95% also calibrated; see *Uncertainty*) |
 | Target | ERA5-Land reanalysis 2 m temperature, via Open-Meteo `era5_seamless` |
 | File | `models/cloudzy_core_delhi_serving_compact.joblib` (about 2 MB) |
 | Deployed training data | 2023-01-02 to 2026-08-31 UTC (September 2026 held out as the refit acceptance check) |
@@ -75,6 +75,51 @@ absolute error (MAE).
   comes from disagreement between the input and target sources (an IFS vs.
   reanalysis MAE of 1.13 °C), not from the model.
 
+## Uncertainty
+
+`python -m src.intervals` computes split-conformal ranges per horizon: asymmetric empirical quantiles of the
+model's own out-of-sample errors, with a finite-sample correction. Report: `reports/intervals_delhi.json`.
+
+- **Method check:** fitted on 2023–2024, calibrated on its errors in Jan–Jun 2025, coverage measured on Jul–Dec
+  2025 (about 4,400 hours per horizon).
+- **Deployed ranges:** calibrated on the errors of a 2023–2025 fit in Jan–Aug 2026, then checked on the deployed
+  models' predictions for September 2026, a month they never saw (about 700 hours per horizon).
+- Ranges are only served for the exact bundle they were calibrated for (SHA-256 match). After a refit, no range
+  is shown until the study is re-run.
+
+| Horizon | 80% range (°C around prediction) | 80% coverage 2025 H2 | 80% coverage 2026-09 | 95% coverage 2026-09 |
+|---|---|---|---|---|
+| 1 h | −1.88 to +1.10 | 80.0% | 84.0% | 98.0% |
+| 2 h | −1.88 to +1.16 | 84.1% | 83.2% | 97.4% |
+| 3 h | −1.92 to +1.28 | 85.6% | 84.2% | 97.9% |
+| 6 h | −2.13 to +1.38 | 88.6% | 86.1% | 97.9% |
+| 12 h | −2.31 to +1.48 | 89.0% | 86.0% | 97.0% |
+| 24 h | −2.54 to +1.90 | 87.0% | 86.4% | 97.1% |
+
+The ranges are conservative: actual coverage sits at or above the nominal level, more so at longer horizons.
+One month of hourly, correlated values is evidence, not proof. Coverage on live predictions is tracked once they
+are evaluated.
+
+## Live tracking
+
+Every live prediction is stored (with its range) in a local SQLite file and evaluated against the reanalysis
+once it's published, about 6 days after the target hour (`src/monitoring.py`).
+
+- **Scheduling:** checks run automatically in the app's server at most every 6 hours when a record is due, or
+  with `python -m src.monitoring` (cron/launchd).
+- **States:** awaiting target time; pending observation (not published yet, or checked and still missing);
+  ready for evaluation; evaluated; invalid observation (outside physical bounds, never scored); observation
+  unavailable (none within 30 days).
+- **Summaries:** MAE, RMSE and bias by horizon, MAE skill against the IFS value on the same predictions, and
+  range coverage. They are flagged as inconclusive below 30 issue times.
+
+## Model registry
+
+The Model Lab's *Registry* tab lists every model from its sidecar: algorithm, parameters, target, sources,
+training ranges, validation method, metrics with their periods and sample counts, and whether the artifact in
+this checkout matches its recorded checksum. Providers, baselines and rule engines are listed separately, so they
+are never presented as Cloudzy predictions.
+
 ## Limitations and known issues
 
 - **The target is a reanalysis.** Errors against a real thermometer would be
@@ -90,8 +135,10 @@ absolute error (MAE).
   06 and 07 UTC and then goes flat. These jumps are among the largest misses.
 - **One location, one test year.** The results don't carry over to other places
   or periods.
-- **No uncertainty per prediction.** The "average error" shown in the app is a
-  2025 MAE, not a confidence interval.
+- **Uncertainty covers model error only.** The 80% range describes how far the
+  model has missed the reanalysis on data it wasn't fitted on. It doesn't cover
+  live inputs arriving later than in the replay, or errors in the reanalysis
+  itself. The "average error" shown in the app is a 2025 MAE, not an interval.
 
 ## Ethical considerations
 

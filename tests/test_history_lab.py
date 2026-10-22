@@ -167,7 +167,8 @@ def run_lab():
 def test_lab_has_all_tabs_and_explainability(lab_fakes):
     at = run_lab()
     assert [t.label for t in at.tabs] == ["Scoreboard", "Predictions vs observed", "Error breakdown", "Live setting",
-                                         "Multi-step", "Explainability", "Live tracking", "Learn", "Limitations"]
+                                         "Multi-step", "Explainability", "Live tracking", "Learn", "Limitations",
+                                         "Registry", "Uncertainty"]
     text = " ".join(m.value for m in at.markdown)
     assert "Association, not causation" in text and "What do MAE and RMSE mean?" in text
 

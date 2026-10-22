@@ -14,7 +14,7 @@ from src.ui import CHART_CONFIG, palette
 TZ = config.DELHI.local_timezone
 M = monitoring
 
-st.html(T.page_header("Prediction tracking", "Cloudzy Core · live record", "query_stats"))
+st.html(T.page_header("Prediction History", "Cloudzy Core · live tracking and evaluation", "query_stats"))
 st.caption("Every Cloudzy Core prediction the app actually makes is recorded, then checked once the reference data "
            "for its target hour exists.")
 
@@ -28,8 +28,14 @@ with st.expander("How tracking works"):
         f"(2 m temperature) and unit (°C). That reference is published about {config.REANALYSIS.lag_days} days late, "
         f"so a record is only checked from {config.REANALYSIS.lag_days + 1} days after its target date; before that "
         f"no request is made. If a checked hour still has no value, the record stays pending and is retried on later "
-        f"checks; after {M.GIVE_UP_DAYS} days it's marked *unavailable*, with the reason. A failed request changes no "
+        f"checks; after {M.GIVE_UP_DAYS} days it's marked *unavailable*, with the reason. A reference value outside "
+        "physical bounds marks the record *invalid* and is never scored. A failed request changes no "
         "record. Provider forecasts are never used as observations, and missing values are never filled in.\n"
+        f"- **When checks run:** automatically, at most every {M.EVALUATE_EVERY_H} hours and only when a record is "
+        "due, in the background of the server running Cloudzy (no browser tab needed). When the app isn't running, "
+        "`python -m src.monitoring` can be scheduled with cron or launchd. The button below checks immediately.\n"
+        "- **Ranges:** predictions issued with an 80% range (see Model Lab) store it, and the tracked accuracy "
+        "shows how often the reference value fell inside.\n"
         "- **Where it's stored:** a SQLite file on the computer running Cloudzy. It holds the model's predictions "
         "only, no visitor data, and is shared by everyone using this copy of the app.")
 
@@ -61,7 +67,7 @@ if last:
     else:
         ref_until = last.get("reference_until_utc")
         c2.caption(f"Last check {when}: {last['newly_evaluated']} evaluated, {last['marked_unavailable']} marked "
-                   f"unavailable, {last['still_pending']} still pending."
+                   f"unavailable, {last.get('marked_invalid', 0)} invalid, {last['still_pending']} still pending."
                    + (f" Reference data then reached {ist(ref_until)}." if ref_until else ""))
 else:
     c2.caption("No check has run yet. Press the button, or run `python -m src.monitoring` (it can be scheduled).")
@@ -77,7 +83,7 @@ f1, f2, f3, f4 = st.columns([1.2, 1.6, 1.2, 1.6])
 loc = f1.selectbox("Location", ["All"] + M.distinct("location_id"),
                    format_func=lambda x: "Delhi grid cell" if x == M.LOCATION_ID else x)
 ver = f2.selectbox("Model version", ["All"] + M.distinct("model_version"))
-status = f3.selectbox("Status", ["All", "pending", "evaluated", "unavailable"])
+status = f3.selectbox("Status", ["All", "pending", "evaluated", "unavailable", "invalid"])
 first = all_records["target_time_utc"].min().tz_convert(TZ).date()
 last_day = all_records["target_time_utc"].max().tz_convert(TZ).date()
 picked = f4.date_input("Target dates (IST)", value=(first, last_day), min_value=first, max_value=last_day,
@@ -93,7 +99,7 @@ df = M.classify(M.query(location_id=None if loc == "All" else loc, model_version
 # --- Status breakdown ---------------------------------------------------------------------------
 counts = M.status_counts(df)
 waiting = counts[M.WAIT_TARGET] + counts[M.WAIT_REFERENCE]
-attention = counts[M.DUE] + counts[M.CHECKED_MISSING] + counts[M.UNAVAILABLE]
+attention = counts[M.DUE] + counts[M.CHECKED_MISSING] + counts[M.UNAVAILABLE] + counts[M.INVALID]
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("Records", len(df))
 m2.metric("Evaluated", counts[M.EVALUATED])
@@ -108,6 +114,7 @@ STATUS_STYLE = {
     M.EVALUATED: ("ok", "check_circle", "✔"), M.WAIT_TARGET: ("wait", "schedule", "◷"),
     M.WAIT_REFERENCE: ("wait", "hourglass_top", "◷"), M.DUE: ("warn", "update", "↻"),
     M.CHECKED_MISSING: ("warn", "report", "⚠"), M.UNAVAILABLE: ("risk", "block", "✕"),
+    M.INVALID: ("risk", "error", "⊘"),
 }
 explain = {
     M.EVALUATED: "Compared with the reference value.",
@@ -117,6 +124,7 @@ explain = {
     M.DUE: "Old enough to check; the next check (button above, or the scheduled command) evaluates it.",
     M.CHECKED_MISSING: "Checked, but the reference had no value for that hour yet. Retried on every check.",
     M.UNAVAILABLE: f"No reference value appeared within {M.GIVE_UP_DAYS} days. Excluded from accuracy.",
+    M.INVALID: "The reference value was outside physical bounds, so it wasn't used. Excluded from accuracy.",
 }
 breakdown = pd.DataFrame({"Status": list(counts), "Records": list(counts.values()),
                           "What it means": [explain[k] for k in counts]})
@@ -132,12 +140,12 @@ with st.expander("Why records are pending (status breakdown)", expanded=attentio
 
 # --- Tracked accuracy: evaluated records only, one model version at a time ------------------------------
 st.html(T.section("Tracked accuracy (live predictions)", "monitoring"))
-st.caption("Kept separate from the offline test results in **Cloudzy Lab** (the 2025 test year). Model versions "
+st.caption("Kept separate from the offline test results in **Model Lab** (the 2025 test year). Model versions "
            "are never pooled: each has its own numbers.")
 evaluated = df[df["status"] == "evaluated"]
 if evaluated.empty:
     st.info("No evaluated predictions in this selection yet, so there's no tracked accuracy to show. Until there "
-            "is, see the historical test results in **Cloudzy Lab**.", icon=":material/hourglass_top:")
+            "is, see the historical test results in **Model Lab**.", icon=":material/hourglass_top:")
 else:
     import plotly.graph_objects as go
 
@@ -154,6 +162,17 @@ else:
             st.warning(f"Only {agg['issue_times']} issue times so far. Errors from consecutive hours are strongly "
                        f"related, so this is far too little to judge the model; at least "
                        f"{M.CONCLUSIVE_MIN_ISSUES} issue times are needed before this says much.", icon=":material/biotech:")
+        notes = []
+        if agg.get("skill") and agg["skill"].get("mae_skill_vs_provider") is not None:
+            notes.append(f"**MAE skill vs the IFS value: {agg['skill']['mae_skill_vs_provider']:+.2f}** "
+                         f"(1 − MAE Cloudzy / MAE IFS, same {agg['skill']['n']} predictions; above 0 means closer "
+                         "to the reference than the provider value)")
+        if agg.get("interval_coverage"):
+            ic = agg["interval_coverage"]
+            notes.append(f"**{ic['level']:.0%} range coverage: {ic['coverage']:.0%}** of {ic['n']} predictions "
+                         f"that had a range (it should be near {ic['level']:.0%})")
+        if notes:
+            st.markdown(" · ".join(notes))
         rows = pd.DataFrame(agg["by_horizon"])
         shown = pd.DataFrame({
             "Ahead": [f"+{h} h" for h in rows["horizon_h"]], "Evaluated": rows["n"],
@@ -194,6 +213,9 @@ else:
         "Issued (IST)": df["issue_time_utc"].dt.tz_convert(TZ).dt.strftime("%d %b %H:%M"),
         "Ahead": [f"+{h} h" for h in df["horizon_h"]],
         f"Cloudzy {tu}": [U.temperature(v, tu) for v in df["predicted"]],
+        "80% range": ["—" if pd.isna(lo) else f"{U.temperature(lo, tu):.1f} to {U.temperature(hi, tu):.1f}"
+                      for lo, hi in zip(df.get("interval_lower", pd.Series(dtype=float)).reindex(df.index),
+                                        df.get("interval_upper", pd.Series(dtype=float)).reindex(df.index))],
         f"IFS forecast {tu}": [U.temperature(v, tu) for v in df["provider_value"]],
         "Status": [f"{STATUS_STYLE[d][2]} {d}" for d in df["detail"]],
         "Checkable from (UTC)": [f"{d:%d %b}" for d in df["checkable_from_utc"]],
@@ -205,7 +227,7 @@ else:
     st.dataframe(table, hide_index=True, width="stretch", column_config={
         **{c: st.column_config.NumberColumn(format="%.1f") for c in table.columns if c.endswith(tu)},
         "Status": st.column_config.TextColumn(help="✔ evaluated · ◷ waiting (normal) · ↻ due on the next check · "
-                                              "⚠ checked, reference still missing · ✕ unavailable"),
+                                              "⚠ checked, reference still missing · ✕ unavailable · ⊘ invalid reference"),
         f"Reference {tu}": st.column_config.NumberColumn(format="%.1f", help="Empty until the record is evaluated: "
                                                          "missing values are never filled in."),
     })

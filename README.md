@@ -9,6 +9,11 @@ Going beyond a conventional weather dashboard, Cloudzy explores how predictive m
 
 Cloudzy brings together weather information, predictive modelling, and software engineering in one evolving project.
 
+### 🧭 Overview
+The landing page: today's conditions, alerts, air quality, the next outdoor window, nearby hazards, Cloudzy Core and
+tracking, each labelled by the kind of data it is and linked to its full page. Navigation is grouped as **Today**,
+**Explore**, **Cloudzy Core** and **You**. The Weather page is at `/weather`; old `/?q=…` links are forwarded.
+
 ### 🌦️ Weather Intelligence
 - Weather information and forecasts from integrated data sources.
 - Location-based weather exploration.
@@ -71,7 +76,12 @@ Cloudzy Core is the machine-learning component of the project.
 - Machine-learning-based weather prediction.
 - Chronological training, validation, and testing.
 - Model evaluation against baseline approaches.
-- Prediction tracking and accuracy analysis as reference data becomes available.
+- Prediction tracking and accuracy analysis as reference data becomes available, checked automatically in the
+  background once the reanalysis is published (about 6 days later).
+- **Validated 80% prediction ranges.** Split conformal, checked on later data: they held 83–86% of September
+  2026 hours, a month the deployed model never saw.
+- A model registry and an uncertainty report in **Model Lab**, plus live tracking in **Prediction History**
+  (MAE, RMSE, bias, skill against the provider value, and range coverage).
 - Cloudzy Core predicts temperature only (New Delhi). It does **not** predict air quality: the available
   air-quality history is itself model output, with no independent measurements to evaluate against (see
   [docs/AIR_QUALITY.md](docs/AIR_QUALITY.md#cloudzy-core-and-air-quality)).
@@ -192,6 +202,18 @@ A prediction should only be evaluated when suitable reference data is available 
 Model metrics should be calculated from valid evaluated records rather than treating pending predictions as successful or failed results.
 
 Historical evaluation scores are not guarantees of future forecasting accuracy.
+
+What has actually been measured for the deployed model:
+
+| Measure | Value |
+|---|---|
+| 2025 test MAE, +1 h to +24 h | 1.12 to 1.34 °C |
+| IFS value MAE on the same test | 1.42 °C |
+| Persistence MAE on the same test | 1.69 to 6.33 °C |
+| September 2026 held-out MAE, +1 h to +24 h | 0.83 to 1.17 °C |
+| 80% range coverage, September 2026 | 83–86% |
+
+Details are in [MODEL_CARD.md](MODEL_CARD.md).
 
 ## ⚠️ Important Disclaimer
 

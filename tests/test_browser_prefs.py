@@ -169,9 +169,10 @@ def test_saved_home_city_opens_first(browser_mode, fake_network):  # noqa: F811
     at.session_state["_cz_prefs_storage_ok"] = True
     at.session_state["_cz_prefs"] = P.to_dict(P.from_dict({"home": PARIS, "favourites": [PARIS]}))
     at = run_app(at)
-    [search] = [t for t in at.text_input if t.key == "search"]
-    assert search.value == "Paris"
-    assert any("isn't shown for Paris, Île-de-France, France" in i.value for i in at.info)
+    # The landing page is now Overview: it opens the saved home city, and Cloudzy Core says it's Delhi-only.
+    assert any("Paris, Île-de-France, France" in m.value for m in at.markdown)
+    body = " ".join(h.proto.body for h in at.html)
+    assert "only predicts for New Delhi" in body
 
 
 # --- Other shared server state stays bounded --------------------------------------------------------

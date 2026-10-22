@@ -145,8 +145,13 @@ class CloudzyForecaster:
             value = float(self.bundle["horizons"][h]["model"].predict(X)[0])
             if not np.isfinite(value):
                 raise ServiceError(f"Model produced a non-finite value at h={h}")
-            out.append({"horizon_h": h, "temperature_2m_c": round(value, 2),
-                        "typical_error_c": self.bundle["test_2025_mae_c"][h]})
+            entry = {"horizon_h": h, "temperature_2m_c": round(value, 2),
+                     "typical_error_c": self.bundle["test_2025_mae_c"][h]}
+            from src import intervals                  # lazy: src.intervals imports this module
+            iv = intervals.interval(h, value)
+            if iv is not None:
+                entry["interval"] = iv              # validated 80% range (src.intervals); absent if not calibrated
+            out.append(entry)
         return out
 
 

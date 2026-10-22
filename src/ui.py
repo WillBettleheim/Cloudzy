@@ -160,9 +160,14 @@ def cloudzy_chart(predictions: list[dict], provider: list[dict], colors: dict, u
     fig.add_scatter(x=t_p, y=[p["temperature_2m_c"] for p in provider], name="ECMWF IFS (Cloudzy's input)",
                     mode="lines+markers", line={"color": colors["provider"], "width": 2},
                     marker={"size": 8}, hovertemplate=f"%{{y:.1f}} {unit}<extra>ECMWF IFS</extra>")
-    fig.add_scatter(x=t_c, y=[p["temperature_2m_c"] for p in predictions], name="Cloudzy Core",
+    ys = [p["temperature_2m_c"] for p in predictions]
+    has_iv = all(p.get("interval") for p in predictions) and predictions
+    error_y = {"type": "data", "symmetric": False, "color": colors["cloudzy"], "thickness": 1.2, "width": 5,
+               "array": [p["interval"]["upper_c"] - y for p, y in zip(predictions, ys)],
+               "arrayminus": [y - p["interval"]["lower_c"] for p, y in zip(predictions, ys)]} if has_iv else None
+    fig.add_scatter(x=t_c, y=ys, name="Cloudzy Core" + (" (bars: validated 80% range)" if has_iv else ""),
                     mode="lines+markers", line={"color": colors["cloudzy"], "width": 2},
-                    marker={"size": 9, "symbol": "diamond"},
+                    marker={"size": 9, "symbol": "diamond"}, error_y=error_y,
                     hovertemplate=f"%{{y:.1f}} {unit}<extra>Cloudzy</extra>")
     return _layout(fig, colors, "Temperature at each horizon", unit, height=300)
 
@@ -193,6 +198,8 @@ def cloudzy_table(predictions: list[dict], provider: list[dict], unit: str = "°
         f"Cloudzy {unit}": [round(p["temperature_2m_c"], 1) for p in predictions],
         f"ECMWF IFS {unit}": [prov.get(p["horizon_h"]) for p in predictions],
         f"Cloudzy avg error in 2025 test {unit}": [round(p["typical_error_c"], 2) for p in predictions],
+        "80% range": [f"{p['interval']['lower_c']:.1f} to {p['interval']['upper_c']:.1f}" if p.get("interval")
+                      else "not validated" for p in predictions],
     })
 
 

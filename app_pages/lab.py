@@ -1,4 +1,4 @@
-"""Cloudzy Lab (Phase E): how good is Cloudzy Core, really?
+"""Model Lab (Phase E): how good is Cloudzy Core, really?
 
 Reads only committed artifacts: reports/lab/ (built by `python -m src.lab_data`)
 and the experiment reports. It never fits a model, so it runs anywhere the
@@ -13,7 +13,7 @@ import json
 import pandas as pd
 import streamlit as st
 
-from src import artifacts, config, lab_ui, monitoring
+from src import artifacts, config, intervals, lab_ui, monitoring, registry
 from src.lab_data import LAB_DIR, MULTISTEP_REPORT, load_predictions
 from src.ui import CHART_CONFIG, figure_table
 from src import theme as T
@@ -55,7 +55,7 @@ def chart(fig) -> None:
             st.caption(f"Showing the first {len(df):,} rows only.")
 
 
-st.html(T.page_header("Cloudzy Lab", "Cloudzy Core · offline evaluation", "science"))
+st.html(T.page_header("Model Lab", "Cloudzy Core · offline evaluation", "science"))
 st.caption("How good is Cloudzy Core, really? Every number here comes from the untouched 2025 test year.")
 
 try:
@@ -86,7 +86,7 @@ compare = st.selectbox(
     help="The comparison model is drawn in blue on every chart.")
 
 tabs = st.tabs(["Scoreboard", "Predictions vs observed", "Error breakdown", "Live setting", "Multi-step",
-                "Explainability", "Live tracking", "Learn", "Limitations"])
+                "Explainability", "Live tracking", "Learn", "Limitations", "Registry", "Uncertainty"])
 
 # --- Scoreboard --------------------------------------------------------------------
 with tabs[0]:
@@ -322,6 +322,12 @@ with tabs[6]:
                     f"({tracked['target_from_utc'][:10]} → {tracked['target_to_utc'][:10]}, UTC)."
                     + ("" if tracked["conclusive"] else " Far too few to be conclusive."))
         st.dataframe(pd.DataFrame(tracked["by_horizon"]), hide_index=True, width="stretch")
+        if tracked.get("skill") and tracked["skill"].get("mae_skill_vs_provider") is not None:
+            st.caption(f"MAE skill vs the IFS value: {tracked['skill']['mae_skill_vs_provider']:+.2f} on "
+                       f"{tracked['skill']['n']} predictions (1 − MAE Cloudzy / MAE IFS).")
+        if tracked.get("interval_coverage"):
+            ic = tracked["interval_coverage"]
+            st.caption(f"{ic['level']:.0%} range coverage on tracked predictions: {ic['coverage']:.0%} of {ic['n']}.")
 
 # --- Learn ------------------------------------------------------------------------------
 with tabs[7]:
@@ -372,10 +378,93 @@ with tabs[8]:
         "cities or years without new tests.\n"
         "- **Live accuracy is a best case.** The live-setting replay uses archived IFS inputs. A real-time "
         "system sees older forecast runs for the latest hours.\n"
-        "- **Point predictions only.** Average errors and bootstrap intervals describe the *comparison* "
-        "between models, not the uncertainty of any single prediction.\n"
+        "- **Uncertainty is limited to the deployed temperature model.** It has validated 80% and 95% ranges "
+        "(see *Uncertainty*); these cover model error on the replay, not input delays or reanalysis artefacts. "
+        "The research models have average errors only.\n"
         "- **No official warnings.** Neither Cloudzy nor the app's rain indicator is a weather warning. "
         "Use national weather services for safety decisions.")
+
+# --- Registry --------------------------------------------------------------------------------
+with tabs[9]:
+    st.markdown("Every forecasting system in Cloudzy. **ML models** are listed from their artifact metadata; the "
+                "**other systems** are providers, baselines and rules, listed so none of them is mistaken for a "
+                "Cloudzy prediction.")
+    entries = registry.model_entries()
+    st.dataframe(pd.DataFrame([{
+        "Model": e.id.removeprefix("cloudzy_core_"), "Status": registry.STATUS_LABELS[e.status].split(" (")[0],
+        "Artifact": e.artifact,
+        "Algorithm": e.algorithm, "Target": f"{e.target} ({e.unit})", "Where": e.location,
+        "Horizons": ", ".join(f"+{h} h" for h in e.horizons_h), "Inputs → target": f"{e.inputs_source} → {e.target_source}",
+        "Features": e.feature_count, "Version": e.version} for e in entries]), hide_index=True, width="stretch")
+    st.caption("Artifact: *verified* = the file is in this checkout and matches its recorded SHA-256, so predictions "
+               "can be reproduced here; *metadata only* = documented but the file isn't here; *checksum mismatch* = "
+               "changed after it was described (not trusted).")
+    for e in entries:
+        with st.expander(f"{e.id} · {registry.STATUS_LABELS[e.status]}"):
+            st.markdown(f"**Validation:** {e.validation}")
+            st.markdown("**Training data:** " + "; ".join(
+                f"+{h} h: {v['first'][:10]} → {v['last'][:10]} ({v['rows']:,} rows)" for h, v in sorted(e.trained.items())))
+            st.markdown(f"**Parameters:** `{json.dumps(e.parameters)}` · **Libraries:** "
+                        + ", ".join(f"{k} {v}" for k, v in e.library_versions.items()))
+            if e.metrics:
+                st.dataframe(pd.DataFrame(e.metrics).rename(columns=str.capitalize), hide_index=True, width="stretch")
+                st.caption("Metrics from different periods, places or horizons aren't comparable with each other.")
+            st.markdown("**Limitations:** " + "; ".join(e.limitations) + ".")
+            with st.popover(f"Feature schema ({e.feature_count})"):
+                st.write(", ".join(e.features))
+    st.markdown("##### Other systems (not Cloudzy ML predictions)")
+    st.dataframe(pd.DataFrame([{"System": x.name, "Kind": x.kind, "Predicts or provides": x.predicts,
+                                "Source": x.source, "Evaluation": x.evaluated} for x in registry.SYSTEMS]),
+                 hide_index=True, width="stretch")
+
+# --- Uncertainty -------------------------------------------------------------------------------
+with tabs[10]:
+    rep = intervals._report()
+    current_sha = intervals.bundle_sha256()
+    if not rep:
+        st.info("No interval study yet. Run `python -m src.intervals`.", icon=":material/science:")
+    else:
+        valid_for_bundle = rep.get("provenance", {}).get("bundle_sha256") == current_sha
+        st.markdown(
+            "The deployed model shows an **80% range** with each prediction: where the reference temperature "
+            "fell 80% of the time in validation. It comes from **split conformal prediction**: the spread of "
+            "the model's own errors on data it wasn't fitted on, per horizon, asymmetric (the model tends to miss "
+            "more in one direction), with a finite-sample correction.")
+        if not valid_for_bundle:
+            st.warning("This study was made for a different model file than the one now deployed, so the app shows "
+                       "no ranges until `python -m src.intervals` is run again.", icon=":material/warning:")
+        rows = []
+        for h, r in rep["horizons"].items():
+            for lv in ("0.80", "0.95"):
+                mc, dp = r["method_check"]["levels"][lv], r["deployed"]["levels"][lv]
+                rows.append({"Ahead": f"+{h} h", "Level": f"{float(lv):.0%}",
+                             "Range around prediction °C": f"{dp['q_lo_c']:+.2f} to {dp['q_hi_c']:+.2f}",
+                             "Width °C": dp["validation"]["mean_width_c"],
+                             "Coverage, method check (2025 H2)": f"{mc['validation']['coverage']:.1%}",
+                             "n (2025 H2)": mc["validation"]["n"],
+                             "Coverage, deployed model (2026-09)": f"{dp['validation']['coverage']:.1%}",
+                             "n (2026-09)": dp["validation"]["n"]})
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        st.markdown(
+            "- **Method check:** model fitted on 2023-2024, ranges calibrated on its errors in Jan-Jun 2025, coverage "
+            "measured on Jul-Dec 2025.\n"
+            "- **Deployed ranges:** calibrated on the errors of a 2023-2025 fit during Jan-Aug 2026 (the most recent "
+            "out-of-sample errors), then checked on the deployed model's predictions for September 2026, a month it "
+            "never saw. One month of hourly, correlated values: evidence, not proof.\n"
+            "- **Reading the results:** coverage above the level means the ranges are a little wide (conservative); "
+            "below would mean too narrow. Here they are conservative, more so at longer horizons.\n"
+            "- **What a range doesn't include:** delays in live inputs (the replay is a best case), errors in the "
+            "reanalysis itself, and any place other than the Delhi grid cell. Coverage on live predictions is tracked "
+            "on the Predictions page once they are evaluated.\n"
+            "- **Different kinds of uncertainty:** the range describes the model's error against the reference. "
+            "Natural variability inside one grid cell, and the reference's own uncertainty, aren't quantified.")
+        mc_rows = [{"Ahead": f"+{h} h", **{dt.date(2025, int(m), 1).strftime("%b"): f"{v:.0%}" for m, v in
+                    r["method_check"]["levels"]["0.80"]["validation_by_month"].items()}}
+                   for h, r in rep["horizons"].items()]
+        st.markdown("**80% range coverage by month in the method check (2025 H2)**: does it hold across seasons?")
+        st.dataframe(pd.DataFrame(mc_rows), hide_index=True, width="stretch")
+        st.caption(f"Study run {rep['provenance']['created_at_utc'][:16]} UTC for bundle "
+                   f"{rep['provenance']['bundle_sha256'][:12]} · `python -m src.intervals` reproduces it from cached data.")
 
 st.divider()
 st.caption("Weather data by Open-Meteo.com (CC BY 4.0). Reanalysis: Copernicus Climate Change Service "

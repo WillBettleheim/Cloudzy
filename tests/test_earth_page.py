@@ -172,3 +172,30 @@ def test_page_is_listed_in_navigation():
 
 def test_feed_result_layers_never_include_invented_events():
     assert FeedResult().events == []
+
+
+def test_earthquake_details_show_labelled_historical_seismicity(earth, monkeypatch):
+    from src.hazards import seismicity
+    from tests.test_seismicity import synthetic
+    monkeypatch.setattr(seismicity, "fetch", lambda lat, lon, session=None, radius_km=300: synthetic())
+    at = run()
+    quake = next(e for e in sent_events() if e["s"] == "usgs")
+    PICK.update({"id": quake["id"], "t": 5})
+    at = run(at)
+    body = texts(at)
+    assert "historical analysis" in body and "not a prediction" in body and "b-value" in body
+    assert {m.label for m in at.metric} >= {"M5+ recorded", "Largest recorded"}
+    assert any(b.label == "GEM Global Seismic Hazard Map" for b in at.get("link_button"))
+
+
+def test_seismicity_outage_is_explained(earth, monkeypatch):
+    from src.hazards import seismicity
+
+    def down(lat, lon, session=None, radius_km=300):
+        raise http.FeedError("HTTP 503")
+    monkeypatch.setattr(seismicity, "fetch", down)
+    at = run()
+    quake = next(e for e in sent_events() if e["s"] == "usgs")
+    PICK.update({"id": quake["id"], "t": 6})
+    at = run(at)
+    assert "USGS catalogue isn't available right now" in texts(at)

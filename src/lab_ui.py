@@ -1,4 +1,4 @@
-"""Metrics and charts for Cloudzy Lab (Phase E). Pure functions, no Streamlit calls.
+"""Metrics and charts for Model Lab (Phase E). Pure functions, no Streamlit calls.
 
 Colour rules (each checked with a palette validator against both themes):
 - Cloudzy is always orange. The model or baseline it is compared with is blue.

@@ -35,6 +35,13 @@ Evaluation (`evaluate`)
 - **Missing reference:** the prediction stays `pending`. If the value still
   isn't there 30 days after the target time, it becomes `unavailable`. Nothing
   is invented.
+- **Invalid reference:** a value outside physical bounds (config.PLAUSIBLE_RANGES) makes the record
+  `invalid`, with the value kept in the note; it is never scored.
+- **Scheduling:** `maybe_evaluate()` runs `evaluate()` in a background thread of the app's server process at
+  most every EVALUATE_EVERY_H hours, and only when a record is due. It doesn't depend on a browser tab, and
+  `python -m src.monitoring` (cron/launchd) remains the documented way to evaluate when the app isn't running.
+- **Intervals:** predictions issued with a validated 80% interval (src.intervals) store its bounds;
+  aggregates report how often evaluated values fell inside.
 - **Aggregates:** come only from `evaluated` records, with their sample count
   and date range.
 
@@ -49,6 +56,7 @@ import logging
 import math
 import os
 import sqlite3
+import threading
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -92,12 +100,15 @@ CREATE TABLE IF NOT EXISTS predictions (
   provider_source TEXT,
   expected_mae REAL,
   inputs_json TEXT,
-  status TEXT NOT NULL CHECK (status IN ('pending', 'evaluated', 'unavailable')),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'evaluated', 'unavailable', 'invalid')),
   observed REAL,
   abs_error REAL,
   observation_source TEXT,
   evaluated_at_utc TEXT,
-  status_note TEXT
+  status_note TEXT,
+  interval_lower REAL,
+  interval_upper REAL,
+  interval_level REAL
 );
 CREATE INDEX IF NOT EXISTS ix_pred_target ON predictions(target_time_utc);
 CREATE TABLE IF NOT EXISTS refusals (
@@ -129,16 +140,57 @@ def connect(directory: Path | None = None) -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
     _add_missing_columns(con)
+    _allow_invalid_status(con, directory)
     _migrate_legacy(con, directory)
     return con
 
 
+NEW_COLUMNS = {"status_note": "TEXT", "interval_lower": "REAL", "interval_upper": "REAL", "interval_level": "REAL"}
+
+
 def _add_missing_columns(con: sqlite3.Connection) -> None:
-    """Databases created before `status_note` existed get the column; no record is changed."""
+    """Older databases get the newer nullable columns; no record is changed."""
     cols = {r[1] for r in con.execute("PRAGMA table_info(predictions)")}
-    if "status_note" not in cols:
-        con.execute("ALTER TABLE predictions ADD COLUMN status_note TEXT")
-        con.commit()
+    for name, kind in NEW_COLUMNS.items():
+        if name not in cols:
+            con.execute(f"ALTER TABLE predictions ADD COLUMN {name} {kind}")
+    con.commit()
+
+
+def _allow_invalid_status(con: sqlite3.Connection, directory: Path) -> None:
+    """Databases whose status CHECK predates 'invalid' are rebuilt once, in one transaction, after a file backup.
+
+    SQLite can't alter a CHECK constraint, so the table is copied into one with the current schema. Every row
+    and column is kept; the row count is verified before the old table is dropped.
+    """
+    sql = con.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='predictions'").fetchone()[0]
+    if "'invalid'" in sql:
+        return
+    db = directory / DB_NAME
+    backup = directory / f"cloudzy_predictions.backup-before-invalid-status-{date.today():%Y%m%d}.sqlite"
+    if not backup.exists():
+        with closing(sqlite3.connect(backup)) as dst:
+            con.backup(dst)
+    cols = [r[1] for r in con.execute("PRAGMA table_info(predictions)")]
+    before = con.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
+    new_table = SCHEMA.split("CREATE TABLE IF NOT EXISTS predictions", 1)[1].split(";", 1)[0]
+    try:
+        con.execute("BEGIN")
+        con.execute("CREATE TABLE predictions_migrating" + new_table)
+        con.execute(f"INSERT INTO predictions_migrating ({', '.join(cols)}) SELECT {', '.join(cols)} FROM predictions")
+        after = con.execute("SELECT COUNT(*) FROM predictions_migrating").fetchone()[0]
+        if after != before:
+            raise sqlite3.DatabaseError(f"row count changed during migration ({before} → {after})")
+        con.execute("DROP TABLE predictions")
+        con.execute("ALTER TABLE predictions_migrating RENAME TO predictions")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_pred_target ON predictions(target_time_utc)")
+        con.execute("INSERT OR REPLACE INTO meta VALUES ('migration_invalid_status', ?)",
+                    (json.dumps({"at_utc": _now(), "rows": before, "backup": backup.name}),))
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+    logger.info("Migrated %s to allow the 'invalid' status (%d rows; backup %s)", db.name, before, backup.name)
 
 
 def prediction_id(model_version: str, location_id: str, issue_time_utc: str, horizon_h: int,
@@ -186,14 +238,19 @@ def record_prediction(result: dict, directory: Path | None = None) -> dict:
                 continue
             pid = prediction_id(model_version, LOCATION_ID, issue.isoformat(), h)
             pv = provider.get(h)
+            iv = p.get("interval") or {}
+            lo, hi, lvl = iv.get("lower_c"), iv.get("upper_c"), iv.get("level")
+            if not (_valid_number(lo) and _valid_number(hi) and _valid_number(lvl) and lo <= value <= hi):
+                lo = hi = lvl = None                    # only a well-formed interval around the value is kept
             cur = con.execute(
                 "INSERT OR IGNORE INTO predictions (id, created_at_utc, issue_time_utc, target_time_utc, horizon_h, "
                 "location_id, latitude, longitude, model_version, variable, predicted, unit, provider_value, "
-                "provider_source, expected_mae, inputs_json, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending')",
+                "provider_source, expected_mae, inputs_json, status, interval_lower, interval_upper, interval_level) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, ?)",
                 (pid, _now(), issue.isoformat(), target.isoformat(), h, LOCATION_ID, config.DELHI.latitude,
                  config.DELHI.longitude, model_version, VARIABLE, float(value), UNIT,
                  float(pv) if _valid_number(pv) else None, "ECMWF IFS via Open-Meteo (provider forecast)",
-                 p.get("typical_error_c"), inputs if h == 1 else None))
+                 p.get("typical_error_c"), inputs if h == 1 else None, lo, hi, lvl))
             counts["inserted" if cur.rowcount else "duplicates"] += 1
     return counts
 
@@ -298,7 +355,18 @@ def aggregate(df: pd.DataFrame) -> dict:
     by_t = [{"range": str(k), "n": len(g), "mae_c": round(float(g["err"].abs().mean()), 3)}
             for k, g in ev.groupby("range", observed=True)]
     issues = int(ev["issue_time_utc"].nunique())
-    return {"n": len(ev), "issue_times": issues,
+    with_iv = ev.dropna(subset=["interval_lower", "interval_upper"]) if "interval_lower" in ev else ev.iloc[0:0]
+    interval_cov = None
+    if len(with_iv):
+        inside = (with_iv["observed"] >= with_iv["interval_lower"]) & (with_iv["observed"] <= with_iv["interval_upper"])
+        interval_cov = {"n": len(with_iv), "coverage": round(float(inside.mean()), 3),
+                        "level": float(with_iv["interval_level"].astype(float).iloc[0])}
+    both = ev.dropna(subset=["provider_value"])
+    skill = None
+    if len(both):
+        mae_c, mae_p = both["err"].abs().mean(), both["ifs_err"].abs().mean()
+        skill = {"n": len(both), "mae_skill_vs_provider": round(float(1 - mae_c / mae_p), 3) if mae_p > 0 else None}
+    return {"n": len(ev), "issue_times": issues, "interval_coverage": interval_cov, "skill": skill,
             "target_from_utc": ev["target_time_utc"].min().isoformat(), "target_to_utc": ev["target_time_utc"].max().isoformat(),
             "conclusive": issues >= CONCLUSIVE_MIN_ISSUES, "by_horizon": by_h, "by_temperature_range": by_t,
             "observation_source": OBSERVATION_SOURCE, "match_tolerance": MATCH_TOLERANCE}
@@ -381,7 +449,14 @@ def evaluate(today: date | None = None, directory: Path | None = None, session=N
     with closing(connect(directory)) as con, con:
         for r in ready.itertuples():
             obs = truth.get(r.target_time_utc)
-            if obs is not None and np.isfinite(obs):
+            lo_ok, hi_ok = config.PLAUSIBLE_RANGES[VARIABLE]
+            if obs is not None and np.isfinite(obs) and not lo_ok <= obs <= hi_ok:
+                cur = con.execute(
+                    "UPDATE predictions SET status='invalid', evaluated_at_utc=?, status_note=? "
+                    "WHERE id=? AND status='pending'",
+                    (_now(), f"Reference value {obs} {UNIT} is outside physical bounds; not scored", r.id))
+                result["marked_invalid"] = result.get("marked_invalid", 0) + cur.rowcount
+            elif obs is not None and np.isfinite(obs):
                 cur = con.execute(
                     "UPDATE predictions SET status='evaluated', observed=?, abs_error=?, observation_source=?, "
                     "evaluated_at_utc=?, status_note=NULL WHERE id=? AND status='pending'",
@@ -403,15 +478,68 @@ def evaluate(today: date | None = None, directory: Path | None = None, session=N
     return result
 
 
+# --- Scheduled evaluation ------------------------------------------------------------------------
+
+EVALUATE_EVERY_H = 6
+_scheduler_lock = threading.Lock()
+_scheduler_thread: threading.Thread | None = None
+
+
+def due_count(directory: Path | None = None, today: date | None = None) -> int:
+    """Pending records old enough for the reference data to exist (a cheap query, no network)."""
+    cutoff = eligibility_cutoff(today).isoformat()
+    with closing(connect(directory)) as con:
+        return con.execute("SELECT COUNT(*) FROM predictions WHERE status='pending' AND target_time_utc < ?",
+                           (cutoff,)).fetchone()[0]
+
+
+def maybe_evaluate(directory: Path | None = None, now: pd.Timestamp | None = None, background: bool = True) -> str:
+    """Start an evaluation if one is due. Returns what happened: "started", "ran", "not due", "recent", "running".
+
+    Throttled to one run per EVALUATE_EVERY_H hours (from the stored last check, so restarts don't reset it),
+    skipped when nothing is due, and never two at once. Runs in the server process: no browser tab needed.
+    """
+    global _scheduler_thread
+    if not enabled():
+        return "disabled"
+    now = now or pd.Timestamp.now(tz="UTC")
+    with _scheduler_lock:
+        t = _scheduler_thread
+        if t is not None and t.is_alive():
+            return "running"
+        last = last_check(directory)
+        if last and last.get("evaluated_at_utc"):
+            try:
+                if now - pd.Timestamp(last["evaluated_at_utc"]) < pd.Timedelta(hours=EVALUATE_EVERY_H):
+                    return "recent"
+            except (ValueError, TypeError):
+                pass
+        if due_count(directory, now.date()) == 0:
+            return "not due"
+
+        def job():
+            try:
+                evaluate(today=now.date(), directory=directory)
+            except Exception as exc:     # stored as the last check by evaluate(); never crash the app
+                logger.warning("Scheduled evaluation failed: %s", exc)
+        if not background:
+            job()
+            return "ran"
+        _scheduler_thread = threading.Thread(target=job, name="cloudzy-evaluate", daemon=True)
+        _scheduler_thread.start()
+        return "started"
+
+
 # --- Status breakdown ---------------------------------------------------------------------------
 
-WAIT_TARGET = "Waiting: target hour not reached"
-WAIT_REFERENCE = "Waiting: reference data not published yet"
-DUE = "Due: checked on the next run"
-CHECKED_MISSING = "Checked: reference value still missing"
+WAIT_TARGET = "Awaiting target time"
+WAIT_REFERENCE = "Pending observation: reference not published yet"
+DUE = "Ready for evaluation"
+CHECKED_MISSING = "Pending observation: checked, value still missing"
 EVALUATED = "Evaluated"
-UNAVAILABLE = "Unavailable: no reference data"
-DETAIL_ORDER = [EVALUATED, WAIT_TARGET, WAIT_REFERENCE, DUE, CHECKED_MISSING, UNAVAILABLE]
+UNAVAILABLE = "Observation unavailable (expired)"
+INVALID = "Invalid observation"
+DETAIL_ORDER = [EVALUATED, WAIT_TARGET, WAIT_REFERENCE, DUE, CHECKED_MISSING, UNAVAILABLE, INVALID]
 
 
 def classify(df: pd.DataFrame, now: pd.Timestamp | None = None, today: date | None = None) -> pd.DataFrame:
@@ -435,6 +563,8 @@ def classify(df: pd.DataFrame, now: pd.Timestamp | None = None, today: date | No
             return EVALUATED
         if r.status == "unavailable":
             return UNAVAILABLE
+        if r.status == "invalid":
+            return INVALID
         if r.target_time_utc > now:
             return WAIT_TARGET
         if r.target_time_utc >= cutoff:

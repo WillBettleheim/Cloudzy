@@ -173,6 +173,18 @@ with failed refreshes is never called live.
   most 62 days.
 - **No static record is animated** as if it were moving.
 
+**Historical seismicity** (`src/hazards/seismicity.py`): for a selected earthquake, the page reads the USGS
+catalogue (M4+ within 300 km since 1976) and shows the following, labelled as historical analysis:
+
+- counts and per-decade historical rates for M5, M6 and M7 and above;
+- the largest recorded event;
+- the magnitude-type mix (mostly mb, which saturates for large events, so the b-value is indicative);
+- a Gutenberg–Richter b-value: Aki–Utsu maximum likelihood above a maximum-curvature completeness magnitude
+  (+0.2), with a 90% bootstrap interval.
+
+Nothing is forecast. For long-term hazard the page links to the GEM Global Seismic Hazard Map. Results are cached
+for a day per 0.25° cell. The b-value estimator is tested on synthetic catalogues with a known slope.
+
 **Nearby context** (`src/hazards/analysis.py`) lists Natural Earth settlements as follows:
 
 | Selected record | Settlements listed |

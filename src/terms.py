@@ -65,7 +65,7 @@ Cloudzy shows weather information gathered from other services and from its own 
 - **Cloudzy Core:** an experimental machine-learning model that predicts temperature for one location (a grid
   cell in New Delhi), with live tracking that compares its predictions with reanalysis data published a few
   days later (a model reconstruction of past weather, not a station measurement), and an evaluation page
-  (Cloudzy Lab).
+  (Model Lab).
 """),
     Section("weather", "Weather information", """
 Weather information is uncertain by nature. Forecasts, model output, maps, alerts and summaries in Cloudzy:

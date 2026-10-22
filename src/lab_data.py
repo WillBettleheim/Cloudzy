@@ -1,4 +1,4 @@
-"""Build the data behind Cloudzy Lab (Phase E).
+"""Build the data behind Model Lab (Phase E).
 
 The Lab must show *honest* test predictions: models fitted on 2023-2024 and
 scored on 2025, exactly as in the experiments. The saved serving models are

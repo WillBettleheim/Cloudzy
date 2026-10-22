@@ -209,6 +209,14 @@ CSS = """
   font-weight:600;background:rgba(242,169,59,.22);border:1px solid rgba(242,169,59,.6);color:#ffe2b0}
 .cz-hero.cz-mini .badge .cz-ico{font-size:.9rem}
 
+/* The hero responds to its own width (the sidebar can make it narrow on a wide screen), not only the viewport. */
+.cz-hero{container-type:inline-size}
+.cz-hero .stat .v{overflow-wrap:anywhere}
+@container (max-width:640px){.cz-hero .stats{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .cz-hero .stat:nth-child(4){border-left:none;padding-left:0}}
+@container (max-width:380px){.cz-hero .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cz-hero .stat{border-left:none;padding-left:0}
+  .cz-hero .stat:nth-child(even){border-left:1px solid rgba(255,255,255,.12);padding-left:var(--cz-s-3)}}
 @media (max-width:900px){.cz-hero .stats{grid-template-columns:repeat(3,minmax(0,1fr))}
   .cz-hero .stat:nth-child(4){border-left:none;padding-left:0}}
 @media (max-width:640px){

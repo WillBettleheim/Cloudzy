@@ -1,4 +1,4 @@
-"""Historical weather for any place (Cloudzy Lab's history explorer).
+"""Historical weather for any place (Model Lab's history explorer).
 
 Source: Open-Meteo Historical Weather API (archive), default model blend.
 These are **reanalysis** values: a model-based reconstruction of past weather
