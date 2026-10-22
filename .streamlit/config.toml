@@ -44,7 +44,13 @@ gatherUsageStats = false
 
 [client]
 toolbarMode = "minimal"
+# Before hosting this app publicly, add `showErrorDetails = "type"` here so visitors never see stack traces or
+# file paths (SECURITY.md, "Hosting the full app"). Locally, full error details help debugging, so it is left at
+# Streamlit's default.
 
 [server]
 # Serves ./static at /app/static: the Weather Explorer's map library, basemap and forecast frames.
 enableStaticServing = true
+# Cloudzy has no file uploads; keep the limits small. XSRF protection and CORS stay at Streamlit's safe defaults.
+maxUploadSize = 1
+enableXsrfProtection = true

@@ -1,0 +1,59 @@
+name: deploy-pages
+
+# Builds Cloudzy's static edition (tools/build_pages.py) and publishes it to GitHub Pages:
+# https://willbettleheim.github.io/Cloudzy/
+#
+# Manual only: run it from Actions → deploy-pages → "Run workflow" on main. Nothing deploys on push.
+# The build job has read-only access; only the deploy job may write to Pages, and only from main.
+# Nothing is published unless lint, tests and the build's own verification (pages, links, assets, no development
+# files, no secret-like strings) all pass. Only the generated _site folder is uploaded, never the repository.
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pages
+  cancel-in-progress: false   # never interrupt a deployment that has started
+
+jobs:
+  build:
+    name: Test and build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: python -m pytest
+      - name: Build and verify the static site
+        # Fetches a snapshot of the hazard feeds (labelled with its time on the Earth page), then verifies the output.
+        run: python tools/build_pages.py --out _site
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write      # publish the uploaded artifact
+      id-token: write   # verify the deployment's origin (OIDC)
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5.0.1

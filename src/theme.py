@@ -160,6 +160,8 @@ h1,h2,h3,h4{{letter-spacing:-.015em}}
   [data-testid="stHeaderActionElements"] a{{display:inline-grid;place-items:center;min-width:36px;min-height:36px;
     margin:-8px 0}}
   [data-testid="stSlider"] [role="slider"]{{width:32px !important;height:32px !important}}
+  [data-testid="stMultiSelectTagsContainer"] [role="button"],[data-testid="stMultiSelectTagsContainer"] button{{
+    min-width:32px;min-height:32px;margin:-12px -8px -12px -6px}}
   /* Small icon buttons keep their look but get a larger tap area. */
   /* Only the "?" help icons (labelled "Help for …"); buttons that merely have a tooltip keep their own size. */
   button[aria-label^="Help for"]{{min-width:32px;min-height:32px;margin:-8px}}

@@ -1,0 +1,31 @@
+# Dependabot proposes updates as pull requests; nothing is merged automatically. Each PR runs the tests, security
+# and CodeQL workflows. Minor and patch updates arrive grouped; major updates arrive one per PR so each can be
+# reviewed (security fixes sometimes need a major version, as Pillow 13 did). See SECURITY.md.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"

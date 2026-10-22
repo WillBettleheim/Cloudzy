@@ -255,7 +255,7 @@ def map_record(e: HazardEvent) -> dict:
 def write_static(name: str, data: Any) -> str:
     """Write `data` as JSON with a content hash in the name (written once, then reused); return its URL."""
     body = json.dumps(data, separators=(",", ":"), default=str).encode()
-    digest = hashlib.sha1(body).hexdigest()[:12]
+    digest = hashlib.sha1(body, usedforsecurity=False).hexdigest()[:12]   # a cache name, not security
     folder = static_dir()
     path = folder / f"{name}-{digest}.json"
     if not path.exists():

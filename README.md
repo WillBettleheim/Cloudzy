@@ -151,6 +151,60 @@ Deployment to Streamlit Community Cloud is described in [DEPLOYMENT.md](DEPLOYME
 
 ---
 
+## Static edition on GitHub Pages
+
+**Planned address:** <https://willbettleheim.github.io/Cloudzy/>. It is not live until the first deployment below
+succeeds.
+
+GitHub Pages serves static files only; it can't run Python. So Pages hosts a separate, clearly labelled static
+edition, built from the app's own parts by `tools/build_pages.py`. The full app above is unchanged. What each feature
+needs is listed in [docs/FEATURE_INVENTORY.md](docs/FEATURE_INVENTORY.md).
+
+| On the static site | How it works |
+|---|---|
+| **Weather** for any place, 7-day outlook, 48-hour chart, air quality now | Live: your browser asks Open-Meteo directly (free, no key) |
+| **Earth Intelligence** globe, with the situation selector, presets, filters and timeline | The app's own globe, with a snapshot of the hazard feeds taken when the site was built, labelled with that time |
+| **Model Lab** results: the upgrade, the station check, the station experiment, prediction ranges | Tables generated from the committed evaluation reports |
+| Cloudzy Core live predictions, Prediction History, Weather Explorer, Outdoor Intelligence, alerts, briefings | **Full app only** (Python). The site says so and shows screenshots; nothing is simulated |
+
+### Build and preview locally
+
+```bash
+python tools/build_pages.py         # builds _site/ (fetches a hazard snapshot) and verifies it
+python tools/serve_pages.py         # http://localhost:8600/Cloudzy/, served like GitHub Pages
+```
+
+`--no-live` builds without the hazard snapshot (offline).
+
+The build fails if anything is wrong:
+- a page or asset is missing, or a link is broken or root-relative;
+- development files (Python, models, databases, `.env`) are present;
+- the output contains secret-like strings or local paths.
+
+### Deploy (manual, from `main`)
+
+1. In **Settings → Pages → Build and deployment → Source**, choose **GitHub Actions**.
+2. Optional: in **Settings → Environments → github-pages**, limit deployment branches to `main`.
+3. Push these files to `main`.
+4. Open **Actions → deploy-pages → Run workflow**, choose `main` and run it. It runs lint and tests, builds and
+   verifies the site, then publishes it.
+5. Watch progress and logs under **Actions → deploy-pages**. The deploy job shows the site's address when it
+   finishes.
+
+Nothing deploys automatically. To publish fresh data or changes, run the workflow again. To roll back, revert the
+commit on `main` and run it again.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for:
+- how to report a vulnerability;
+- the automated checks (dependency vulnerabilities, secret scanning, CodeQL, workflow audit), which run weekly as
+  well as on every push;
+- the dependency and secret policies;
+- the GitHub settings to switch on.
+
+---
+
 ## Project structure
 
 ```

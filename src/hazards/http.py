@@ -19,6 +19,7 @@ USER_AGENT = "Cloudzy/2.0 (student weather app; https://github.com/WillBettlehei
 TIMEOUT_S = 15
 RETRIES = 2
 MAX_WAIT_S = 5
+MAX_RESPONSE_BYTES = 64_000_000   # the largest feed (24 h of global fire detections) is a few MB
 
 
 class FeedError(RuntimeError):
@@ -43,6 +44,9 @@ def get(url: str, params: dict | None = None, *, kind: str = "json", session: re
             if resp.status_code == 204:          # "no content": the query matched nothing
                 return None
             if resp.status_code == 200:
+                declared = (getattr(resp, "headers", None) or {}).get("Content-Length")
+                if declared and declared.isdigit() and int(declared) > MAX_RESPONSE_BYTES:
+                    raise FeedError(f"response too large ({int(declared):,} bytes)")
                 if kind == "bytes":
                     return resp.content
                 if kind == "text":

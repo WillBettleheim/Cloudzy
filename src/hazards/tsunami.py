@@ -12,6 +12,9 @@ from __future__ import annotations
 import re
 from xml.etree import ElementTree as ET
 
+from defusedxml import DefusedXmlException
+from defusedxml.ElementTree import fromstring as safe_fromstring
+
 import pandas as pd
 import requests
 
@@ -35,8 +38,8 @@ def _field(text: str, pattern: str) -> str | None:
 
 def parse(xml_text: str, centre: str, now: pd.Timestamp) -> FeedResult:
     try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError as exc:
+        root = safe_fromstring(xml_text)          # no entity expansion or external entities
+    except (ET.ParseError, DefusedXmlException) as exc:
         raise http.FeedError(f"{centre} feed is not valid XML ({exc})") from exc
     out = FeedResult(data_time=utc((root.findtext("a:updated", namespaces=NS) or "").strip()))
     for entry in root.findall("a:entry", NS):

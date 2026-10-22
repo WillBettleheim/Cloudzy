@@ -1095,6 +1095,7 @@ details.sf[open] summary{margin-bottom:4px}
   .cze-card .lnk,.cze-panel .lnk{min-height:36px;padding:4px 2px}
   .cze-slider{height:32px}
   .cze-legend summary{min-height:32px;display:flex;align-items:center}
+  .cze .maplibregl-ctrl-attrib-button{min-width:36px;min-height:36px}
 }
 @media (prefers-reduced-motion:reduce){.cze-loading .spin{animation:none}.cze-btn,.cze-status{transition:none}}
 """

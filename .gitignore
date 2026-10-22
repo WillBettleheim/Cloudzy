@@ -37,3 +37,6 @@ models/*
 
 # Local tooling
 .claude/
+
+# Static GitHub Pages build (tools/build_pages.py); generated, never committed
+_site/

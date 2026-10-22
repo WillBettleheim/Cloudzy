@@ -17,6 +17,9 @@ import re
 import zipfile
 from xml.etree import ElementTree as ET
 
+from defusedxml import DefusedXmlException
+from defusedxml.ElementTree import fromstring as safe_fromstring
+
 import pandas as pd
 import requests
 
@@ -42,10 +45,16 @@ def wind_rank(kt) -> int:
     return 1 if kt < 34 else 2 if kt < 64 else 3 if kt < 96 else 4
 
 
+MAX_KML_BYTES = 25_000_000   # uncompressed; NHC cones and tracks are a few hundred kB
+
+
 def _kml(kmz: bytes) -> ET.Element:
+    """The KML inside an NHC KMZ, size-checked before unzipping and parsed without entity expansion."""
     with zipfile.ZipFile(io.BytesIO(kmz)) as z:
         name = next(n for n in z.namelist() if n.endswith(".kml"))
-        return ET.fromstring(z.read(name))
+        if z.getinfo(name).file_size > MAX_KML_BYTES:
+            raise http.FeedError(f"KML too large to unpack ({z.getinfo(name).file_size:,} bytes)")
+        return safe_fromstring(z.read(name))
 
 
 def _local(tag: str) -> str:
@@ -181,7 +190,7 @@ def fetch(session: requests.Session | None = None) -> FeedResult:
             if e.extra.get(key):
                 try:
                     track += parser(http.get(e.extra[key], kind="bytes", session=session))
-                except (http.FeedError, zipfile.BadZipFile, ET.ParseError, StopIteration) as exc:
+                except (http.FeedError, zipfile.BadZipFile, ET.ParseError, DefusedXmlException, StopIteration) as exc:
                     out.warnings.append(f"{e.title}: {key.removesuffix('_kmz')} track unavailable ({exc})")
         if e.time is not None:
             track.append({"lon": e.lon, "lat": e.lat, "time": e.time, "status": "current",
@@ -192,6 +201,6 @@ def fetch(session: requests.Session | None = None) -> FeedResult:
             try:
                 e.geometry = parse_cone(http.get(e.extra["cone_kmz"], kind="bytes", session=session))
                 e.extra["cone_note"] = CONE_NOTE
-            except (http.FeedError, zipfile.BadZipFile, ET.ParseError, StopIteration) as exc:
+            except (http.FeedError, zipfile.BadZipFile, ET.ParseError, DefusedXmlException, StopIteration) as exc:
                 out.warnings.append(f"{e.title}: cone unavailable ({exc})")
     return out

@@ -177,7 +177,8 @@ def _allow_invalid_status(con: sqlite3.Connection, directory: Path) -> None:
     try:
         con.execute("BEGIN")
         con.execute("CREATE TABLE predictions_migrating" + new_table)
-        con.execute(f"INSERT INTO predictions_migrating ({', '.join(cols)}) SELECT {', '.join(cols)} FROM predictions")
+        # Column names come from the database's own schema (PRAGMA), never from input.
+        con.execute(f"INSERT INTO predictions_migrating ({', '.join(cols)}) SELECT {', '.join(cols)} FROM predictions")  # nosec B608
         after = con.execute("SELECT COUNT(*) FROM predictions_migrating").fetchone()[0]
         if after != before:
             raise sqlite3.DatabaseError(f"row count changed during migration ({before} → {after})")
@@ -332,7 +333,8 @@ def distinct(column: str, directory: Path | None = None) -> list[str]:
     if column not in {"location_id", "model_version", "status"}:
         raise ValueError(column)
     with closing(connect(directory)) as con:
-        return [r[0] for r in con.execute(f"SELECT DISTINCT {column} FROM predictions ORDER BY 1")]
+        # `column` was checked against the allowlist above, so it can't carry SQL.
+        return [r[0] for r in con.execute(f"SELECT DISTINCT {column} FROM predictions ORDER BY 1")]  # nosec B608
 
 
 def aggregate(df: pd.DataFrame) -> dict:

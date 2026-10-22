@@ -7,8 +7,12 @@ requests==2.34.2
 joblib==1.6.0
 pytest==9.1.1
 # Phase D (web app) — installed now so the environment is complete
-streamlit==1.66.0
+streamlit==1.66.1
 plotly==7.1.0
 # Weather Explorer: decodes NOAA GFS GRIB2 grids (Apache-2.0; eccodeslib ships the binary library)
 eccodes==2.50.0
 eccodeslib==2.50.0.33
+# Transitive (matplotlib, streamlit); pinned >= 13.0.0 for security fixes (pip-audit, 2026-10-23)
+pillow==13.0.0
+# Parses the NHC and tsunami XML feeds without entity expansion (src/hazards)
+defusedxml==0.7.1
