@@ -2,7 +2,7 @@
 -r requirements.txt
 ruff==0.17.1
 mypy==2.4.0
-playwright==1.55.0   # responsive checks (tests/test_responsive.py, tools/responsive_audit.py); drives installed Chrome
+playwright==1.64.0   # responsive checks (tests/test_responsive.py, tools/responsive_audit.py); drives installed Chrome
 # Security checks (same versions as .github/workflows/security.yml; see SECURITY.md)
 pip-audit==2.10.1
 detect-secrets==1.5.0
