@@ -1,283 +1,238 @@
-# ☁️ Cloudzy
-### Weather with a little intelligence.
+# Cloudzy
 
-Cloudzy is a weather application that combines real-world weather data, machine learning, and interactive weather exploration to make forecasting more informative and understandable.
+**Weather with a little intelligence.** A weather and hazard-awareness app built around one research question:
 
-Going beyond a conventional weather dashboard, Cloudzy explores how predictive models can learn from historical weather patterns, generate forecasts, and evaluate their predictions against reference data.
+> *Can a small machine-learning model honestly improve on a global weather forecast for one city, and how do you
+> prove it?*
 
-## ✨ What is Cloudzy?
+![Python 3.13](https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white)
+![Streamlit](https://img.shields.io/badge/app-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-900%2B%20passing-34b37a)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
-Cloudzy brings together weather information, predictive modelling, and software engineering in one evolving project.
+Cloudzy combines live forecasts, air quality, outdoor-activity guidance and a 3D disaster globe with **Cloudzy
+Core**, an experimental temperature model for New Delhi. The model is tested the way research should be:
+- data split strictly by time;
+- simple baselines to beat;
+- confidence intervals on every comparison;
+- decision rules written down *before* results are seen;
+- a check against real thermometer readings.
 
-### 🧭 Overview
-The landing page: today's conditions, alerts, air quality, the next outdoor window, nearby hazards, Cloudzy Core and
-tracking, each labelled by the kind of data it is and linked to its full page. Navigation is grouped as **Today**,
-**Explore**, **Cloudzy Core** and **You**. The Weather page is at `/weather`; old `/?q=…` links are forwarded.
+---
 
-### 🌦️ Weather Intelligence
-- Weather information and forecasts from integrated data sources.
-- Location-based weather exploration.
-- Weather insights designed to help users understand changing conditions.
+## Key findings
 
-### 🌫️ Air Quality Intelligence
-- Current air quality for any searched place, with the index standard named every time: **US AQI (EPA)**,
-  **European AQI (EEA)** or **India's National AQI (CPCB)**. The place's regional index is shown first, and
-  you can switch.
-- Concentrations of PM2.5, PM10, NO₂, O₃, SO₂ and CO, compared with the WHO 2021 guidelines.
-- An hourly trend chart that keeps the model's earlier hours (grey, "not observed") apart from the forecast
-  (blue), a daily outlook, and forecast changes of category with times and values.
-- Data: Copernicus Atmosphere Monitoring Service (CAMS) forecasts via the Open-Meteo Air Quality API, about
-  4–5 days ahead. These are **model estimates, not monitoring-station readings**, and the app says so.
+| What was tested | Result |
+|---|---|
+| **Upgrade** (Oct 2026): add the ECMWF forecast issued ~2 days before each target hour | Lower error against the reanalysis at **all 6 horizons**, all significant. +24 h: 1.44 → 1.07 °C |
+| **Reality check** against Delhi's Palam airport station | The raw **ECMWF forecast was closer** than Cloudzy at every horizon (1.21 °C vs 1.40–1.63 °C). The cause: the reanalysis Cloudzy learns from runs ~1.5 °C colder than the city at night |
+| **Retrained on the station's own readings**, with live station inputs | Roughly **halves ECMWF's error 1 hour ahead** (0.59 vs 1.21 °C) and wins up to 3 h, but is worse from 12 h. By the rules fixed beforehand, it doesn't beat ECMWF overall |
+| **80% prediction ranges** (split conformal) | Covered 80–85% of hours in a month the model never saw; 2.9–3.3 °C wide |
 
-### 🏃 Cloudzy Outdoor Intelligence
-- Better times to run, walk, cycle, exercise or spend time outside, from the air-quality and weather
-  forecasts together.
-- A transparent rule engine, with no black-box score. It checks air quality (the selected index's own
-  guidance), heat (NWS heat index), cold (wind chill), UV (WHO), thunderstorms, freezing rain, rain and
-  wind (Beaufort). Critical hazards can't be outweighed by other good conditions.
-- Each suggested window shows its values, what supports and limits it, and data limits. An hour-by-hour
-  timeline and fact-based explanations come with it, and indoor alternatives are suggested when conditions
-  are unfavourable.
-- Optional preferences: activity, duration, preferred hours, and more conservative guidance. Nothing
-  medical is asked.
-- Saved windows are re-checked when new forecasts load, and can raise an alert if they get worse.
-- It never promises that a time is safe.
+**Takeaway:** Cloudzy learned a real bias correction, but toward the wrong target. Testing against real
+observations exposed that. Fed live station readings, it becomes a useful 1–3 hour nowcast, not a better
+forecast than ECMWF. The full story, including what didn't work, is in the [model card](MODEL_CARD.md).
 
-Methods, sources, thresholds and limits are in [docs/AIR_QUALITY.md](docs/AIR_QUALITY.md).
+---
 
-### 🌍 Cloudzy Earth Intelligence
-- An interactive 3D globe (MapLibre GL JS) with real disasters and hazards. It zooms from the whole planet to
-  streets and OpenStreetMap building footprints (outlines, not imagery).
-- Connected sources:
-  - **USGS** earthquakes.
-  - **GDACS**: global cyclones, floods, fires, volcanoes and droughts, as automatic impact estimates, not
-    official warnings.
-  - **NOAA NHC** cyclones, with cone, observed track and forecast track.
-  - **NWS** warnings (U.S. only).
-  - **NASA FIRMS** satellite fire detections (not confirmed fires).
-  - The **U.S. Drought Monitor**.
-  - **USGS** volcano alert levels.
-  - The **Smithsonian** volcano catalogue.
-  - **NOAA** tsunami bulletins.
-- Each feed shows its real freshness (Live feed, Recently updated, Delayed data, Historical dataset or
-  Temporarily unavailable). A failing feed never stops the others.
-- The globe has layer controls, filters, a searchable event list kept in sync with the map, and a timeline
-  that plays records by their own times. Search covers countries, states, cities, coordinates and addresses.
-- Selecting an event shows its source-backed details, a link to the original record, and nearby mapped
-  settlements (proximity, never an impact estimate).
-- For situational awareness only: it isn't an official warning service and doesn't cover every country.
+## What's in the app
 
-Details, sources, licences and limits are in [docs/EARTH_INTELLIGENCE.md](docs/EARTH_INTELLIGENCE.md).
+| Page | What it does |
+|---|---|
+| **Overview** | Today at a glance: conditions, alerts, air quality, the next good outdoor window, nearby hazards and Cloudzy Core, each labelled by the kind of data it is |
+| **Weather** | Forecast for any place (Open-Meteo), plain-language summary, alerts, and, for Delhi, Cloudzy Core's prediction next to ECMWF's, with its 80% range |
+| **Air Quality** | PM2.5, PM10, NO₂, O₃, SO₂, CO and the index the region uses (US AQI, European AQI or India's NAQI). These are CAMS model estimates, labelled as such |
+| **Outdoor Intelligence** | Better times to run, walk or cycle, from a transparent rule engine (air quality, heat index, wind chill, UV, storms). It never claims a time is "safe" |
+| **Earth Intelligence** | 3D globe of real disasters and warnings (USGS, GDACS, NOAA, NASA FIRMS and more): 18 situation types, presets, filters, timeline, search to street level |
+| **Weather Explorer** · **History & Trends** | Interactive maps and historical reanalysis for any place |
+| **Model Lab** | How Cloudzy Core was tested: scoreboard, error breakdowns, uncertainty, model registry with version history, and the **station check** |
+| **Prediction History** | Every live prediction is stored and scored automatically once the reference data is published (~6 days later) |
+| **Alerts** · **Places** · **Settings** | Configurable alerts, saved places, units and preferences |
 
-### 🧠 Cloudzy Core
-Cloudzy Core is the machine-learning component of the project.
+> **Note:** Earth Intelligence only collects official and scientific feeds for situational awareness. It is not a
+> warning service, and "not connected" situations (heavy rain, landslides, lightning) are shown as such, never as
+> "no events".
 
-- Historical weather data processing.
-- Machine-learning-based weather prediction.
-- Chronological training, validation, and testing.
-- Model evaluation against baseline approaches.
-- Prediction tracking and accuracy analysis as reference data becomes available, checked automatically in the
-  background once the reanalysis is published (about 6 days later).
-- **A measured upgrade (October 2026).** The deployed model now also uses the ECMWF forecast issued about two
-  days before each target hour. On an untouched January–August 2026 test it lowered the error against the
-  reanalysis at every horizon, significantly at all six. Examples: 0.97 → 0.93 °C at +1 h and 1.44 → 1.07 °C at
-  +24 h.
-- **Checked against real thermometers, with an honest result.** Against routine readings from Delhi's Palam
-  airport station over the same period, the raw ECMWF value (1.21 °C average error) was closer than Cloudzy
-  (1.40–1.63 °C) at every horizon. The reanalysis Cloudzy learns from is about 1.5 °C colder than the city at
-  night, and Cloudzy inherits that. The upgrade still beat the previous version against the station from +3 h on.
-  Details: Model Lab → Station check, and `python -m src.station_eval`.
-- **A follow-up experiment, with rules fixed beforehand.** I retrained Cloudzy on the station's own readings
-  (`python -m src.station_model`). With the station's latest readings as inputs, it roughly halved ECMWF's error
-  1 hour ahead (0.59 against 1.21 °C) and was significantly better up to 3 hours. It was worse from 12 hours on,
-  so under the rules it does not beat ECMWF overall. It is a good short-range nowcast, not a better forecast. The rule for adopting
-  it was fixed before the results were seen; see the [model card](MODEL_CARD.md#version-history-the-october-2026-upgrade).
-- **Validated 80% prediction ranges.** Split conformal, recalibrated for the new model and checked on September
-  2026, a month it never saw: they held 80–85% of hours, and are 2.9–3.3 °C wide.
-- A model registry in **Model Lab**: previous vs current version, reproducibility checks, and every file in
-  `models/`. Also an uncertainty report there, plus live tracking in **Prediction History**
-  (MAE, RMSE, bias, skill against the provider value, and range coverage).
-- Cloudzy Core predicts temperature only (New Delhi). It does **not** predict air quality: the available
-  air-quality history is itself model output, with no independent measurements to evaluate against (see
-  [docs/AIR_QUALITY.md](docs/AIR_QUALITY.md#cloudzy-core-and-air-quality)).
+---
 
-### 🗺️ Interactive Weather Exploration
-- Interactive 2D weather map.
-- Geographic navigation and available weather overlays.
-- Exploration of weather patterns across locations.
+## Cloudzy Core: how the model works and was tested
 
-### 🔔 Alerts and Personalization
-- Configurable weather alerts where supported, including air quality, fine particles (PM2.5),
-  thunderstorms and saved outdoor plans. In-tab browser notifications are optional; there are no
-  background or push notifications.
-- Saved locations and user preferences where implemented.
-- Weather insights based on available data and application settings.
+**Task.** Predict New Delhi's 2 m temperature 1, 2, 3, 6, 12 and 24 hours ahead.
 
-*Feature availability depends on the current version of the application and its configured data sources.*
+**Model.** One gradient-boosting model per horizon (scikit-learn `HistGradientBoostingRegressor`, about 2 MB in
+total). Each model predicts the *change* from the current temperature.
 
-## 🧪 Engineering and Reliability
+**Inputs.** 29 features:
+- the last 25 hours of ECMWF IFS model output for one grid cell (temperature, humidity, pressure, wind, rain,
+  time of day and year);
+- what an ECMWF run from ~48 hours earlier predicted for the target hour. That run is published before
+  prediction time, so nothing leaks from the future.
 
-Cloudzy is developed with an emphasis on more than just displaying weather data.
+**Target.** ERA5-Land reanalysis temperature, via Open-Meteo.
 
-Key engineering priorities include:
+**How it was evaluated.**
+1. **Chronological splits only:**
 
-- Reproducible machine-learning evaluation.
-- Time-aware data splitting to reduce future-data leakage.
-- Automated testing and code-quality checks.
-- Reliable handling of unavailable external services.
-- Transparent prediction status and evaluation results.
+   | Stage | Period |
+   |---|---|
+   | Tuning | Jul–Dec 2025 |
+   | Test, used once | Jan–Aug 2026 |
+   | Final held-out check | Sep 2026 |
 
-## 🛠️ Technology
+2. **Baselines:** persistence, the ECMWF value itself, and a lagged ECMWF forecast.
+3. **Uncertainty in comparisons:** week-block bootstrap confidence intervals, because hourly errors are correlated.
+4. **Pre-registration:** each experiment's adoption rule is written in its module before it runs.
+5. **Reproducibility:** `python -m src.reproduce` recomputes every saved model's recorded score from cached data.
+   All four match exactly.
+6. **Reality check:** scores against routine METAR readings from Delhi's airports. These were cross-checked
+   against NOAA's archive: 99.9% exact match.
+7. **Live monitoring:** predictions are recorded with their ranges and evaluated automatically when the
+   reference data arrives.
 
-The project uses a Python-based application and machine-learning workflow, supported by development tools such as:
+**Results against the reanalysis (Jan–Aug 2026 test, MAE °C):**
 
-- **Python** — application logic and machine learning.
-- **Ruff** — linting and code quality.
-- **mypy** — static type checking.
-- **pytest** — automated testing.
-- **Weather data APIs** — weather information and historical reference data.
+| Horizon | Persistence | Lagged ECMWF | Previous Cloudzy | **Current Cloudzy** |
+|---|---|---|---|---|
+| +1 h | 1.87 | 1.45 | 0.97 | **0.93** |
+| +6 h | 4.98 | 1.45 | 1.11 | **0.98** |
+| +24 h | 1.87 | 1.45 | 1.44 | **1.07** |
 
-The complete stack and provider list should be verified against the current repository and its dependency files.
+**Against a real thermometer (Palam station, same period), the picture changes.** That's why the station check
+exists. See [Key findings](#-key-findings) and Model Lab → *Station check*.
 
-## 🚀 Getting Started
+---
 
-### Prerequisites
+## Getting started
 
-- Git
-- Python compatible with the project's dependency configuration
-- Any API credentials required by configured data providers
-
-### Installation
-
-Clone the repository:
+**Requirements:** Python 3.11+ (developed and tested on 3.13) and Git. **No API keys:** every data source is free
+and key-less.
 
 ```bash
 git clone https://github.com/WillBettleheim/Cloudzy.git
 cd Cloudzy
-```
-
-Create a virtual environment on macOS or Linux:
-
-```bash
 python3 -m venv .venv
-source .venv/bin/activate
-```
-
-Install dependencies using the repository's supported dependency file. If the project uses `requirements.txt`, run:
-
-```bash
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 python -m pip install -r requirements.txt
 ```
 
-Configure any required environment variables according to the project's setup instructions. Never commit API keys or other secrets.
-
-### Running Cloudzy
-
-From the project folder, with the virtual environment active:
+Run the app:
 
 ```bash
 streamlit run streamlit_app.py
 ```
 
-Then open http://localhost:8501. Earth Intelligence is at http://localhost:8501/earth. Its first load fetches
-nine feeds and takes up to about 25 seconds; later views are instant. Its disaster situation selector (the
-layers button on the globe) chooses among 18 situations, with presets and filters, and can save your selection in
-your browser.
+Then open <http://localhost:8501>. The trained model is included, so predictions work straight away. Earth
+Intelligence's first load fetches nine feeds and can take up to ~25 seconds; after that it's cached.
 
-Model maintenance (all use cached data where possible):
+### Tests and code quality
 
 ```bash
-python -m src.mos            # the lagged-forecast experiment → reports/mos_delhi.json
-python -m src.mos --deploy   # install the adopted model (keeps a dated backup)
-python -m src.intervals      # recalibrate prediction ranges for the deployed model
-python -m src.reproduce      # recompute every model's recorded metric
-python -m src.station_eval   # compare with real Delhi station readings → reports/station_eval_delhi.json
-python -m src.refit          # monthly refit
-```
-
-No API keys are needed. Cloudzy uses Open-Meteo's free, key-less APIs (non-commercial use; 600 requests per
-minute, 5,000 per hour, 10,000 per day), and Earth Intelligence's sources are also key-less. Responses are
-cached: 10 minutes for weather, 15 minutes for air quality, and each hazard feed for its own update
-interval.
-
-### Testing
-
-```bash
-python -m pytest                 # offline suite, network faked
-python -m pytest -m integration  # live checks against the Open-Meteo APIs
+python -m pip install -r requirements-dev.txt
+python -m pytest                   # 900+ offline tests; the network is faked
+python -m pytest -m integration    # live checks against the real APIs
 ruff check .
 mypy
 ```
 
-### Data sources and attribution
+### Reproducing the research
 
-- Weather data by Open-Meteo.com (CC BY 4.0).
-- Air quality: Copernicus Atmosphere Monitoring Service (CAMS) forecasts, via Open-Meteo.com (CC BY 4.0).
-  Contains modified Copernicus Atmosphere Monitoring Service information.
-- Earth Intelligence:
-  - U.S. Geological Survey, GDACS, NOAA (NHC, NWS, Tsunami Warning Centers), NASA FIRMS and GIBS, the U.S.
-    Drought Monitor, and the Smithsonian Global Volcanism Program.
-  - Basemap © OpenFreeMap, © OpenMapTiles, © OpenStreetMap contributors.
-  - Terrain from the AWS Terrain Tiles, and search by OpenStreetMap Nominatim.
-- Reanalysis: Copernicus Climate Change Service (ERA5, ERA5-Land).
-- Station observations: METAR reports via the Iowa Environmental Mesonet, Iowa State University.
+These use cached data where possible; the first run downloads it.
 
-## 📊 Model Evaluation
+```bash
+python -m src.mos              # lagged-forecast upgrade experiment     → reports/mos_delhi.json
+python -m src.intervals        # calibrate and validate 80%/95% ranges  → reports/intervals_delhi.json
+python -m src.reproduce        # recompute every model's recorded score → reports/reproducibility.json
+python -m src.station_eval     # compare with real station readings     → reports/station_eval_delhi.json
+python -m src.station_model    # station-target experiment              → reports/station_model_delhi.json
+python -m src.refit            # monthly refit with a held-out acceptance check
+```
 
-Cloudzy distinguishes between a generated prediction and an evaluated prediction.
-
-A prediction should only be evaluated when suitable reference data is available and can be matched appropriately by time, location, and measurement units.
-
-Model metrics should be calculated from valid evaluated records rather than treating pending predictions as successful or failed results.
-
-Historical evaluation scores are not guarantees of future forecasting accuracy.
-
-What has actually been measured for the deployed model:
-
-| Measure | Value |
-|---|---|
-| 2025 test MAE, +1 h to +24 h | 1.12 to 1.34 °C |
-| IFS value MAE on the same test | 1.42 °C |
-| Persistence MAE on the same test | 1.69 to 6.33 °C |
-| September 2026 held-out MAE, +1 h to +24 h | 0.83 to 1.17 °C |
-| 80% range coverage, September 2026 | 83–86% |
-
-Details are in [MODEL_CARD.md](MODEL_CARD.md).
-
-## ⚠️ Important Disclaimer
-
-Cloudzy is an independent weather and machine-learning project. Weather information and model predictions may be incomplete, delayed, or inaccurate.
-
-Cloudzy is not a substitute for official weather warnings, emergency services, or instructions from local authorities. Do not rely on it as the sole source for safety-critical decisions.
-
-Air-quality values are model estimates for an area, not local measurements. Outdoor suggestions come from
-forecasts and published guidance, not from a medical assessment. Forecasts change and people react
-differently to heat and pollution, so Cloudzy never promises that a time is safe.
-
-## 🗺️ Development Roadmap
-
-Ongoing development focuses on:
-
-- Refining the visual experience and responsive interface.
-- Improving interactive weather-map usability.
-- Strengthening prediction tracking and model evaluation.
-- Improving performance, reliability, and automated testing.
-- Expanding documentation and transparency around weather data.
-
-These are development goals, not a guarantee that every capability is already available.
-
-## 📄 License
-
-Refer to the repository's `LICENSE` file for the applicable terms governing use, modification, and distribution of Cloudzy.
-
-## 👨‍💻 Author
-
-**Project:** Cloudzy — Weather with a little intelligence.
-
-**GitHub:** [@WillBettleheim](https://github.com/WillBettleheim)
-
-**Repository:** [WillBettleheim/Cloudzy](https://github.com/WillBettleheim/Cloudzy)
+Deployment to Streamlit Community Cloud is described in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
 
-*Built to explore the intersection of weather data, machine learning, and software engineering.*
+## Project structure
+
+```
+streamlit_app.py      App entry point and navigation
+app_pages/            One file per page (overview, weather, earth, lab, …)
+src/                  Everything else, testable without Streamlit
+  service.py            Live Cloudzy Core predictions (refuses rather than guesses when inputs are missing)
+  features.py, models.py, mos.py, refit.py, intervals.py    ML pipeline and experiments
+  stations.py, station_eval.py, station_model.py            Real-observation checks
+  monitoring.py, registry.py, reproduce.py                  Tracking, model registry, reproducibility
+  hazards/              Earth Intelligence feeds, shared event schema, situations
+  earth_view.py         The 3D globe (MapLibre GL JS)
+models/               The deployed model and its metadata (checksum, features, metrics)
+reports/              Saved experiment results shown in Model Lab
+tests/                900+ tests with recorded API fixtures
+docs/                 Architecture, Earth Intelligence and air-quality documentation
+```
+
+More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
+[docs/EARTH_INTELLIGENCE.md](docs/EARTH_INTELLIGENCE.md) · [docs/AIR_QUALITY.md](docs/AIR_QUALITY.md) ·
+[MODEL_CARD.md](MODEL_CARD.md)
+
+---
+
+## Built with
+
+**Python** · **Streamlit** · **scikit-learn** · **pandas / NumPy** · **Plotly** · **MapLibre GL JS** · **SQLite**
+(prediction tracking) · **pytest**, **Ruff** and **mypy**
+
+---
+
+## Limitations
+
+- **One place, one variable.** Cloudzy Core predicts temperature for one grid cell in New Delhi. It is
+  experimental, not an operational forecast.
+- **Reanalysis isn't a thermometer.** Against real station readings, the raw ECMWF forecast is more accurate than
+  Cloudzy (see Key findings).
+- **Model estimates, not measurements.** Air-quality values are CAMS model estimates, not local monitor readings.
+- **Partial hazard coverage.** Official warnings are connected for the United States only, and GDACS covers
+  major events worldwide.
+- **Not for safety decisions.** Cloudzy is no substitute for official warnings or emergency services. Follow
+  your national weather and disaster agencies.
+
+---
+
+## 🗺️ What's next
+
+- Let live tracking build up, then compare live accuracy and range coverage with the offline tests.
+- A fair ECMWF baseline matched to what was actually available at prediction time.
+- Repeat the pipeline for several cities in different climates.
+- Error analysis for heatwaves, the conditions that matter most in Delhi.
+
+---
+
+## Data and attribution
+
+- **Weather:** Open-Meteo.com (CC BY 4.0).
+- **Air quality:** Copernicus Atmosphere Monitoring Service (CAMS), via Open-Meteo.
+- **Reanalysis:** Copernicus Climate Change Service (ERA5, ERA5-Land).
+- **Station observations:** METAR reports via the Iowa Environmental Mesonet, Iowa State University.
+- **Hazards:** U.S. Geological Survey, GDACS, NOAA (NHC, NWS, Tsunami Warning Centers), NASA FIRMS and GIBS, the
+  U.S. Drought Monitor, and the Smithsonian Global Volcanism Program.
+- **Maps:** © OpenFreeMap, © OpenMapTiles, © OpenStreetMap contributors; AWS Terrain Tiles; Natural Earth; search
+  by OpenStreetMap Nominatim.
+
+---
+
+## How this was built
+
+<!-- Edit this section in your own words before publishing. -->
+
+I designed and directed this project and made the research decisions:
+- the questions;
+- the evaluation rules;
+- what to adopt and what to reject.
+
+I used AI coding assistants to help write and test the code. Every result reported here was produced by the
+code in this repository and can be reproduced with the commands above.
+
+## 📄 License
+
+[MIT](LICENSE) © 2026 Joe Goldberg
+
+**GitHub:** [@WillBettleheim](https://github.com/WillBettleheim) · **Repository:**
+[WillBettleheim/Cloudzy](https://github.com/WillBettleheim/Cloudzy)
