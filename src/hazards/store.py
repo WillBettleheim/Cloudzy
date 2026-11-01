@@ -225,7 +225,8 @@ def merge(events: list[HazardEvent]) -> list[HazardEvent]:
             hidden.add(g.id)
             match.related.append(g.id)
             match.measurements["GDACS alert (automatic estimate)"] = g.severity_label
-            match.extra.setdefault("related_links", []).append({"label": "GDACS report", "url": g.url})
+            if g.url:                        # already checked by HazardEvent (safe_link)
+                match.extra.setdefault("related_links", []).append({"label": "GDACS report", "url": g.url})
     return [e for e in out if e.id not in hidden]
 
 

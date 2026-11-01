@@ -194,6 +194,8 @@ function loadScript(src) {
   return window.__czMlPromise;
 }
 
+// Links from data files are shown only if they are plain https web addresses (never javascript: or data:).
+const safeHref = (u) => { try { const x = new URL(String(u)); return x.protocol === "https:" ? x.href : ""; } catch (e) { return ""; } };
 const esc = (t) => String(t == null ? "" : t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const reduced = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -942,7 +944,7 @@ function showVolcano(S, f) {
     <div class="cb"><span class="chip">Reference catalogue</span></div>
     <p>${esc(p.type || "Volcano")} · ${esc(p.country || "")}${p.elev != null ? " · " + esc(p.elev) + " m" : ""}</p>
     <p>Last known eruption: ${p.last == null || p.last === "null" ? "unknown or none in the Holocene record" : esc(p.last)}</p>
-    <p class="dim">Smithsonian GVP catalogue entry, not current activity. <a href="${esc(p.url)}" target="_blank" rel="noopener">Open the GVP page</a></p>`;
+    <p class="dim">Smithsonian GVP catalogue entry, not current activity.${safeHref(p.url) ? ` <a href="${esc(safeHref(p.url))}" target="_blank" rel="noopener noreferrer">Open the GVP page</a>` : ""}</p>`;
 }
 """
 

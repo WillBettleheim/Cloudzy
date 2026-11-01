@@ -6,6 +6,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from datetime import timedelta
 from typing import Any
+from urllib.parse import urlsplit
 
 import pandas as pd
 
@@ -76,6 +77,9 @@ class HazardEvent:
     related: list[str] = field(default_factory=list)   # ids of the same event in other sources
     extra: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        self.url = safe_link(self.url)       # links come from the feeds: only plain web links are kept
+
     def to_json(self) -> dict:
         d = asdict(self)
         for k in ("time", "updated", "ends"):
@@ -91,6 +95,14 @@ class FeedResult:
     data_time: pd.Timestamp | None = None                   # the feed's own timestamp
     note: str | None = None
     warnings: list[str] = field(default_factory=list)       # skipped or malformed records, with reasons
+
+
+def safe_link(url) -> str | None:
+    """A feed-supplied link if it is a plain http(s) web address, else None (never javascript:, data: etc.)."""
+    if not isinstance(url, str) or len(url) > 2048:
+        return None
+    parts = urlsplit(url.strip())
+    return url.strip() if parts.scheme in ("http", "https") and parts.hostname and not parts.username else None
 
 
 def iso(t) -> str | None:
