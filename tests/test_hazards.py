@@ -347,17 +347,17 @@ REAL_GET = http.get
 
 def test_http_rate_limit_with_long_wait_fails_fast(real_get):
     with pytest.raises(http.FeedError, match="rate-limited"):
-        real_get("u", session=Session(Resp(429, {"reason": "slow down"}, {"Retry-After": "600"})))
+        real_get("https://earthquake.usgs.gov/x", session=Session(Resp(429, {"reason": "slow down"}, {"Retry-After": "600"})))
 
 
 def test_http_retries_server_errors_and_timeouts(real_get):
     import requests
-    assert real_get("u", session=Session(Resp(503, {"reason": "busy"}), Resp(200, {"ok": 1}))) == {"ok": 1}
+    assert real_get("https://earthquake.usgs.gov/x", session=Session(Resp(503, {"reason": "busy"}), Resp(200, {"ok": 1}))) == {"ok": 1}
     with pytest.raises(http.FeedError, match="no response"):
-        real_get("u", session=Session(requests.Timeout(), requests.Timeout()))
+        real_get("https://earthquake.usgs.gov/x", session=Session(requests.Timeout(), requests.Timeout()))
     with pytest.raises(http.FeedError, match="HTTP 404"):
-        real_get("u", session=Session(Resp(404, {"reason": "nope"})))
-    assert real_get("u", session=Session(Resp(204))) is None
+        real_get("https://earthquake.usgs.gov/x", session=Session(Resp(404, {"reason": "nope"})))
+    assert real_get("https://earthquake.usgs.gov/x", session=Session(Resp(204))) is None
 
 
 # --- Geometry ------------------------------------------------------------------------------------------------

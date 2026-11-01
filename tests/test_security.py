@@ -71,8 +71,88 @@ class _Session:
 
 def test_responses_larger_than_the_limit_are_refused():
     with pytest.raises(http.FeedError, match="too large"):
-        REAL_GET("https://example.invalid", session=_Session(http.MAX_RESPONSE_BYTES + 1))
-    assert REAL_GET("https://example.invalid", session=_Session(1000)) == {}     # fake session: no network
+        REAL_GET("https://earthquake.usgs.gov/x", session=_Session(http.MAX_RESPONSE_BYTES + 1))
+    assert REAL_GET("https://earthquake.usgs.gov/x", session=_Session(1000)) == {}     # fake session: no network
+
+
+# --- Server-side request forgery, links, coordinates, model files --------------------------------------------
+
+@pytest.mark.parametrize("url", ["http://earthquake.usgs.gov/x",                 # not HTTPS
+                                 "https://169.254.169.254/latest/meta-data/",    # cloud metadata address
+                                 "https://localhost:8501/", "https://evil.example/kmz",
+                                 "https://user:pw@www.nhc.noaa.gov/a.kmz",        # credentials in the URL  # pragma: allowlist secret (fake, test input)
+                                 "https://www.nhc.noaa.gov:8443/a.kmz", "file:///etc/passwd", "u"])
+def test_feed_helper_refuses_anything_but_https_to_the_data_hosts(url):
+    with pytest.raises(http.FeedError, match="not an allowed data host"):
+        REAL_GET(url, session=_Session(10))
+
+
+def test_feed_supplied_urls_are_checked_too():
+    from src.hazards import gdacs
+    with pytest.raises(http.FeedError):              # a GDACS record pointing somewhere else is never fetched
+        gdacs.event_geometry("https://attacker.example/geometry")
+    assert http.check_url("https://www.nhc.noaa.gov/storm_graphics/api/AL102026_CONE_latest.kmz")
+
+
+def test_redirects_to_other_hosts_are_refused():
+    import requests
+    resp = requests.Response()
+    resp.status_code, resp.url = 302, "https://www.gdacs.org/x"
+    resp.headers["Location"] = "http://169.254.169.254/"
+    with pytest.raises(http.FeedError):
+        http._SafeSession().get_redirect_target(resp)
+    resp.headers["Location"] = "/gdacsapi/other"
+    assert http._SafeSession().get_redirect_target(resp) == "/gdacsapi/other"
+
+
+def test_every_feed_constant_is_an_allowed_host():
+    import re as _re
+    for f in list((ROOT / "src" / "hazards").glob("*.py")) + [ROOT / "src" / "stations.py"]:
+        for name, url in _re.findall(r'^([A-Z_]+) = \(?"(https://[^"{]+)', f.read_text(), _re.M):
+            if not name.endswith("_PAGE"):                    # *_PAGE constants are links shown to people
+                http.check_url(url)
+
+
+@pytest.mark.parametrize("link,kept", [("https://earthquake.usgs.gov/e", True), ("http://www.gdacs.org/r", True),
+                                       ("javascript:alert(1)", False), ("data:text/html,<b>x</b>", False),
+                                       (" JavaScript:alert(1)", False), ("//no-scheme.example", False), (None, False)])
+def test_feed_links_keep_only_plain_web_addresses(link, kept):
+    from src.hazards.schema import HazardEvent
+    e = HazardEvent(id="x:1", source="usgs", category="earthquake", kind="observation", title="t", lat=0, lon=0,
+                    time=None, updated=None, url=link)
+    assert (e.url is not None) == kept
+
+
+def test_globe_links_from_data_must_be_https():
+    from src import earth_view
+    assert "const safeHref" in earth_view.JS and 'href="${esc(p.url)}"' not in earth_view.JS
+
+
+def test_geocoding_results_with_impossible_coordinates_are_skipped():
+    from src.earth_search import parse_nominatim
+    good = {"lat": "28.6", "lon": "77.2", "boundingbox": ["28", "29", "77", "78"], "name": "ok"}
+    bad = [good | {"lat": "nan"}, good | {"lat": "91"}, good | {"lon": "-181"}, good | {"boundingbox": ["29", "28", "77", "78"]}]
+    assert len(parse_nominatim([good] + bad)) == 1
+
+
+def test_a_tampered_model_is_refused_before_it_is_unpickled(tmp_path):
+    import joblib
+
+    from src.artifacts import ArtifactError, load_trusted, load_verified, write_metadata
+    path = tmp_path / "m.joblib"
+    joblib.dump({"horizons": {}}, path)
+    write_metadata(path, {"feature_columns": [], "horizons": {}})
+    marker = tmp_path / "pwned"
+
+    class Payload:                                   # unpickling this would create `marker`
+        def __reduce__(self):
+            return (open, (str(marker), "w"))
+    joblib.dump(Payload(), path)                     # swap the file; its sidecar still has the old checksum
+    with pytest.raises(ArtifactError, match="checksum differs"):
+        load_trusted(path, set())
+    with pytest.raises(ArtifactError, match="checksum differs"):
+        load_verified(path)
+    assert not marker.exists()                       # the payload never ran
 
 
 # --- GitHub Actions hardening -----------------------------------------------------------------------------

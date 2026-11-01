@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import time
 from typing import Any
+from urllib.parse import urljoin, urlsplit
 
 import requests
 
@@ -21,6 +22,39 @@ RETRIES = 2
 MAX_WAIT_S = 5
 MAX_RESPONSE_BYTES = 64_000_000   # the largest feed (24 h of global fire detections) is a few MB
 
+# The only hosts this helper may contact. Some feeds hand Cloudzy further URLs (NHC storm files, GDACS geometry);
+# those, and every redirect, must also be HTTPS to one of these hosts, so a tampered feed can't make Cloudzy
+# request an arbitrary or internal address (server-side request forgery).
+ALLOWED_HOSTS = frozenset({
+    "earthquake.usgs.gov", "volcanoes.usgs.gov",              # USGS earthquakes, seismicity, volcano alert levels
+    "www.gdacs.org",                                          # GDACS events and geometry
+    "www.nhc.noaa.gov",                                       # NHC storms, cones and tracks
+    "api.weather.gov",                                        # NWS alerts
+    "www.tsunami.gov",                                        # NOAA tsunami warning centres
+    "firms.modaps.eosdis.nasa.gov",                           # NASA FIRMS fire detections
+    "droughtmonitor.unl.edu",                                 # U.S. Drought Monitor
+    "webservices.volcano.si.edu",                             # Smithsonian GVP catalogue
+    "mesonet.agron.iastate.edu",                              # Iowa Environmental Mesonet (station readings)
+})
+
+
+def check_url(url: str) -> str:
+    """`url` if it is HTTPS to an allowed host; FeedError otherwise."""
+    parts = urlsplit(str(url))
+    if parts.scheme != "https" or (parts.hostname or "").lower() not in ALLOWED_HOSTS or parts.username or parts.port:
+        raise FeedError(f"refused to fetch {parts.scheme or '?'}://{parts.hostname or '?'}: not an allowed data host")
+    return url
+
+
+class _SafeSession(requests.Session):
+    """A session that checks every redirect against ALLOWED_HOSTS before following it."""
+
+    def get_redirect_target(self, resp):
+        target = super().get_redirect_target(resp)
+        if target:
+            check_url(urljoin(resp.url, target))
+        return target
+
 
 class FeedError(RuntimeError):
     """A provider couldn't be reached or returned something unusable."""
@@ -28,8 +62,9 @@ class FeedError(RuntimeError):
 
 def get(url: str, params: dict | None = None, *, kind: str = "json", session: requests.Session | None = None,
         timeout: float = TIMEOUT_S, retries: int = RETRIES, headers: dict | None = None) -> Any:
-    """GET `url`. kind: "json" (parsed), "text" or "bytes"."""
-    http = session or requests.Session()
+    """GET `url` (HTTPS to an allowed host only). kind: "json" (parsed), "text" or "bytes"."""
+    check_url(url)
+    http = session or _SafeSession()
     hdrs = {"User-Agent": USER_AGENT, **(headers or {})}
     last = "no attempt made"
     for attempt in range(1, retries + 1):
