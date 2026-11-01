@@ -40,5 +40,14 @@ GitHub Pages categories:
 | `.streamlit/config.toml`: `maxUploadSize = 1`, explicit `enableXsrfProtection = true` | No uploads exist; XSRF already on by default | None | Config test; app runs |
 | Larger tap areas for the map's attribution toggle and the situation picker's "remove" crosses (CSS, touch screens only) | Found by the post-upgrade browser audit (24 px and 15 × 7 px) | Visual size unchanged; easier to tap | Earth page re-audited at five touch sizes: no undersized controls |
 
+Security audit, 2026-11-01 (SECURITY.md, "Security audit"):
+
+| Change | Effect on behaviour | How it was checked |
+|---|---|---|
+| Model checksum verified before unpickling (app and offline tools) | None for genuine models; a tampered file is refused before it runs | Live Cloudzy forecast with ranges; all 4 models reproduce exactly; malicious-pickle test |
+| HTTPS host allowlist for hazard requests, feed-supplied URLs and redirects | None: all 9 live feeds load, and no request was refused | Live hazard fetch (1,160 events); 12/12 live integration tests |
+| Feed links limited to `http(s)`; globe catalogue links limited to `https` | None for real feeds | Tests |
+| Geocoding results range-checked | Results with impossible coordinates are skipped | Tests; search tests |
+
 Not changed: error details. Hiding stack traces (`showErrorDetails = "type"`) matters only for public hosting and
 would make local debugging worse, so it's documented in SECURITY.md as a step for when the app is hosted.

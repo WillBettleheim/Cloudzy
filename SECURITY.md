@@ -134,15 +134,69 @@ None of these can be changed from the repository files. They are not on until yo
   - Every hazard response over 64 MB is refused.
   - Every HTTP request has a timeout.
   - All feeds use HTTPS.
+  - **Server-side request forgery:** the hazard data helper (`src/hazards/http.py`) fetches only HTTPS URLs on
+    a fixed list of agency hosts (`ALLOWED_HOSTS`). URLs found inside feeds (NHC storm files, GDACS geometry) and
+    every redirect must pass the same check, so a tampered feed can't send Cloudzy to an internal or arbitrary
+    address. Weather, air-quality and geocoding requests go to fixed Open-Meteo, Nominatim and archive URLs, with
+    your input only as query parameters.
+  - **Links from feeds** (each event's "source" link) are kept only when they are plain `http(s)` addresses
+    (`schema.safe_link`). `javascript:` or `data:` links are dropped, and the globe's own links must be `https`.
+  - **Coordinates:** they are range-checked wherever they come from: typed coordinates, device location,
+    geocoding results (Open-Meteo, Nominatim) and every hazard record (`valid_coords`).
 - **Rendering:** custom HTML escapes provider text (`html.escape` in Python, `esc()` and `textContent` in
   JavaScript). Nothing uses `unsafe_allow_html`.
 - **SQL:** queries are parameterised. The two places that put a column name into SQL take it from the database's
   own schema or from a fixed allowlist.
-- **Model files** load with joblib (pickle), which can run code. Only the committed model is loaded, after its
-  SHA-256 is checked against its metadata (`artifacts.load_trusted`). Never load a model file from an untrusted
-  source.
+- **Model files** load with joblib (pickle), which can run code.
+  - The file's SHA-256 is checked against its metadata **before** it is unpickled. This applies to the app
+    (`artifacts.load_trusted`) and to every offline tool (`artifacts.load_verified`), so a swapped model file
+    never runs.
+  - The check doesn't stop someone who can rewrite both the model and its metadata. Control over who can push
+    to the repository is what protects against that.
+  - Never load a model file from an untrusted source.
+- **ML inputs and load:**
+  - Live inputs are validated (units, time zone, plausible ranges, complete hours) before prediction, and
+    Cloudzy refuses rather than guesses when an input is missing.
+  - Predictions run only for places within 15 km of Delhi and are cached for 10 minutes per place, so visitors
+    can't make inference run repeatedly.
 - **No user accounts, no authentication, no uploads.** The full app has no login, so it must not be hosted with
   private data. Uploads are capped at 1 MB because there are none.
+
+### Security audit, 2026-11-01
+
+A review of Cloudzy's own code paths, on top of the automated checks above.
+
+| # | Finding | Severity | Fix | Verified by |
+|---|---|---|---|---|
+| 1 | Model files were unpickled before their checksum was checked; offline tools loaded models with no check | High | Checksum verified before loading, everywhere | A test with a malicious pickle that would create a file is refused and never runs; all 4 models still reproduce exactly |
+| 2 | URLs taken from feed responses were fetched, and redirects weren't checked (server-side request forgery) | Medium | HTTPS-only host allowlist for the hazard helper, applied to feed-supplied URLs and every redirect | Tests for metadata IPs, localhost, other hosts, plain HTTP, credentials, ports and redirects; all 9 live feeds still load |
+| 3 | Feed links could carry `javascript:` or `data:` URLs into link buttons; one globe link relied on HTML escaping alone | Medium | `safe_link` for feed links; `safeHref` (https only) in the globe | Tests for each scheme |
+| 4 | Geocoding results weren't range-checked | Low | Out-of-range or NaN coordinates are skipped | Tests |
+| 5 | Pillow 12.3.0 had 35 published advisories (October audit) | High | Pillow 13.0.0 with Streamlit 1.66.1 | pip-audit clean; full regression |
+
+**Already sound (checked, no change needed):**
+- No API keys or credentials exist in the code or its history.
+- Every request has a timeout and bounded retries.
+- Nominatim is limited to 1 request per second; weather and air quality are cached (10 and 15 minutes).
+- Map tiles and imagery load over HTTPS.
+- Map labels and popups escape their text.
+- "Official" status comes from the agency a record is from, never from the record's content.
+- Observations, official warnings, automatic estimates, forecasts and Cloudzy ML predictions are labelled
+  separately.
+
+**Not changed (would need your approval):**
+- **Per-visitor rate limiting** for the full app needs a proxy in front of Streamlit; it has none built in.
+- **Requiring a metadata file for every model,** including refit backups, would tighten finding 1 but changes
+  the refit workflow.
+- **Clickjacking and Permissions-Policy headers** for the static site need a CDN; GitHub Pages can't set them.
+
+**Licences of tools added in this work** (all compatible with Cloudzy's MIT licence):
+- `defusedxml`: PSF licence.
+- Playwright, pip-audit, detect-secrets and bandit: Apache-2.0.
+- zizmor: MIT.
+- Material Symbols font (static site): Apache-2.0.
+
+The MIT `LICENSE` is unchanged. No paid or proprietary service was introduced.
 
 ### Hosting the full app (not done yet)
 
