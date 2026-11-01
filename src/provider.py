@@ -178,8 +178,11 @@ def search_locations(name: str, count: int = 5, session: requests.Session | None
     places = []
     for r in payload.get("results", []):  # the key is absent when nothing matches
         try:
+            lat, lon = float(r["latitude"]), float(r["longitude"])
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):      # also rejects NaN
+                raise ValueError("coordinates out of range")
             places.append(Place(
-                name=r["name"], latitude=float(r["latitude"]), longitude=float(r["longitude"]),
+                name=r["name"], latitude=lat, longitude=lon,
                 timezone=r.get("timezone") or "UTC", country=r.get("country"), admin1=r.get("admin1"),
                 population=r.get("population"), country_code=r.get("country_code"),
             ))

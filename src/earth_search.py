@@ -64,6 +64,9 @@ def parse_nominatim(payload) -> list[dict]:
         try:
             lat, lon = float(r["lat"]), float(r["lon"])
             s, n, w, e = (float(x) for x in r["boundingbox"])
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180 and -90 <= s <= n <= 90 and -180 <= w <= 180
+                    and -180 <= e <= 180):                       # also rejects NaN
+                continue
         except (KeyError, TypeError, ValueError):
             continue
         kind = r.get("addresstype") or r.get("type") or "place"
