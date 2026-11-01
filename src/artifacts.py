@@ -12,6 +12,13 @@ Trust: joblib files are pickles, and loading one can run code. Cloudzy loads
 only model files it produced itself, from this repository's `models/` folder,
 and never files from users or the network.
 
+Integrity is checked *before* unpickling: when a sidecar exists, the file's
+SHA-256 must match it, or nothing is loaded (`verify_checksum`; offline tools
+use `load_verified`). A file without a sidecar (a refit backup, say) is one you
+produced locally and is loaded as is. The checksum catches a swapped or
+corrupted file, not someone who can rewrite both files: that is what control
+over the repository is for (SECURITY.md).
+
 Loading (`load_trusted`) fails with a clear ArtifactError instead of crashing
 or quietly falling back to something else:
 - missing file;
@@ -150,6 +157,21 @@ _cache: dict[tuple, dict] = {}
 _lock = threading.Lock()
 
 
+def verify_checksum(path: Path) -> None:
+    """Refuse a model file whose SHA-256 differs from its sidecar. Runs before the (pickle) file is loaded."""
+    meta = read_metadata(path)
+    if meta is not None and meta.get("artifact_sha256") not in (None, file_sha256(path)):
+        raise ArtifactError(f"{path.name} doesn't match its metadata file (checksum differs); refresh it with "
+                            f"`python -m src.artifacts {path}` only if you produced this model yourself.")
+
+
+def load_verified(path: Path):
+    """Load a model file for offline tools (refit, interval study, evaluation), checksum-verified first."""
+    path = Path(path)
+    verify_checksum(path)
+    return joblib.load(path)
+
+
 def load_trusted(path: Path, required_keys: set[str]) -> dict:
     """Load a Cloudzy model bundle, verifying it before anyone uses it. Cached until the file changes."""
     path = Path(path)
@@ -160,6 +182,7 @@ def load_trusted(path: Path, required_keys: set[str]) -> dict:
     with _lock:
         if key in _cache:
             return _cache[key]
+    verify_checksum(path)                   # before unpickling: a swapped file never runs
     try:
         bundle = joblib.load(path)
     except Exception as exc:  # truncated file, pickle error, incompatible library version, …
@@ -174,10 +197,6 @@ def load_trusted(path: Path, required_keys: set[str]) -> dict:
     if list(bundle["feature_columns"]) != expected:
         raise ArtifactError(f"{path.name} was trained with a different feature schema than this code produces; "
                             "retrain it with the current pipeline.")
-    meta = read_metadata(path)
-    if meta is not None and meta.get("artifact_sha256") not in (None, file_sha256(path)):
-        raise ArtifactError(f"{path.name} doesn't match its metadata file (checksum differs); refresh it with "
-                            f"`python -m src.artifacts {path}` only if you produced this model yourself.")
     with _lock:
         _cache[key] = bundle
     return bundle

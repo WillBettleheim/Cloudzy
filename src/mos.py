@@ -44,7 +44,6 @@ from datetime import UTC, date, datetime
 from importlib.metadata import version
 from pathlib import Path
 
-import joblib
 import numpy as np
 import pandas as pd
 import requests
@@ -60,6 +59,7 @@ from src.evaluate import block_bootstrap_mae_diff, mae, rmse
 from src.features import TARGET, TEMP, feature_columns
 from src.multistep import HORIZONS
 from src.refit import load_source, serving_table
+from src.artifacts import load_verified
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +220,7 @@ def deploy(today: date | None = None, bundle_path: Path | None = None, allow_wor
     today = today or datetime.now(UTC).date()
     end = refit_end_date(today)
     hold = holdout_start(end)
-    current = joblib.load(bundle_path)
+    current = load_verified(bundle_path)
     start = date.fromisoformat(START)
     ref, _ = load_source(config.REANALYSIS, date(2023, 1, 1), end)
     live, _ = load_source(config.LIVE_ARCHIVE, date(2023, 1, 1), end)

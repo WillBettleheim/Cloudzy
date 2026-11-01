@@ -31,7 +31,6 @@ import logging
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-import joblib
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
@@ -42,6 +41,7 @@ from src.evaluate import block_bootstrap_mae_diff, mae, rmse
 from src.features import TARGET, TEMP, feature_columns
 from src.multistep import HORIZONS
 from src.refit import bundle_table, load_source, serving_table
+from src.artifacts import load_verified
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ def evaluate_period(rows: pd.DataFrame, h: int, models: dict, live: pd.DataFrame
 def deployed(path: Path, ref, live, prev, h: int, obs: pd.Series, start: str, end: str) -> dict | None:
     if not path.exists():
         return None
-    bundle = joblib.load(path)
+    bundle = load_verified(path)
     table = bundle_table(ref, live, h, bundle, prev)
     rows = table[(table.index >= pd.Timestamp(start, tz="UTC")) & (table.index < pd.Timestamp(end, tz="UTC"))]
     rows, y, _ = station_rows(rows, h, obs)

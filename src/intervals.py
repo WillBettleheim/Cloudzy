@@ -41,7 +41,6 @@ from datetime import UTC, date, datetime
 from functools import lru_cache
 from pathlib import Path
 
-import joblib
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
@@ -51,6 +50,7 @@ from src.features import TARGET
 from src.multistep import HORIZONS
 from src.refit import bundle_table, lagged_spec, load_source
 from src.service import SERVING_BUNDLE
+from src.artifacts import load_verified
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ def study(ref: pd.DataFrame, live: pd.DataFrame, bundle: dict, prev: pd.Series |
 def run() -> dict:
     ref, ref_summary = load_source(config.REANALYSIS, DATA_START, DATA_END)
     live, live_summary = load_source(config.LIVE_ARCHIVE, DATA_START, DATA_END)
-    bundle = joblib.load(SERVING_BUNDLE)
+    bundle = load_verified(SERVING_BUNDLE)
     prev = None
     if lagged_spec(bundle):
         from src.mos import fetch_previous_runs

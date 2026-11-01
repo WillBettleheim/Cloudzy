@@ -52,6 +52,7 @@ from src.features import TARGET, TEMP, FeatureConfig, build_features, feature_co
 from src.multistep import HORIZONS, target_for
 from src.service import SERVING_BUNDLE
 from src.splits import SplitSpec, chronological_split
+from src.artifacts import load_verified
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +228,7 @@ def run(today: date | None = None, start: date = config.START_DATE, raw_dir: Pat
     logger.info("Refit: data %s → %s, held-out month %s", start, end, hold.strftime("%Y-%m"))
     if not bundle_path.exists():
         raise RefitError(f"{bundle_path} not found; run `python -m src.multistep` first")
-    current = joblib.load(bundle_path)
+    current = load_verified(bundle_path)
 
     ref, ref_info = load_source(config.REANALYSIS, start, end, raw_dir)
     live, live_info = load_source(config.LIVE_ARCHIVE, start, end, raw_dir)

@@ -20,7 +20,6 @@ import logging
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-import joblib
 import pandas as pd
 
 from src import config
@@ -29,6 +28,7 @@ from src.data_validation import load_processed
 from src.evaluate import mae
 from src.features import TARGET, build_features
 from src.registry import DEPLOYED
+from src.artifacts import load_verified
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ TOLERANCE_C = 0.0005
 
 
 def _research(side: dict, art: Path) -> dict:
-    bundle = joblib.load(art)
+    bundle = load_verified(art)
     data = (side.get("provenance") or {}).get("data") or {}
     processed = config.PROCESSED_DIR / str(data.get("processed_file", ""))
     if not data.get("processed_file") or not processed.is_file():
@@ -55,7 +55,7 @@ def _research(side: dict, art: Path) -> dict:
 
 def _deployed(side: dict, art: Path) -> dict:
     from src.refit import bundle_table, lagged_spec, load_source
-    bundle = joblib.load(art)
+    bundle = load_verified(art)
     prov = side.get("provenance") or {}
     hold, end = (date.fromisoformat(d) for d in prov["holdout_month"])
     ref, _ = load_source(config.REANALYSIS, date(2023, 1, 1), end)
